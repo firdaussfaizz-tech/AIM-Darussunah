@@ -36,9 +36,30 @@ export default function UserRoles() {
     load()
   }
 
-  const linkEmployee = async (profileId, employeeId) => {
-    await supabase.from('employees').update({ user_id: profileId }).eq('id', employeeId)
+  const linkEmployee = async (profileId, employeeId, previousEmployeeId) => {
+    // Lepas tautan lama dulu jika berbeda dari pilihan baru, supaya satu
+    // pegawai tidak pernah tertaut ke lebih dari satu akun sekaligus.
+    if (previousEmployeeId && previousEmployeeId !== employeeId) {
+      await supabase.from('employees').update({ user_id: null }).eq('id', previousEmployeeId)
+    }
+    if (employeeId) {
+      await supabase.from('employees').update({ user_id: profileId }).eq('id', employeeId)
+    }
     setLinkModalProfile(null)
+    load()
+  }
+
+  const deleteUser = async (p) => {
+    const ok = confirm(
+      `Hapus pengguna "${p.full_name || p.email}" dari aplikasi?\n\n` +
+      `Ini akan mencabut semua peran dan tautan datanya, sehingga akses ke aplikasi langsung hilang. ` +
+      `Namun akun login (email/kata sandi)-nya TIDAK terhapus dan masih bisa dipakai untuk masuk (tanpa akses apa pun) ` +
+      `kecuali Anda juga menghapusnya lewat Supabase Dashboard > Authentication > Users.`
+    )
+    if (!ok) return
+    await supabase.from('user_roles').delete().eq('user_id', p.id)
+    await supabase.from('employees').update({ user_id: null }).eq('user_id', p.id)
+    await supabase.from('profiles').delete().eq('id', p.id)
     load()
   }
 
@@ -82,6 +103,9 @@ export default function UserRoles() {
                       <button title="Tambah peran" onClick={() => setRoleModalProfile(p)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]">
                         <Plus className="h-4 w-4" />
                       </button>
+                      <button title="Hapus pengguna" onClick={() => deleteUser(p)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
                   </Td>
                 </Tr>
@@ -92,7 +116,13 @@ export default function UserRoles() {
       </SectionCard>
 
       <RoleModal profile={roleModalProfile} schools={schools} employees={employees} onClose={() => setRoleModalProfile(null)} onSaved={() => { setRoleModalProfile(null); load() }} />
-      <LinkModal profile={linkModalProfile} employees={employees} onClose={() => setLinkModalProfile(null)} onLink={linkEmployee} />
+      <LinkModal
+        profile={linkModalProfile}
+        employees={employees}
+        currentEmployeeId={linkModalProfile ? employees.find((e) => e.user_id === linkModalProfile.id)?.id || '' : ''}
+        onClose={() => setLinkModalProfile(null)}
+        onLink={linkEmployee}
+      />
     </div>
   )
 }
@@ -147,25 +177,33 @@ function RoleModal({ profile, schools, employees, onClose, onSaved }) {
   )
 }
 
-function LinkModal({ profile, employees, onClose, onLink }) {
+function LinkModal({ profile, employees, currentEmployeeId, onClose, onLink }) {
   const [employeeId, setEmployeeId] = useState('')
-  useEffect(() => { setEmployeeId('') }, [profile])
+
+  useEffect(() => { setEmployeeId(currentEmployeeId || '') }, [profile, currentEmployeeId])
+
   if (!profile) return null
-  const available = employees.filter((e) => !e.user_id || e.user_id === profile.id)
 
   return (
     <Modal open={!!profile} onClose={onClose} title={`Tautkan Akun — ${profile.full_name || profile.email}`}>
       <div className="flex flex-col gap-4">
         <p className="text-sm text-[var(--color-ink-soft)]">
           Pilih data pegawai yang sesuai dengan akun ini, agar pengguna dapat melihat presensi, cuti, dan slip gajinya sendiri.
+          Memilih pegawai yang sudah tertaut ke akun lain akan memindahkan tautannya ke akun ini.
         </p>
         <Select label="Data Pegawai" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
-          <option value="">— Pilih Pegawai —</option>
-          {available.map((e) => <option key={e.id} value={e.id}>{e.nama}</option>)}
+          <option value="">— Tidak ditautkan —</option>
+          {employees.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.nama}{e.user_id && e.user_id !== profile.id ? ' (tertaut ke akun lain)' : ''}
+            </option>
+          ))}
         </Select>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
-          <Button type="button" disabled={!employeeId} onClick={() => onLink(profile.id, employeeId)}>Tautkan</Button>
+          <Button type="button" onClick={() => onLink(profile.id, employeeId || null, currentEmployeeId || null)}>
+            {employeeId ? 'Tautkan' : 'Simpan'}
+          </Button>
         </div>
       </div>
     </Modal>

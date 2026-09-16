@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Pencil, GraduationCap, Briefcase, FileSignature } from 'lucide-react'
+import { ArrowLeft, Pencil, Trash2, GraduationCap, Briefcase, FileSignature } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Badge, Button, FullPageSpinner, EmptyState } from '../../components/ui'
@@ -43,6 +43,13 @@ export default function EmployeeDetail() {
   const canViewSalary = hasFullAccess || isOwnProfile
   const visibleTabs = canViewSalary ? TABS : TABS.filter((t) => t !== 'Gaji')
 
+  const handleDelete = async () => {
+    if (!confirm(`Hapus data pegawai "${employee.nama}"? Seluruh riwayat presensi, cuti, gaji, kinerja, dan pelatihannya akan ikut terhapus permanen.`)) return
+    const { error } = await supabase.from('employees').delete().eq('id', employee.id)
+    if (error) { alert('Gagal menghapus: ' + error.message); return }
+    navigate('/pegawai', { replace: true })
+  }
+
   return (
     <div>
       <button onClick={() => navigate(-1)} className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]">
@@ -53,9 +60,14 @@ export default function EmployeeDetail() {
         title={employee.nama}
         description={`${employee.positions?.nama || 'Jabatan belum diisi'} · ${employee.schools ? `${employee.schools.jenjang} — ${employee.schools.nama}` : 'Kantor Yayasan Pusat'}`}
         actions={canManage && (
-          <Button variant="outline" onClick={() => setEditOpen(true)}>
-            <Pencil className="h-4 w-4" /> Ubah Biodata
-          </Button>
+          <>
+            <Button variant="outline" onClick={() => setEditOpen(true)}>
+              <Pencil className="h-4 w-4" /> Ubah Biodata
+            </Button>
+            <Button variant="outline" onClick={handleDelete} className="text-[var(--color-danger)]">
+              <Trash2 className="h-4 w-4" /> Hapus
+            </Button>
+          </>
         )}
       />
 
@@ -171,7 +183,7 @@ function BiodataTab({ employee }) {
       <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {fields.map(([label, value]) => (
           <div key={label}>
-            <dt className="text-xs font-medium uppercase tracking-wide text-[var(--color-ink-soft)]">{label}</dt>
+            <dt className="text-[13px] font-medium text-[var(--color-ink-soft)]">{label}</dt>
             <dd className="mt-0.5 text-sm text-[var(--color-ink)]">{value || '—'}</dd>
           </div>
         ))}

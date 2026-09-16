@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Users } from 'lucide-react'
+import { Plus, Search, Users, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Button, Input, Select, Table, Tr, Td, Badge, EmptyState, FullPageSpinner } from '../../components/ui'
@@ -41,6 +41,7 @@ export default function EmployeeList() {
     if (!authLoading) load()
   }, [authLoading, load])
 
+  // Non-manager: langsung arahkan ke profil sendiri, jangan tampilkan direktori.
   useEffect(() => {
     if (!authLoading && !isManager && employee?.id) {
       navigate(`/pegawai/${employee.id}`, { replace: true })
@@ -57,6 +58,14 @@ export default function EmployeeList() {
         description="Akun Anda belum ditautkan ke data kepegawaian. Hubungi Admin Yayasan / HR."
       />
     )
+  }
+
+  const handleDelete = async (e, emp) => {
+    e.stopPropagation()
+    if (!confirm(`Hapus data pegawai "${emp.nama}"? Seluruh riwayat presensi, cuti, gaji, kinerja, dan pelatihannya akan ikut terhapus permanen.`)) return
+    const { error } = await supabase.from('employees').delete().eq('id', emp.id)
+    if (error) { alert('Gagal menghapus: ' + error.message); return }
+    load()
   }
 
   const filtered = employees.filter((e) => {
@@ -116,7 +125,7 @@ export default function EmployeeList() {
           {filtered.length === 0 ? (
             <EmptyState icon={Users} title="Tidak ada pegawai ditemukan" description="Coba ubah kata kunci pencarian atau filter." />
           ) : (
-            <Table columns={['Nama', 'NIP', 'Unit', 'Jabatan', 'Status Kepegawaian', 'Status']}>
+            <Table columns={['Nama', 'NIP', 'Unit', 'Jabatan', 'Status Kepegawaian', 'Status', '']}>
               {filtered.map((e) => (
                 <Tr key={e.id} onClick={() => navigate(`/pegawai/${e.id}`)}>
                   <Td className="font-medium text-[var(--color-ink)]">{e.nama}</Td>
@@ -125,6 +134,11 @@ export default function EmployeeList() {
                   <Td>{e.positions?.nama || '—'}</Td>
                   <Td>{e.status_kepegawaian}</Td>
                   <Td><Badge color={STATUS_BADGE_COLOR[e.status]}>{e.status}</Badge></Td>
+                  <Td className="text-right">
+                    <button onClick={(ev) => handleDelete(ev, e)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus pegawai">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </Td>
                 </Tr>
               ))}
             </Table>
