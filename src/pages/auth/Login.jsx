@@ -53,15 +53,15 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-[var(--color-paper)] px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-lg bg-[var(--color-navy)]">
-            <GraduationCap className="h-6 w-6 text-[var(--color-gold)]" />
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-[16px] bg-[var(--color-navy)]">
+            <GraduationCap className="h-7 w-7 text-white" />
           </div>
-          <h1 className="font-[family-name:var(--font-display)] text-2xl font-semibold text-[var(--color-navy)]">SIMPEG Yayasan</h1>
-          <p className="mt-1 text-sm text-[var(--color-ink-soft)]">Sistem Informasi Kepegawaian — SD · SMP · SMA</p>
+          <h1 className="font-[family-name:var(--font-display)] text-[26px] font-semibold tracking-tight text-[var(--color-ink)]">SIMPEG Yayasan</h1>
+          <p className="mt-1.5 text-[15px] text-[var(--color-ink-soft)]">Sistem Informasi Kepegawaian — SD · SMP · SMA</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
-          <h2 className="mb-4 text-[15px] font-semibold text-[var(--color-ink)]">
+        <form onSubmit={handleSubmit} className="rounded-[20px] border border-[var(--color-border)] bg-[var(--color-surface)] p-7 shadow-sm">
+          <h2 className="mb-5 text-[17px] font-semibold text-[var(--color-ink)]">
             {mode === 'signin' ? 'Masuk ke akun Anda' : 'Buat akun baru'}
           </h2>
 

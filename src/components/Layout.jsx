@@ -26,19 +26,21 @@ function Sidebar({ open, onClose }) {
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-40 w-64 shrink-0 transform border-r border-[var(--color-border)] bg-[var(--color-navy)] transition-transform lg:translate-x-0 ${
+      className={`fixed inset-y-0 left-0 z-40 w-64 shrink-0 transform border-r border-[var(--color-border)] bg-white/80 backdrop-blur-xl transition-transform lg:translate-x-0 ${
         open ? 'translate-x-0' : '-translate-x-full'
       }`}
     >
       <div className="flex h-16 items-center justify-between px-5">
         <div className="flex items-center gap-2.5">
-          <GraduationCap className="h-6 w-6 text-[var(--color-gold)]" strokeWidth={2} />
+          <div className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-[var(--color-navy)]">
+            <GraduationCap className="h-[18px] w-[18px] text-white" strokeWidth={2} />
+          </div>
           <div className="leading-tight">
-            <p className="font-[family-name:var(--font-display)] text-[15px] font-semibold text-white">SIMPEG Yayasan</p>
-            <p className="text-[11px] text-white/50">SD · SMP · SMA</p>
+            <p className="font-[family-name:var(--font-display)] text-[15px] font-semibold text-[var(--color-ink)]">SIMPEG Yayasan</p>
+            <p className="text-[11px] text-[var(--color-ink-soft)]">SD · SMP · SMA</p>
           </div>
         </div>
-        <button onClick={onClose} className="text-white/70 lg:hidden" aria-label="Tutup menu">
+        <button onClick={onClose} className="text-[var(--color-ink-soft)] lg:hidden" aria-label="Tutup menu">
           <X className="h-5 w-5" />
         </button>
       </div>
@@ -50,8 +52,8 @@ function Sidebar({ open, onClose }) {
             end={end}
             onClick={onClose}
             className={({ isActive }) =>
-              `flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
-                isActive ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'
+              `flex items-center gap-3 rounded-full px-3.5 py-2 text-[14px] font-medium transition-colors ${
+                isActive ? 'bg-[var(--color-navy)] text-white' : 'text-[var(--color-ink)] hover:bg-black/[0.04]'
               }`
             }
           >
@@ -75,22 +77,22 @@ function Topbar({ onMenuClick }) {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-paper)]/90 px-4 backdrop-blur sm:px-6">
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between bg-[var(--color-paper)]/80 px-4 backdrop-blur-xl sm:px-6">
       <button onClick={onMenuClick} className="text-[var(--color-ink)] lg:hidden" aria-label="Buka menu">
         <Menu className="h-6 w-6" />
       </button>
       <div className="hidden lg:block" />
       <div className="flex items-center gap-3">
         <div className="text-right leading-tight">
-          <p className="text-sm font-medium text-[var(--color-ink)]">{profile?.full_name || profile?.email}</p>
-          {primaryRole && <p className="text-xs text-[var(--color-ink-soft)]">{ROLE_LABELS[primaryRole] || primaryRole}</p>}
+          <p className="text-[14px] font-medium text-[var(--color-ink)]">{profile?.full_name || profile?.email}</p>
+          {primaryRole && <p className="text-[12px] text-[var(--color-ink-soft)]">{ROLE_LABELS[primaryRole] || primaryRole}</p>}
         </div>
         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-navy)] text-sm font-semibold text-white">
           {(profile?.full_name || profile?.email || '?').slice(0, 1).toUpperCase()}
         </div>
         <button
           onClick={handleSignOut}
-          className="ml-1 flex h-9 w-9 items-center justify-center rounded-md text-[var(--color-ink-soft)] hover:bg-[var(--color-navy-50)] hover:text-[var(--color-danger)]"
+          className="ml-1 flex h-9 w-9 items-center justify-center rounded-full text-[var(--color-ink-soft)] hover:bg-black/[0.05] hover:text-[var(--color-danger)]"
           title="Keluar"
         >
           <LogOut className="h-[18px] w-[18px]" />
