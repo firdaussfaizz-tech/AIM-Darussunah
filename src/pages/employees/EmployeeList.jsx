@@ -17,16 +17,21 @@ export default function EmployeeList() {
   const [schoolFilter, setSchoolFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [formOpen, setFormOpen] = useState(false)
+  const [loadError, setLoadError] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: emp }, { data: sch }] = await Promise.all([
+    setLoadError('')
+    const [{ data: emp, error: empErr }, { data: sch, error: schErr }] = await Promise.all([
       supabase
         .from('employees')
         .select('id, nip, nama, status, status_kepegawaian, no_hp, email, schools(id, nama, jenjang), positions(nama)')
         .order('nama'),
       supabase.from('schools').select('id, nama, jenjang').order('jenjang'),
     ])
+    if (empErr || schErr) {
+      setLoadError((empErr || schErr).message)
+    }
     setEmployees(emp || [])
     setSchools(sch || [])
     setLoading(false)
@@ -36,7 +41,6 @@ export default function EmployeeList() {
     if (!authLoading) load()
   }, [authLoading, load])
 
-  // Non-manager: langsung arahkan ke profil sendiri, jangan tampilkan direktori.
   useEffect(() => {
     if (!authLoading && !isManager && employee?.id) {
       navigate(`/pegawai/${employee.id}`, { replace: true })
@@ -73,6 +77,12 @@ export default function EmployeeList() {
           </Button>
         }
       />
+
+      {loadError && (
+        <p className="mb-4 rounded-md bg-[var(--color-danger-soft)] px-4 py-3 text-sm text-[var(--color-danger)]">
+          Gagal memuat data pegawai: {loadError}
+        </p>
+      )}
 
       <Card className="mb-4" padded={false}>
         <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
