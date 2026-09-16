@@ -17,7 +17,7 @@ export default function LeaveList() {
     setLoading(true)
     let q = supabase
       .from('leave_requests')
-      .select('*, employees(nama, schools(nama, jenjang)), leave_types(nama), approver:approved_by(nama)')
+      .select('*, employees(nama, schools!school_id(nama, jenjang)), leave_types(nama), approver:approved_by(nama)')
       .order('created_at', { ascending: false })
     if (statusFilter) q = q.eq('status', statusFilter)
     const [{ data: lt }, { data: leave }] = await Promise.all([
