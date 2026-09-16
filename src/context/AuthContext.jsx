@@ -21,8 +21,8 @@ export function AuthProvider({ children }) {
     setLoadingContext(true)
     const [{ data: profileData }, { data: roleData }, { data: employeeData }] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
-      supabase.from('user_roles').select('*, schools(nama, jenjang)').eq('user_id', userId),
-      supabase.from('employees').select('*, schools(nama, jenjang)').eq('user_id', userId).maybeSingle(),
+      supabase.from('user_roles').select('*, schools!school_id(nama, jenjang)').eq('user_id', userId),
+      supabase.from('employees').select('*, schools!school_id(nama, jenjang)').eq('user_id', userId).maybeSingle(),
     ])
     setProfile(profileData || null)
     setRoles(roleData || [])
