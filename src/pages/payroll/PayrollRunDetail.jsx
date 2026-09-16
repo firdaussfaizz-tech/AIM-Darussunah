@@ -17,7 +17,7 @@ export default function PayrollRunDetail() {
     setLoading(true)
     const [{ data: r }, { data: d }] = await Promise.all([
       supabase.from('payroll_runs').select('*').eq('id', id).maybeSingle(),
-      supabase.from('payroll_details').select('*, employees(nama, schools(nama, jenjang))').eq('payroll_run_id', id).order('created_at'),
+      supabase.from('payroll_details').select('*, employees(nama, schools!school_id(nama, jenjang))').eq('payroll_run_id', id).order('created_at'),
     ])
     setRun(r)
     setDetails(d || [])
