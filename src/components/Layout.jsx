@@ -26,7 +26,7 @@ function Sidebar({ open, onClose }) {
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-40 w-64 shrink-0 transform border-r border-[var(--color-border)] bg-[var(--color-navy)] transition-transform lg:static lg:translate-x-0 ${
+      className={`fixed inset-y-0 left-0 z-40 w-64 shrink-0 transform border-r border-[var(--color-border)] bg-[var(--color-navy)] transition-transform lg:translate-x-0 ${
         open ? 'translate-x-0' : '-translate-x-full'
       }`}
     >
