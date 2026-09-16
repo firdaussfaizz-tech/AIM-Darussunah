@@ -33,7 +33,7 @@ function ManagerAttendance() {
     const [{ data: sch }, empQuery] = await Promise.all([
       supabase.from('schools').select('id, nama, jenjang').order('jenjang'),
       (() => {
-        let q = supabase.from('employees').select('id, nama, schools(nama, jenjang)').eq('status', 'aktif').order('nama')
+        let q = supabase.from('employees').select('id, nama, schools!school_id(nama, jenjang)').eq('status', 'aktif').order('nama')
         if (schoolFilter) q = q.eq('school_id', schoolFilter)
         return q
       })(),
