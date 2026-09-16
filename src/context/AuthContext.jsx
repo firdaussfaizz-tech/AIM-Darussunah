@@ -35,9 +35,11 @@ export function AuthProvider({ children }) {
       setSession(data.session)
       loadContext(data.session?.user?.id)
     })
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+  const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession)
-      loadContext(newSession?.user?.id)
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+        loadContext(newSession?.user?.id)
+      }
     })
     return () => listener.subscription.unsubscribe()
   }, [loadContext])
