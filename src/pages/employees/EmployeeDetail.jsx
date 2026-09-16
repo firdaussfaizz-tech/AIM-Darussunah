@@ -25,7 +25,7 @@ export default function EmployeeDetail() {
   const load = useCallback(async () => {
     setLoading(true)
     const [{ data: emp }, { data: sch }] = await Promise.all([
-      supabase.from('employees').select('*, schools(id, nama, jenjang), departments(nama), positions(nama)').eq('id', id).maybeSingle(),
+      supabase.from('employees').select('*, schools!school_id(id, nama, jenjang), departments(nama), positions(nama)').eq('id', id).maybeSingle(),
       supabase.from('schools').select('id, nama, jenjang').order('jenjang'),
     ])
     setEmployee(emp)
