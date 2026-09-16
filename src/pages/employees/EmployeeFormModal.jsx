@@ -9,19 +9,58 @@ const emptyForm = {
   status_kepegawaian: 'Kontrak', status: 'aktif', tanggal_masuk: '', pendidikan_terakhir: '',
 }
 
+const DRAFT_KEY = 'draft:tambah_pegawai'
+
+function readDraft() {
+  try {
+    const saved = sessionStorage.getItem(DRAFT_KEY)
+    return saved ? { ...emptyForm, ...JSON.parse(saved) } : emptyForm
+  } catch {
+    return emptyForm
+  }
+}
+
+function writeDraft(form) {
+  try {
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(form))
+  } catch {
+    // penyimpanan penuh/diblokir browser — abaikan, form tetap berfungsi normal
+  }
+}
+
+function clearDraft() {
+  try {
+    sessionStorage.removeItem(DRAFT_KEY)
+  } catch {
+    // abaikan
+  }
+}
+
 export default function EmployeeFormModal({ open, onClose, onSaved, schools, initialData = null }) {
   const [form, setForm] = useState(emptyForm)
   const [departments, setDepartments] = useState([])
   const [positions, setPositions] = useState([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [draftRestored, setDraftRestored] = useState(false)
 
   useEffect(() => {
     if (open) {
-      setForm(initialData ? mapInitial(initialData) : emptyForm)
+      if (initialData) {
+        setForm(mapInitial(initialData))
+        setDraftRestored(false)
+      } else {
+        const draft = readDraft()
+        setForm(draft)
+        setDraftRestored(draft.nama !== '' || draft.nik !== '')
+      }
       setError('')
     }
   }, [open, initialData])
+
+  useEffect(() => {
+    if (open && !initialData) writeDraft(form)
+  }, [form, open, initialData])
 
   useEffect(() => {
     supabase.from('positions').select('id, nama, jenis').order('nama').then(({ data }) => setPositions(data || []))
@@ -62,12 +101,25 @@ export default function EmployeeFormModal({ open, onClose, onSaved, schools, ini
       setError(err.message)
       return
     }
+    if (!initialData) clearDraft()
     onSaved()
   }
 
   return (
     <Modal open={open} onClose={onClose} title={initialData ? 'Ubah Data Pegawai' : 'Tambah Pegawai Baru'} width="max-w-2xl">
       <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {draftRestored && (
+          <p className="sm:col-span-2 flex items-center justify-between gap-3 rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-sm text-[var(--color-gold)]">
+            Isian sebelumnya yang belum tersimpan berhasil dipulihkan.
+            <button
+              type="button"
+              onClick={() => { clearDraft(); setForm(emptyForm); setDraftRestored(false) }}
+              className="shrink-0 font-medium underline hover:no-underline"
+            >
+              Kosongkan form
+            </button>
+          </p>
+        )}
         <Input label="Nama Lengkap" required value={form.nama} onChange={update('nama')} containerClassName="sm:col-span-2" />
         <Input label="NIP (opsional)" value={form.nip} onChange={update('nip')} />
         <Input label="NIK" value={form.nik} onChange={update('nik')} />
