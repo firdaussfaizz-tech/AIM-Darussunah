@@ -32,7 +32,7 @@ function ManagerDashboard() {
       setLoading(true)
       const today = new Date().toISOString().slice(0, 10)
       const [emp, leave, att, tr] = await Promise.all([
-        supabase.from('employees').select('id, status, status_kepegawaian, schools(nama, jenjang)'),
+        supabase.from('employees').select('id, status, status_kepegawaian, schools!school_id(nama, jenjang)'),
         supabase
           .from('leave_requests')
           .select('id, tanggal_mulai, tanggal_selesai, employees(nama), leave_types(nama)')
