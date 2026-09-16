@@ -21,7 +21,7 @@ export default function TrainingDetail() {
     setLoading(true)
     const [{ data: t }, { data: p }] = await Promise.all([
       supabase.from('trainings').select('*').eq('id', id).maybeSingle(),
-      supabase.from('training_participants').select('*, employees(nama, schools(nama, jenjang))').eq('training_id', id),
+      supabase.from('training_participants').select('*, employees(nama, schools!school_id(nama, jenjang))').eq('training_id', id),
     ])
     setTraining(t)
     setParticipants(p || [])
