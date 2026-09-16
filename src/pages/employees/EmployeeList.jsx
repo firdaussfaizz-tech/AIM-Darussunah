@@ -25,7 +25,7 @@ export default function EmployeeList() {
     const [{ data: emp, error: empErr }, { data: sch, error: schErr }] = await Promise.all([
       supabase
         .from('employees')
-        .select('id, nip, nama, status, status_kepegawaian, no_hp, email, schools(id, nama, jenjang), positions(nama)')
+        .select('id, nip, nama, status, status_kepegawaian, no_hp, email, schools!school_id(id, nama, jenjang), positions(nama)')
         .order('nama'),
       supabase.from('schools').select('id, nama, jenjang').order('jenjang'),
     ])
