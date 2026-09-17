@@ -21,7 +21,7 @@ export default function LeaveList() {
       .order('created_at', { ascending: false })
     if (statusFilter) q = q.eq('status', statusFilter)
     const [{ data: lt }, { data: leave }] = await Promise.all([
-      supabase.from('leave_types').select('*').order('nama'),
+      supabase.from('leave_types').select('*').order('kategori').order('nama'),
       q,
     ])
     setLeaveTypes(lt || [])
@@ -156,7 +156,20 @@ function LeaveRequestModal({ open, onClose, onSaved, leaveTypes, employeeId, isM
         )}
         <Select label="Jenis Cuti/Izin" required value={form.leave_type_id} onChange={(e) => setForm((s) => ({ ...s, leave_type_id: e.target.value }))}>
           <option value="">— Pilih —</option>
-          {leaveTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.nama}</option>)}
+          {leaveTypes.filter((lt) => lt.kategori === 'cuti').length > 0 && (
+            <optgroup label="Cuti">
+              {leaveTypes.filter((lt) => lt.kategori === 'cuti').map((lt) => (
+                <option key={lt.id} value={lt.id}>{lt.nama}{lt.jatah_hari_per_tahun ? ` (maks. ${lt.jatah_hari_per_tahun} hari/tahun)` : ''}</option>
+              ))}
+            </optgroup>
+          )}
+          {leaveTypes.filter((lt) => lt.kategori === 'izin').length > 0 && (
+            <optgroup label="Izin">
+              {leaveTypes.filter((lt) => lt.kategori === 'izin').map((lt) => (
+                <option key={lt.id} value={lt.id}>{lt.nama}{lt.jatah_per_bulan ? ` (maks. ${lt.jatah_per_bulan}/bulan)` : ''}</option>
+              ))}
+            </optgroup>
+          )}
         </Select>
         <div className="grid grid-cols-2 gap-4">
           <Input label="Tanggal Mulai" type="date" required value={form.tanggal_mulai} onChange={(e) => setForm((s) => ({ ...s, tanggal_mulai: e.target.value }))} />

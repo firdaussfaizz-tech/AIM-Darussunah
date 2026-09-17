@@ -1,27 +1,33 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Building2, Plus, Pencil, Trash2 } from 'lucide-react'
+import { Building2, Plus, Pencil, Trash2, CalendarClock, Clock } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
-import { PageHeader, Card, SectionCard, Button, Table, Tr, Td, Modal, Input, Select, EmptyState, FullPageSpinner } from '../../components/ui'
+import { PageHeader, Card, SectionCard, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
 
-const TABS = ['Unit Sekolah', 'Unit Kerja', 'Jabatan']
+const TABS = ['Unit Sekolah', 'Unit Kerja', 'Jabatan', 'Jenis Cuti & Izin', 'Jam Kerja']
 
 export default function OrgStructure() {
   const [tab, setTab] = useState('Unit Sekolah')
   const [schools, setSchools] = useState([])
   const [departments, setDepartments] = useState([])
   const [positions, setPositions] = useState([])
+  const [leaveTypes, setLeaveTypes] = useState([])
+  const [workSchedules, setWorkSchedules] = useState([])
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: s }, { data: d }, { data: p }] = await Promise.all([
+    const [{ data: s }, { data: d }, { data: p }, { data: lt }, { data: ws }] = await Promise.all([
       supabase.from('schools').select('*').order('jenjang'),
       supabase.from('departments').select('*, schools(nama, jenjang)').order('nama'),
       supabase.from('positions').select('*, departments(nama)').order('nama'),
+      supabase.from('leave_types').select('*').order('kategori').order('nama'),
+      supabase.from('work_schedules').select('*').order('urutan'),
     ])
     setSchools(s || [])
     setDepartments(d || [])
     setPositions(p || [])
+    setLeaveTypes(lt || [])
+    setWorkSchedules(ws || [])
     setLoading(false)
   }, [])
 
@@ -29,7 +35,7 @@ export default function OrgStructure() {
 
   return (
     <div>
-      <PageHeader title="Struktur Organisasi" description="Kelola unit sekolah, unit kerja, dan jabatan di seluruh yayasan." />
+      <PageHeader title="Struktur Organisasi" description="Kelola unit sekolah, unit kerja, jabatan, dan kebijakan kepegawaian yayasan." />
       <div className="mb-6 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
         {TABS.map((t) => (
           <button
@@ -49,6 +55,8 @@ export default function OrgStructure() {
           {tab === 'Unit Sekolah' && <SchoolsTab schools={schools} reload={load} />}
           {tab === 'Unit Kerja' && <DepartmentsTab departments={departments} schools={schools} reload={load} />}
           {tab === 'Jabatan' && <PositionsTab positions={positions} departments={departments} reload={load} />}
+          {tab === 'Jenis Cuti & Izin' && <LeavePolicyTab leaveTypes={leaveTypes} reload={load} />}
+          {tab === 'Jam Kerja' && <WorkScheduleTab schedules={workSchedules} reload={load} />}
         </>
       )}
     </div>
@@ -271,5 +279,265 @@ function PositionsTab({ positions, departments, reload }) {
         </form>
       </Modal>
     </SectionCard>
+  )
+}
+
+const emptyLeaveForm = {
+  kode: '', nama: '', kategori: 'cuti', satuan: 'hari', lama_default: '', jatah_per_bulan: '',
+  jatah_hari_per_tahun: '', berbayar: true, perlu_dokumen: '', pasal_rujukan: '', keterangan: '',
+}
+
+function LeavePolicyTab({ leaveTypes, reload }) {
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [form, setForm] = useState(emptyLeaveForm)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const openAdd = () => { setEditingId(null); setForm(emptyLeaveForm); setError(''); setModalOpen(true) }
+  const openEdit = (lt) => {
+    setEditingId(lt.id)
+    setForm({
+      kode: lt.kode || '', nama: lt.nama || '', kategori: lt.kategori || 'cuti', satuan: lt.satuan || 'hari',
+      lama_default: lt.lama_default ?? '', jatah_per_bulan: lt.jatah_per_bulan ?? '', jatah_hari_per_tahun: lt.jatah_hari_per_tahun ?? '',
+      berbayar: lt.berbayar ?? true, perlu_dokumen: lt.perlu_dokumen || '', pasal_rujukan: lt.pasal_rujukan || '', keterangan: lt.keterangan || '',
+    })
+    setError('')
+    setModalOpen(true)
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    const payload = {
+      ...form,
+      lama_default: form.lama_default === '' ? null : Number(form.lama_default),
+      jatah_per_bulan: form.jatah_per_bulan === '' ? null : Number(form.jatah_per_bulan),
+      jatah_hari_per_tahun: form.jatah_hari_per_tahun === '' ? null : Number(form.jatah_hari_per_tahun),
+      perlu_dokumen: form.perlu_dokumen || null,
+      pasal_rujukan: form.pasal_rujukan || null,
+      keterangan: form.keterangan || null,
+      kode: form.kode || null,
+    }
+    const query = editingId ? supabase.from('leave_types').update(payload).eq('id', editingId) : supabase.from('leave_types').insert(payload)
+    const { error: err } = await query
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    setModalOpen(false)
+    reload()
+  }
+
+  const handleDelete = async (id) => {
+    if (!confirm('Hapus jenis cuti/izin ini? Pengajuan yang sudah ada dan memakai jenis ini bisa gagal ditampilkan.')) return
+    const { error } = await supabase.from('leave_types').delete().eq('id', id)
+    if (error) alert('Gagal menghapus: ' + error.message)
+    reload()
+  }
+
+  const cutiRows = leaveTypes.filter((lt) => lt.kategori === 'cuti')
+  const izinRows = leaveTypes.filter((lt) => lt.kategori === 'izin')
+
+  const renderQuota = (lt) => {
+    const parts = []
+    if (lt.lama_default) parts.push(`${lt.lama_default} ${lt.satuan}/kejadian`)
+    if (lt.jatah_per_bulan) parts.push(`maks. ${lt.jatah_per_bulan} ${lt.satuan}/bulan`)
+    if (lt.jatah_hari_per_tahun) parts.push(`maks. ${lt.jatah_hari_per_tahun} hari/tahun`)
+    return parts.length ? parts.join(' · ') : '—'
+  }
+
+  const renderList = (rows, emptyLabel) =>
+    rows.length === 0 ? (
+      <EmptyState icon={CalendarClock} title={emptyLabel} />
+    ) : (
+      <div className="flex flex-col divide-y divide-[var(--color-border)]">
+        {rows.map((lt) => (
+          <div key={lt.id} className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="font-medium text-[var(--color-ink)]">
+                  {lt.kode && <span className="mr-1.5 text-[var(--color-ink-soft)]">{lt.kode}</span>}
+                  {lt.nama}
+                </p>
+                <p className="mt-0.5 text-[13px] text-[var(--color-ink-soft)]">{renderQuota(lt)}</p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {!lt.berbayar && <Badge color="gold">Tidak dibayar</Badge>}
+                {lt.perlu_dokumen && <Badge color="navy">Perlu dokumen</Badge>}
+                {lt.pasal_rujukan && <Badge color="neutral">{lt.pasal_rujukan}</Badge>}
+                <button onClick={() => openEdit(lt)} className="ml-1 text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
+                <button onClick={() => handleDelete(lt.id)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+              </div>
+            </div>
+            {lt.keterangan && <p className="text-sm text-[var(--color-ink-soft)]">{lt.keterangan}</p>}
+            {lt.perlu_dokumen && <p className="text-[13px] text-[var(--color-ink-soft)]">Dokumen wajib: {lt.perlu_dokumen}</p>}
+          </div>
+        ))}
+      </div>
+    )
+
+  return (
+    <div className="flex flex-col gap-6">
+      <SectionCard
+        title="Jenis Cuti"
+        description="Mengacu pada SK Ketua YPI Darussunah No. 01.014/SK-YDC/IX/26, Bab V"
+        actions={<Button size="sm" variant="outline" onClick={openAdd}><Plus className="h-4 w-4" /> Tambah</Button>}
+      >
+        {renderList(cutiRows, 'Belum ada jenis cuti')}
+      </SectionCard>
+
+      <SectionCard title="Jenis Izin" description="Bab IV — kewenangan persetujuan tetap mengikuti Kepala Sekolah/Mudir">
+        {renderList(izinRows, 'Belum ada jenis izin')}
+      </SectionCard>
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'Ubah Jenis Cuti/Izin' : 'Tambah Jenis Cuti/Izin'} width="max-w-xl">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="grid grid-cols-3 gap-4">
+            <Input label="Kode" containerClassName="col-span-1" value={form.kode} onChange={(e) => setForm((s) => ({ ...s, kode: e.target.value }))} placeholder="CT" />
+            <Input label="Nama" required containerClassName="col-span-2" value={form.nama} onChange={(e) => setForm((s) => ({ ...s, nama: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Kategori" value={form.kategori} onChange={(e) => setForm((s) => ({ ...s, kategori: e.target.value }))}>
+              <option value="cuti">Cuti</option>
+              <option value="izin">Izin</option>
+            </Select>
+            <Select label="Satuan" value={form.satuan} onChange={(e) => setForm((s) => ({ ...s, satuan: e.target.value }))}>
+              <option value="hari">Hari</option>
+              <option value="jam">Jam</option>
+              <option value="bulan">Bulan</option>
+            </Select>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <Input label="Lama per kejadian" type="number" step="0.5" value={form.lama_default} onChange={(e) => setForm((s) => ({ ...s, lama_default: e.target.value }))} />
+            <Input label="Jatah / bulan" type="number" step="0.5" value={form.jatah_per_bulan} onChange={(e) => setForm((s) => ({ ...s, jatah_per_bulan: e.target.value }))} />
+            <Input label="Jatah / tahun" type="number" step="0.5" value={form.jatah_hari_per_tahun} onChange={(e) => setForm((s) => ({ ...s, jatah_hari_per_tahun: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Berbayar" value={form.berbayar ? 'ya' : 'tidak'} onChange={(e) => setForm((s) => ({ ...s, berbayar: e.target.value === 'ya' }))}>
+              <option value="ya">Ya, penghasilan penuh/sesuai aturan</option>
+              <option value="tidak">Tidak dibayar</option>
+            </Select>
+            <Input label="Rujukan Pasal" value={form.pasal_rujukan} onChange={(e) => setForm((s) => ({ ...s, pasal_rujukan: e.target.value }))} placeholder="Pasal 16" />
+          </div>
+          <Input label="Dokumen Wajib (jika ada)" value={form.perlu_dokumen} onChange={(e) => setForm((s) => ({ ...s, perlu_dokumen: e.target.value }))} placeholder="Surat Keterangan Dokter" />
+          <Textarea label="Keterangan / Ketentuan" rows={4} value={form.keterangan} onChange={(e) => setForm((s) => ({ ...s, keterangan: e.target.value }))} />
+          {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Batal</Button>
+            <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  )
+}
+
+const emptyScheduleForm = { hari: '', urutan: 1, jam_masuk: '', jam_pulang: '', istirahat: '', jam_efektif: '', keterangan: '' }
+
+function WorkScheduleTab({ schedules, reload }) {
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [form, setForm] = useState(emptyScheduleForm)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const openAdd = () => {
+    setEditingId(null)
+    setForm({ ...emptyScheduleForm, urutan: schedules.length + 1 })
+    setError('')
+    setModalOpen(true)
+  }
+  const openEdit = (ws) => {
+    setEditingId(ws.id)
+    setForm({
+      hari: ws.hari || '', urutan: ws.urutan || 1, jam_masuk: ws.jam_masuk || '', jam_pulang: ws.jam_pulang || '',
+      istirahat: ws.istirahat || '', jam_efektif: ws.jam_efektif ?? '', keterangan: ws.keterangan || '',
+    })
+    setError('')
+    setModalOpen(true)
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    const payload = { ...form, urutan: Number(form.urutan), jam_efektif: form.jam_efektif === '' ? null : Number(form.jam_efektif) }
+    const query = editingId ? supabase.from('work_schedules').update(payload).eq('id', editingId) : supabase.from('work_schedules').insert(payload)
+    const { error: err } = await query
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    setModalOpen(false)
+    reload()
+  }
+
+  const handleDelete = async (id) => {
+    if (!confirm('Hapus baris jam kerja ini?')) return
+    await supabase.from('work_schedules').delete().eq('id', id)
+    reload()
+  }
+
+  const totalJamEfektif = schedules.reduce((sum, s) => sum + Number(s.jam_efektif || 0), 0)
+
+  return (
+    <div className="flex flex-col gap-4">
+      <SectionCard
+        title="Jam Kerja Mingguan — Pegawai Reguler"
+        description="Mengacu pada SK Ketua YPI Darussunah No. 01.014/SK-YDC/IX/26, Pasal 4"
+        actions={<Button size="sm" variant="outline" onClick={openAdd}><Plus className="h-4 w-4" /> Tambah Baris</Button>}
+      >
+        {schedules.length === 0 ? (
+          <EmptyState icon={Clock} title="Belum ada data jam kerja" />
+        ) : (
+          <>
+            <Table columns={['Hari', 'Jam Kerja', 'Istirahat', 'Jam Efektif', 'Keterangan', '']}>
+              {schedules.map((ws) => (
+                <Tr key={ws.id}>
+                  <Td className="font-medium">{ws.hari}</Td>
+                  <Td>{ws.jam_masuk && ws.jam_pulang ? `${ws.jam_masuk.slice(0, 5)} – ${ws.jam_pulang.slice(0, 5)}` : '—'}</Td>
+                  <Td className="text-[var(--color-ink-soft)]">{ws.istirahat || '—'}</Td>
+                  <Td>{ws.jam_efektif ? `${ws.jam_efektif} jam` : '—'}</Td>
+                  <Td className="text-[var(--color-ink-soft)]">{ws.keterangan || '—'}</Td>
+                  <Td className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => openEdit(ws)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
+                      <button onClick={() => handleDelete(ws.id)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                  </Td>
+                </Tr>
+              ))}
+            </Table>
+            <p className="mt-4 text-sm font-medium text-[var(--color-ink)]">Total Jam Kerja Efektif: {totalJamEfektif} jam/minggu</p>
+          </>
+        )}
+      </SectionCard>
+
+      <Card>
+        <p className="text-sm text-[var(--color-ink-soft)]">
+          <span className="font-medium text-[var(--color-ink)]">Pegawai Pesantren</span> (pengasuhan, pembinaan asrama, penjagaan santri)
+          bekerja dengan pola giliran (shift) 40 jam/minggu yang ditetapkan Mudir, tidak mengikuti jadwal di atas — sesuai Pasal 6 SK ini.
+        </p>
+      </Card>
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'Ubah Jam Kerja' : 'Tambah Baris Jam Kerja'}>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Hari" required value={form.hari} onChange={(e) => setForm((s) => ({ ...s, hari: e.target.value }))} />
+            <Input label="Urutan" type="number" min={1} value={form.urutan} onChange={(e) => setForm((s) => ({ ...s, urutan: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Jam Masuk" type="time" value={form.jam_masuk} onChange={(e) => setForm((s) => ({ ...s, jam_masuk: e.target.value }))} />
+            <Input label="Jam Pulang" type="time" value={form.jam_pulang} onChange={(e) => setForm((s) => ({ ...s, jam_pulang: e.target.value }))} />
+          </div>
+          <Input label="Waktu Istirahat" value={form.istirahat} onChange={(e) => setForm((s) => ({ ...s, istirahat: e.target.value }))} placeholder="09.00–09.20, 11.50–12.30" />
+          <Input label="Jam Kerja Efektif" type="number" step="0.5" value={form.jam_efektif} onChange={(e) => setForm((s) => ({ ...s, jam_efektif: e.target.value }))} />
+          <Input label="Keterangan" value={form.keterangan} onChange={(e) => setForm((s) => ({ ...s, keterangan: e.target.value }))} />
+          {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Batal</Button>
+            <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+          </div>
+        </form>
+      </Modal>
+    </div>
   )
 }
