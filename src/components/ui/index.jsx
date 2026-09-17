@@ -40,11 +40,11 @@ export function SectionCard({ title, description, actions, children, className =
 }
 
 const buttonVariants = {
-  primary: 'bg-[var(--color-navy)] text-white hover:bg-[var(--color-navy-light)]',
-  gold: 'bg-[var(--color-gold)] text-white hover:brightness-95',
+  primary: 'bg-[var(--color-navy)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] hover:bg-[var(--color-navy-light)]',
+  gold: 'bg-[var(--color-gold)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] hover:brightness-95',
   outline: 'border border-[var(--color-border)] bg-white text-[var(--color-ink)] hover:bg-[var(--color-paper)]',
   ghost: 'text-[var(--color-navy)] hover:bg-[var(--color-navy-50)]',
-  danger: 'bg-[var(--color-danger)] text-white hover:brightness-95',
+  danger: 'bg-[var(--color-danger)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] hover:brightness-95',
 }
 
 export const Button = forwardRef(function Button(
@@ -70,7 +70,7 @@ export const Input = forwardRef(function Input({ label, error, className = '', c
       {label && <span className="mb-1.5 block text-sm font-medium text-[var(--color-ink)]">{label}</span>}
       <input
         ref={ref}
-        className={`w-full rounded-[12px] border border-[var(--color-border)] bg-white px-3.5 py-2.5 text-[15px] text-[var(--color-ink)] placeholder:text-[var(--color-ink-soft)] focus:border-[var(--color-navy)] focus:outline-none focus:ring-2 focus:ring-[var(--color-navy-50)] ${className}`}
+        className={`w-full rounded-[12px] border border-[var(--color-border)] bg-white px-3.5 py-2.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.045)] text-[15px] text-[var(--color-ink)] placeholder:text-[var(--color-ink-soft)] focus:border-[var(--color-navy)] focus:outline-none focus:ring-2 focus:ring-[var(--color-navy-50)] ${className}`}
         {...props}
       />
       {error && <span className="mt-1 block text-xs text-[var(--color-danger)]">{error}</span>}
@@ -84,7 +84,7 @@ export const Select = forwardRef(function Select({ label, error, className = '',
       {label && <span className="mb-1.5 block text-sm font-medium text-[var(--color-ink)]">{label}</span>}
       <select
         ref={ref}
-        className={`w-full rounded-[12px] border border-[var(--color-border)] bg-white px-3.5 py-2.5 text-[15px] text-[var(--color-ink)] focus:border-[var(--color-navy)] focus:outline-none focus:ring-2 focus:ring-[var(--color-navy-50)] ${className}`}
+        className={`w-full rounded-[12px] border border-[var(--color-border)] bg-white px-3.5 py-2.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.045)] text-[15px] text-[var(--color-ink)] focus:border-[var(--color-navy)] focus:outline-none focus:ring-2 focus:ring-[var(--color-navy-50)] ${className}`}
         {...props}
       >
         {children}
@@ -100,7 +100,7 @@ export const Textarea = forwardRef(function Textarea({ label, error, className =
       {label && <span className="mb-1.5 block text-sm font-medium text-[var(--color-ink)]">{label}</span>}
       <textarea
         ref={ref}
-        className={`w-full rounded-[12px] border border-[var(--color-border)] bg-white px-3.5 py-2.5 text-[15px] text-[var(--color-ink)] placeholder:text-[var(--color-ink-soft)] focus:border-[var(--color-navy)] focus:outline-none focus:ring-2 focus:ring-[var(--color-navy-50)] ${className}`}
+        className={`w-full rounded-[12px] border border-[var(--color-border)] bg-white px-3.5 py-2.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.045)] text-[15px] text-[var(--color-ink)] placeholder:text-[var(--color-ink-soft)] focus:border-[var(--color-navy)] focus:outline-none focus:ring-2 focus:ring-[var(--color-navy-50)] ${className}`}
         {...props}
       />
       {error && <span className="mt-1 block text-xs text-[var(--color-danger)]">{error}</span>}
@@ -183,10 +183,10 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg' }) {
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 backdrop-blur-sm p-4 pt-10 sm:pt-16">
-      <div className={`w-full ${width} rounded-[20px] bg-[var(--color-surface)] shadow-2xl`}>
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-6 py-4">
+      <div className={`glass w-full ${width} rounded-[var(--radius-window)] shadow-2xl`}>
+        <div className="flex items-center justify-between border-b border-white/40 px-6 py-4">
           <h3 className="text-[17px] font-semibold text-[var(--color-ink)]">{title}</h3>
-          <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-full bg-black/[0.05] text-[var(--color-ink-soft)] hover:bg-black/[0.08]" aria-label="Tutup">
+          <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-full bg-black/[0.06] text-[var(--color-ink-soft)] hover:bg-black/[0.1]" aria-label="Tutup">
             ✕
           </button>
         </div>

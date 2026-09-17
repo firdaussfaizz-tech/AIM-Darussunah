@@ -26,13 +26,13 @@ function Sidebar({ open, onClose }) {
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-40 w-64 shrink-0 transform border-r border-[var(--color-border)] bg-white/80 backdrop-blur-xl transition-transform lg:translate-x-0 ${
+      className={`glass glass-edge-right fixed inset-y-0 left-0 z-40 w-64 shrink-0 transform transition-transform lg:translate-x-0 ${
         open ? 'translate-x-0' : '-translate-x-full'
       }`}
     >
       <div className="flex h-16 items-center justify-between px-5">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-[var(--color-navy)]">
+          <div className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-[var(--color-navy)] shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_2px_6px_-1px_rgba(0,113,227,0.5)]">
             <GraduationCap className="h-[18px] w-[18px] text-white" strokeWidth={2} />
           </div>
           <div className="leading-tight">
@@ -77,7 +77,7 @@ function Topbar({ onMenuClick }) {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between bg-[var(--color-paper)]/80 px-4 backdrop-blur-xl sm:px-6">
+    <header className="glass glass-edge-bottom sticky top-0 z-30 flex h-16 items-center justify-between px-4 sm:px-6">
       <button onClick={onMenuClick} className="text-[var(--color-ink)] lg:hidden" aria-label="Buka menu">
         <Menu className="h-6 w-6" />
       </button>
