@@ -1,110 +1,171 @@
-import { useEffect, useState } from 'react'
-import { Plus, Wallet } from 'lucide-react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
+import { AlertTriangle, Pencil } from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
-import { SectionCard, Table, Tr, Td, Button, Modal, Input, EmptyState } from './ui'
-import { formatRupiah, formatDate } from '../lib/format'
+import { SectionCard, Card, Table, Tr, Td, Button, Modal, Input, FullPageSpinner } from './ui'
+import { formatRupiah } from '../lib/format'
+import { hitungIH } from '../lib/remunerasi'
+import { hitungKomponenGaji } from '../lib/payroll'
 
-const FIELDS = [
-  { name: 'gaji_pokok', label: 'Gaji Pokok' },
-  { name: 'tunjangan_jabatan', label: 'Tunjangan Jabatan' },
-  { name: 'tunjangan_transport', label: 'Tunjangan Transport' },
-  { name: 'tunjangan_makan', label: 'Tunjangan Makan' },
-  { name: 'tunjangan_lainnya', label: 'Tunjangan Lainnya' },
-  { name: 'potongan_bpjs', label: 'Potongan BPJS' },
-  { name: 'potongan_lainnya', label: 'Potongan Lainnya' },
-]
-
-export default function SalarySection({ employeeId, canManage }) {
-  const [rows, setRows] = useState([])
+export default function SalarySection({ employee, canManage }) {
   const [loading, setLoading] = useState(true)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [form, setForm] = useState({})
+  const [salaryScale, setSalaryScale] = useState([])
+  const [settings, setSettings] = useState(null)
+  const [attendanceRows, setAttendanceRows] = useState([])
+  const [performanceIndex, setPerformanceIndex] = useState(null)
+  const [potonganBpjs, setPotonganBpjs] = useState(0)
+  const [bpjsModalOpen, setBpjsModalOpen] = useState(false)
+  const [bpjsInput, setBpjsInput] = useState('0')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
 
-  const load = async () => {
+  const now = new Date()
+  const tahun = now.getFullYear()
+  const bulan = now.getMonth() + 1
+
+  const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase.from('employee_salary').select('*').eq('employee_id', employeeId).order('berlaku_sejak', { ascending: false })
-    setRows(data || [])
+    const start = `${tahun}-${String(bulan).padStart(2, '0')}-01`
+    const endDate = new Date(tahun, bulan, 1).toISOString().slice(0, 10)
+    const [{ data: scale }, { data: settingsRow }, { data: att }, { data: perf }, { data: salaryRow }] = await Promise.all([
+      supabase.from('salary_scale').select('*'),
+      supabase.from('payroll_settings').select('*').maybeSingle(),
+      supabase
+        .from('attendance')
+        .select('*, leave_requests(dokumen_terlampir, durasi_jam, leave_types(kode, nama, nilai_hari_hadir, hitung_hari_kerja_wajib, batas_kejadian_per_bulan, pengurangan_ih_setelah_batas))')
+        .eq('employee_id', employee.id)
+        .gte('tanggal', start)
+        .lt('tanggal', endDate),
+      supabase
+        .from('performance_index')
+        .select('*')
+        .eq('employee_id', employee.id)
+        .lte('periode_mulai', endDate)
+        .gte('periode_selesai', start)
+        .order('periode_mulai', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase.from('employee_salary').select('potongan_bpjs').eq('employee_id', employee.id).order('berlaku_sejak', { ascending: false }).limit(1).maybeSingle(),
+    ])
+    setSalaryScale(scale || [])
+    setSettings(settingsRow || null)
+    setAttendanceRows(att || [])
+    setPerformanceIndex(perf || null)
+    setPotonganBpjs(salaryRow?.potongan_bpjs || 0)
     setLoading(false)
-  }
+  }, [employee.id, tahun, bulan])
 
-  useEffect(() => { if (employeeId) load() }, [employeeId])
+  useEffect(() => { load() }, [load])
 
-  const openModal = () => {
-    const initial = { berlaku_sejak: new Date().toISOString().slice(0, 10) }
-    FIELDS.forEach((f) => { initial[f.name] = 0 })
-    setForm(initial)
-    setError('')
-    setModalOpen(true)
-  }
+  const ih = useMemo(() => {
+    if (loading) return null
+    return hitungIH({ attendanceRows, tahun, bulan })
+  }, [attendanceRows, tahun, bulan, loading])
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  const komponen = useMemo(() => {
+    if (!settings || !ih) return null
+    return hitungKomponenGaji({
+      employee, position: employee.positions, salaryScaleRows: salaryScale, settings,
+      ihResult: ih, performanceIndex, potonganBpjs,
+    })
+  }, [employee, salaryScale, settings, ih, performanceIndex, potonganBpjs])
+
+  const saveBpjs = async () => {
     setSaving(true)
-    const { error: err } = await supabase.from('employee_salary').insert({ ...form, employee_id: employeeId })
+    await supabase.from('employee_salary').insert({
+      employee_id: employee.id,
+      potongan_bpjs: Number(bpjsInput) || 0,
+      gaji_pokok: 0, tunjangan_jabatan: 0, tunjangan_transport: 0, tunjangan_makan: 0, tunjangan_lainnya: 0, potongan_lainnya: 0,
+      berlaku_sejak: new Date().toISOString().slice(0, 10),
+    })
     setSaving(false)
-    if (err) { setError(err.message); return }
-    setModalOpen(false)
+    setBpjsModalOpen(false)
     load()
   }
 
-  if (!canManage) {
-    // Pegawai hanya melihat komponen gaji berlaku terkini, tanpa opsi ubah.
-  }
+  if (loading || !komponen) return <FullPageSpinner />
+
+  const rows = [
+    ['Gaji Pokok', komponen.gajiPokok, `Golongan ${komponen.golongan || '—'} / Ruang ${komponen.ruang || '—'}`],
+    ['Tunjangan Jabatan Struktural', komponen.tunjanganStruktural, komponen.tunjanganStruktural ? employee.positions?.nama : 'Tidak menjabat struktural'],
+    ['Tunjangan Fungsional', komponen.tunjanganFungsional, komponen.tunjanganFungsional ? employee.positions?.nama : 'Tidak menjabat fungsional'],
+    ['Tunjangan Transportasi & Makan', komponen.transportMakan, 'Nominal tetap'],
+  ]
 
   return (
-    <SectionCard
-      title="Komponen Gaji"
-      description="Riwayat komponen gaji pokok, tunjangan, dan potongan"
-      actions={canManage && (
-        <Button size="sm" variant="outline" onClick={openModal}>
-          <Plus className="h-4 w-4" /> Perbarui Gaji
-        </Button>
-      )}
-    >
-      {loading ? (
-        <p className="text-sm text-[var(--color-ink-soft)]">Memuat…</p>
-      ) : rows.length === 0 ? (
-        <EmptyState icon={Wallet} title="Belum ada data gaji" description="Komponen gaji belum diatur untuk pegawai ini." />
-      ) : (
-        <Table columns={['Berlaku Sejak', 'Gaji Pokok', 'Total Tunjangan', 'Total Potongan', 'Estimasi Bersih']}>
-          {rows.map((r) => {
-            const totalTunjangan = r.tunjangan_jabatan + r.tunjangan_transport + r.tunjangan_makan + r.tunjangan_lainnya
-            const totalPotongan = r.potongan_bpjs + r.potongan_lainnya
-            return (
-              <Tr key={r.id}>
-                <Td>{formatDate(r.berlaku_sejak)}</Td>
-                <Td>{formatRupiah(r.gaji_pokok)}</Td>
-                <Td className="text-[var(--color-success)]">+{formatRupiah(totalTunjangan)}</Td>
-                <Td className="text-[var(--color-danger)]">-{formatRupiah(totalPotongan)}</Td>
-                <Td className="font-medium">{formatRupiah(r.gaji_pokok + totalTunjangan - totalPotongan)}</Td>
-              </Tr>
-            )
-          })}
-        </Table>
+    <div className="flex flex-col gap-5">
+      {!komponen.lengkap && (
+        <Card className="border-[var(--color-gold)] bg-[var(--color-gold-soft)]">
+          <p className="flex items-center gap-2 text-sm font-medium text-[var(--color-gold)]">
+            <AlertTriangle className="h-4 w-4" /> Sebagian data belum lengkap (Golongan / Indeks Kinerja periode ini), Tunjangan Remunerasi ditampilkan sebagai Rp0 sampai dilengkapi.
+          </p>
+        </Card>
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Perbarui Komponen Gaji" width="max-w-xl">
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input label="Berlaku Sejak" type="date" required containerClassName="sm:col-span-2" value={form.berlaku_sejak || ''} onChange={(e) => setForm((s) => ({ ...s, berlaku_sejak: e.target.value }))} />
-          {FIELDS.map((f) => (
-            <Input
-              key={f.name}
-              label={f.label}
-              type="number"
-              min={0}
-              value={form[f.name] ?? 0}
-              onChange={(e) => setForm((s) => ({ ...s, [f.name]: Number(e.target.value) }))}
-            />
+      <SectionCard title="P1 — Komponen Tetap Bulanan" description="Otomatis dari Golongan/Ruang & Jabatan (Pasal 3-6 SK 01.012)">
+        <Table columns={['Komponen', 'Nominal', 'Keterangan']}>
+          {rows.map(([label, value, ket]) => (
+            <Tr key={label}>
+              <Td className="font-medium text-[var(--color-ink)]">{label}</Td>
+              <Td>{formatRupiah(value)}</Td>
+              <Td className="text-[var(--color-ink-soft)]">{ket}</Td>
+            </Tr>
           ))}
-          {error && <p className="sm:col-span-2 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
-          <div className="flex justify-end gap-2 sm:col-span-2">
-            <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Batal</Button>
-            <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+          <Tr>
+            <Td className="font-semibold text-[var(--color-ink)]">Total P1</Td>
+            <Td className="font-semibold">{formatRupiah(komponen.totalP1)}</Td>
+            <Td />
+          </Tr>
+        </Table>
+      </SectionCard>
+
+      <SectionCard title="P2 — Remunerasi Bulan Ini (Estimasi)" description="Otomatis dari Nilai Jabatan × Indeks Kinerja × Indeks Kehadiran bulan berjalan (Pasal 7)">
+        <Table columns={['Komponen', 'Nominal', 'Keterangan']}>
+          <Tr>
+            <Td className="font-medium text-[var(--color-ink)]">Tunjangan Remunerasi</Td>
+            <Td>{formatRupiah(komponen.tunjanganRemunerasi)}</Td>
+            <Td className="text-[var(--color-ink-soft)]">
+              {performanceIndex ? `IK ${performanceIndex.indeks_kinerja.toFixed(2)} × IH ${ih.ihFinal.toFixed(2)}` : 'Indeks Kinerja periode ini belum diatur'}
+            </Td>
+          </Tr>
+        </Table>
+        <p className="mt-3 text-xs text-[var(--color-ink-soft)]">
+          Rincian lengkap Indeks Kehadiran ada di tab "Indeks Kehadiran". Honor Jam Mengajar/Lembur dihitung saat proses Penggajian bulanan, bukan di sini.
+        </p>
+      </SectionCard>
+
+      <SectionCard
+        title="Potongan Tetap"
+        description="Diatur manual, berlaku sampai diubah kembali"
+        actions={canManage && (
+          <Button size="sm" variant="outline" onClick={() => { setBpjsInput(String(potonganBpjs)); setBpjsModalOpen(true) }}>
+            <Pencil className="h-4 w-4" /> Ubah
+          </Button>
+        )}
+      >
+        <Table columns={['Komponen', 'Nominal']}>
+          <Tr>
+            <Td className="font-medium text-[var(--color-ink)]">Potongan BPJS</Td>
+            <Td className="text-[var(--color-danger)]">-{formatRupiah(potonganBpjs)}</Td>
+          </Tr>
+        </Table>
+      </SectionCard>
+
+      <Card className="bg-[var(--color-navy-50)]">
+        <p className="text-[13px] font-medium text-[var(--color-ink-soft)]">Estimasi Take Home Pay Bulan Ini</p>
+        <p className="mt-1 font-[family-name:var(--font-display)] text-[32px] font-semibold text-[var(--color-navy)]">{formatRupiah(komponen.gajiBersih)}</p>
+        <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
+          P1 {formatRupiah(komponen.totalP1)} + P2 {formatRupiah(komponen.tunjanganRemunerasi)} − Potongan {formatRupiah(komponen.potonganBpjs)}. Belum termasuk Honor Mengajar/Lembur & potongan pinjaman — angka final ada di slip gaji bulanan (menu Penggajian).
+        </p>
+      </Card>
+
+      <Modal open={bpjsModalOpen} onClose={() => setBpjsModalOpen(false)} title="Ubah Potongan BPJS">
+        <div className="flex flex-col gap-4">
+          <Input label="Potongan BPJS / bulan" type="number" min="0" value={bpjsInput} onChange={(e) => setBpjsInput(e.target.value)} />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setBpjsModalOpen(false)}>Batal</Button>
+            <Button type="button" onClick={saveBpjs} disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
           </div>
-        </form>
+        </div>
       </Modal>
-    </SectionCard>
+    </div>
   )
 }

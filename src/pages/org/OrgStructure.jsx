@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Building2, Plus, Pencil, Trash2, CalendarClock, Clock } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, SectionCard, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
+import { formatRupiah } from '../../lib/format'
 
 const TABS = ['Unit Sekolah', 'Unit Kerja', 'Jabatan', 'Jenis Cuti & Izin', 'Jam Kerja']
 
@@ -122,7 +123,7 @@ function SchoolsTab({ schools, reload }) {
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'Ubah Unit Sekolah' : 'Tambah Unit Sekolah'}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <Select label="Jenjang" value={form.jenjang} onChange={(e) => setForm((s) => ({ ...s, jenjang: e.target.value }))}>
-            <option value="SD">SD</option><option value="SMP">SMP</option><option value="SMA">SMA</option>
+            <option value="SD">SD</option><option value="SMP">SMP</option><option value="SMA">SMA</option><option value="Boarding">Boarding</option>
           </Select>
           <Input label="Nama Sekolah" required value={form.nama} onChange={(e) => setForm((s) => ({ ...s, nama: e.target.value }))} />
           <Input label="NPSN" value={form.npsn} onChange={(e) => setForm((s) => ({ ...s, npsn: e.target.value }))} />
@@ -209,7 +210,7 @@ function DepartmentsTab({ departments, schools, reload }) {
   )
 }
 
-const emptyPositionForm = { nama: '', department_id: '', jenis: 'struktural' }
+const emptyPositionForm = { nama: '', department_id: '', jenis: 'struktural', tunjangan_jenis: '', tunjangan_nominal: '' }
 
 function PositionsTab({ positions, departments, reload }) {
   const [modalOpen, setModalOpen] = useState(false)
@@ -219,13 +220,25 @@ function PositionsTab({ positions, departments, reload }) {
   const [error, setError] = useState('')
 
   const openAdd = () => { setEditingId(null); setForm(emptyPositionForm); setError(''); setModalOpen(true) }
-  const openEdit = (p) => { setEditingId(p.id); setForm({ nama: p.nama || '', department_id: p.department_id || '', jenis: p.jenis || 'struktural' }); setError(''); setModalOpen(true) }
+  const openEdit = (p) => {
+    setEditingId(p.id)
+    setForm({
+      nama: p.nama || '', department_id: p.department_id || '', jenis: p.jenis || 'struktural',
+      tunjangan_jenis: p.tunjangan_jenis || '', tunjangan_nominal: p.tunjangan_nominal || '',
+    })
+    setError('')
+    setModalOpen(true)
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setSaving(true)
     setError('')
-    const payload = { nama: form.nama, department_id: form.department_id || null, jenis: form.jenis }
+    const payload = {
+      nama: form.nama, department_id: form.department_id || null, jenis: form.jenis,
+      tunjangan_jenis: form.tunjangan_jenis || null,
+      tunjangan_nominal: form.tunjangan_jenis ? Number(form.tunjangan_nominal) || 0 : 0,
+    }
     const query = editingId ? supabase.from('positions').update(payload).eq('id', editingId) : supabase.from('positions').insert(payload)
     const { error: err } = await query
     setSaving(false)
@@ -243,11 +256,19 @@ function PositionsTab({ positions, departments, reload }) {
   return (
     <SectionCard title="Jabatan" actions={<Button size="sm" variant="outline" onClick={openAdd}><Plus className="h-4 w-4" /> Tambah</Button>}>
       {positions.length === 0 ? <EmptyState icon={Building2} title="Belum ada jabatan" /> : (
-        <Table columns={['Nama Jabatan', 'Jenis', 'Unit Kerja', '']}>
+        <Table columns={['Nama Jabatan', 'Jenis', 'Tunjangan Jabatan', 'Unit Kerja', '']}>
           {positions.map((p) => (
             <Tr key={p.id}>
               <Td className="font-medium">{p.nama}</Td>
               <Td className="capitalize text-[var(--color-ink-soft)]">{p.jenis.replace('_', ' ')}</Td>
+              <Td className="text-[var(--color-ink-soft)]">
+                {p.tunjangan_jenis ? (
+                  <>
+                    <Badge color={p.tunjangan_jenis === 'struktural' ? 'navy' : 'gold'}>{p.tunjangan_jenis}</Badge>
+                    <span className="ml-1.5">{formatRupiah(p.tunjangan_nominal)}</span>
+                  </>
+                ) : '—'}
+              </Td>
               <Td className="text-[var(--color-ink-soft)]">{p.departments?.nama || '—'}</Td>
               <Td className="text-right">
                 <div className="flex justify-end gap-2">
@@ -271,6 +292,24 @@ function PositionsTab({ positions, departments, reload }) {
             <option value="">— Tidak terikat unit —</option>
             {departments.map((d) => <option key={d.id} value={d.id}>{d.nama}</option>)}
           </Select>
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Jenis Tunjangan Jabatan" value={form.tunjangan_jenis} onChange={(e) => setForm((s) => ({ ...s, tunjangan_jenis: e.target.value }))}>
+              <option value="">— Tidak ada —</option>
+              <option value="struktural">Struktural (Pasal 5)</option>
+              <option value="fungsional">Fungsional (Pasal 6)</option>
+            </Select>
+            <Input
+              label="Nominal / Bulan"
+              type="number" min="0"
+              value={form.tunjangan_nominal}
+              onChange={(e) => setForm((s) => ({ ...s, tunjangan_nominal: e.target.value }))}
+              disabled={!form.tunjangan_jenis}
+              placeholder="Rp"
+            />
+          </div>
+          <p className="text-xs text-[var(--color-ink-soft)]">
+            Diisi otomatis ke Komponen Gaji (P1) tiap pegawai yang menjabat posisi ini. Maksimal 1 tunjangan jabatan per pegawai walau merangkap &gt;1 jabatan (Pasal 5 ayat 3).
+          </p>
           {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Batal</Button>

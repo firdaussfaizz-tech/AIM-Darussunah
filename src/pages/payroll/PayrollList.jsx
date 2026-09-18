@@ -133,25 +133,82 @@ function SelfPayroll({ employeeId }) {
       </Card>
 
       <Modal open={!!detailModal} onClose={() => setDetailModal(null)} title="Rincian Slip Gaji">
-        {detailModal && (
-          <div className="flex flex-col gap-2 text-sm">
-            <Row label="Gaji Pokok" value={formatRupiah(detailModal.gaji_pokok)} />
-            <Row label="Total Tunjangan" value={`+${formatRupiah(detailModal.total_tunjangan)}`} />
-            <Row label="Total Potongan" value={`-${formatRupiah(detailModal.total_potongan)}`} />
-            <div className="my-1 border-t border-[var(--color-border)]" />
-            <Row label="Gaji Bersih" value={formatRupiah(detailModal.gaji_bersih)} bold />
-          </div>
-        )}
+        {detailModal && <SlipDetailBody row={detailModal} />}
       </Modal>
+    </div>
+  )
+}
+
+function SlipDetailBody({ row }) {
+  const d = row.detail
+
+  // Slip lama (sebelum modul Komponen Gaji) belum punya kolom `detail` —
+  // tampilkan ringkasan lama agar tidak error.
+  if (!d) {
+    return (
+      <div className="flex flex-col gap-2 text-sm">
+        <Row label="Gaji Pokok" value={formatRupiah(row.gaji_pokok)} />
+        <Row label="Total Tunjangan" value={`+${formatRupiah(row.total_tunjangan)}`} />
+        <Row label="Total Potongan" value={`-${formatRupiah(row.total_potongan)}`} />
+        <div className="my-1 border-t border-[var(--color-border)]" />
+        <Row label="Gaji Bersih" value={formatRupiah(row.gaji_bersih)} bold />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-4 text-sm">
+      <div>
+        <p className="mb-1.5 text-[13px] font-semibold text-[var(--color-ink)]">P1 — Komponen Tetap</p>
+        <div className="flex flex-col gap-1.5">
+          <Row label={`Gaji Pokok (Gol. ${d.golongan || '—'} / Ruang ${d.ruang || '—'})`} value={formatRupiah(d.gajiPokok)} />
+          {d.tunjanganStruktural > 0 && <Row label="Tunjangan Jabatan Struktural" value={formatRupiah(d.tunjanganStruktural)} />}
+          {d.tunjanganFungsional > 0 && <Row label="Tunjangan Fungsional" value={formatRupiah(d.tunjanganFungsional)} />}
+          <Row label="Tunjangan Transportasi & Makan" value={formatRupiah(d.transportMakan)} />
+          <Row label="Total P1" value={formatRupiah(d.totalP1)} bold />
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-1.5 text-[13px] font-semibold text-[var(--color-ink)]">P2 — Remunerasi & Honor</p>
+        <div className="flex flex-col gap-1.5">
+          <Row
+            label={`Tunjangan Remunerasi${d.indeksKinerja != null && d.ihFinal != null ? ` (IK ${Number(d.indeksKinerja).toFixed(2)} × IH ${Number(d.ihFinal).toFixed(2)})` : ''}`}
+            value={formatRupiah(d.tunjanganRemunerasi)}
+          />
+          {d.honorMengajar > 0 && <Row label={`Honor Jam Mengajar (${d.jpTambahan} JP)`} value={formatRupiah(d.honorMengajar)} />}
+          {d.honorLembur > 0 && <Row label={`Honor Lembur (${d.jamLembur} jam)`} value={formatRupiah(d.honorLembur)} />}
+          <Row label="Total P2" value={formatRupiah(d.totalP2)} bold />
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-1.5 text-[13px] font-semibold text-[var(--color-ink)]">Potongan</p>
+        <div className="flex flex-col gap-1.5">
+          {d.potonganBpjs > 0 && <Row label="Potongan BPJS" value={`-${formatRupiah(d.potonganBpjs)}`} />}
+          {d.potonganPinjaman > 0 && <Row label="Potongan Pinjaman/Cicilan" value={`-${formatRupiah(d.potonganPinjaman)}`} />}
+          {d.potonganLainnya > 0 && <Row label="Potongan Lainnya" value={`-${formatRupiah(d.potonganLainnya)}`} />}
+          {d.totalPotongan === 0 && <Row label="Tidak ada potongan" value={formatRupiah(0)} />}
+          <Row label="Total Potongan" value={`-${formatRupiah(d.totalPotongan)}`} bold />
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--color-border)] pt-3">
+        <Row label="Gaji Bersih" value={formatRupiah(row.gaji_bersih)} bold />
+      </div>
+
+      {!d.lengkap && (
+        <p className="text-xs text-[var(--color-gold)]">Sebagian data (Golongan/Indeks Kinerja) belum lengkap saat slip ini diproses.</p>
+      )}
     </div>
   )
 }
 
 function Row({ label, value, bold }) {
   return (
-    <div className="flex justify-between">
+    <div className="flex justify-between gap-4">
       <span className="text-[var(--color-ink-soft)]">{label}</span>
-      <span className={bold ? 'font-semibold text-[var(--color-ink)]' : ''}>{value}</span>
+      <span className={`shrink-0 ${bold ? 'font-semibold text-[var(--color-ink)]' : ''}`}>{value}</span>
     </div>
   )
 }
