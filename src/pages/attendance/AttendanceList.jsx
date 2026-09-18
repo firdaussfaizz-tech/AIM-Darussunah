@@ -1,9 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
-import { CalendarCheck } from 'lucide-react'
+import { CalendarCheck, UploadCloud } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
-import { PageHeader, Card, Select, Input, Table, Tr, Td, Badge, EmptyState, FullPageSpinner } from '../../components/ui'
+import { PageHeader, Card, Select, Input, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner } from '../../components/ui'
 import { STATUS_BADGE_COLOR, formatDate } from '../../lib/format'
+import FingerprintImportModal from './FingerprintImportModal'
+
+const LATE_THRESHOLD = '06:55:00' // Pasal 8 ayat (1) SK 01.014/SK-YDC/IX/26
 
 const STATUS_OPTIONS = ['hadir', 'izin', 'sakit', 'alpa', 'dinas_luar', 'cuti']
 const STATUS_LABELS = { hadir: 'Hadir', izin: 'Izin', sakit: 'Sakit', alpa: 'Alpa', dinas_luar: 'Dinas Luar', cuti: 'Cuti' }
@@ -27,6 +30,7 @@ function ManagerAttendance() {
   const [attendanceMap, setAttendanceMap] = useState({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState({})
+  const [importOpen, setImportOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -69,6 +73,12 @@ function ManagerAttendance() {
 
   return (
     <div>
+      <div className="mb-4 flex justify-end">
+        <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <UploadCloud className="h-4 w-4" /> Impor dari Fingerprint
+        </Button>
+      </div>
+
       <Card className="mb-4" padded={false}>
         <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
           <Input type="date" containerClassName="sm:w-48" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -86,13 +96,24 @@ function ManagerAttendance() {
           ) : employees.length === 0 ? (
             <EmptyState icon={CalendarCheck} title="Tidak ada pegawai" description="Tidak ada pegawai aktif pada unit yang dipilih." />
           ) : (
-            <Table columns={['Nama', 'Unit', 'Status Presensi']}>
+            <Table columns={['Nama', 'Unit', 'Jam Masuk', 'Jam Pulang', 'Status Presensi']}>
               {employees.map((e) => {
-                const current = attendanceMap[e.id]?.status
+                const att = attendanceMap[e.id]
+                const current = att?.status
+                const isLate = att?.jam_masuk && att.jam_masuk > LATE_THRESHOLD
                 return (
                   <Tr key={e.id}>
                     <Td className="font-medium text-[var(--color-ink)]">{e.nama}</Td>
                     <Td className="text-[var(--color-ink-soft)]">{e.schools ? `${e.schools.jenjang} — ${e.schools.nama}` : '—'}</Td>
+                    <Td>
+                      {att?.jam_masuk ? (
+                        <span className="flex items-center gap-1.5">
+                          {att.jam_masuk.slice(0, 5)}
+                          {isLate && <Badge color="danger">Terlambat</Badge>}
+                        </span>
+                      ) : '—'}
+                    </Td>
+                    <Td>{att?.jam_pulang ? att.jam_pulang.slice(0, 5) : '—'}</Td>
                     <Td>
                       <div className="flex flex-wrap gap-1.5">
                         {STATUS_OPTIONS.map((s) => (
@@ -118,6 +139,8 @@ function ManagerAttendance() {
           )}
         </div>
       </Card>
+
+      <FingerprintImportModal open={importOpen} onClose={() => setImportOpen(false)} onImported={load} />
     </div>
   )
 }

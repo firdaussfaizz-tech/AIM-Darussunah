@@ -176,6 +176,7 @@ function BiodataTab({ employee }) {
     ['Alamat', employee.alamat],
     ['Unit Kerja', employee.departments?.nama],
     ['Pendidikan Terakhir', employee.pendidikan_terakhir],
+    ['PIN Mesin Fingerprint', employee.pin_fingerprint],
     ['Tanggal Masuk Kerja', formatDate(employee.tanggal_masuk)],
   ]
   return (

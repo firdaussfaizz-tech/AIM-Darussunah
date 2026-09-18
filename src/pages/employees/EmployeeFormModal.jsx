@@ -6,7 +6,7 @@ import { STATUS_KEPEGAWAIAN_OPTIONS, EMPLOYEE_STATUS_OPTIONS } from '../../lib/f
 const emptyForm = {
   nama: '', nik: '', nip: '', jenis_kelamin: 'L', tempat_lahir: '', tanggal_lahir: '',
   alamat: '', no_hp: '', email: '', school_id: '', department_id: '', position_id: '',
-  status_kepegawaian: 'Kontrak', status: 'aktif', tanggal_masuk: '', pendidikan_terakhir: '',
+  status_kepegawaian: 'Kontrak', status: 'aktif', tanggal_masuk: '', pendidikan_terakhir: '', pin_fingerprint: '',
 }
 
 const DRAFT_KEY = 'draft:tambah_pegawai'
@@ -50,6 +50,8 @@ export default function EmployeeFormModal({ open, onClose, onSaved, schools, ini
         setForm(mapInitial(initialData))
         setDraftRestored(false)
       } else {
+        // Pegawai baru: pulihkan draft tersimpan (jika ada) agar isian tidak
+        // hilang kalau tab sempat di-reload oleh browser.
         const draft = readDraft()
         setForm(draft)
         setDraftRestored(draft.nama !== '' || draft.nik !== '')
@@ -58,6 +60,9 @@ export default function EmployeeFormModal({ open, onClose, onSaved, schools, ini
     }
   }, [open, initialData])
 
+  // Simpan draft setiap kali isian berubah, hanya untuk form "tambah baru"
+  // (form "ubah data" tidak disimpan sebagai draft agar tidak tertukar dengan
+  // data pegawai lain saat modal ini dibuka lagi untuk pegawai berbeda).
   useEffect(() => {
     if (open && !initialData) writeDraft(form)
   }, [form, open, initialData])
@@ -91,6 +96,7 @@ export default function EmployeeFormModal({ open, onClose, onSaved, schools, ini
       tanggal_lahir: form.tanggal_lahir || null,
       tanggal_masuk: form.tanggal_masuk || null,
       nip: form.nip || null,
+      pin_fingerprint: form.pin_fingerprint || null,
     }
     const query = initialData
       ? supabase.from('employees').update(payload).eq('id', initialData.id)
@@ -132,6 +138,7 @@ export default function EmployeeFormModal({ open, onClose, onSaved, schools, ini
         <Input label="No. HP" value={form.no_hp} onChange={update('no_hp')} />
         <Input label="Email" type="email" value={form.email} onChange={update('email')} />
         <Input label="Pendidikan Terakhir" value={form.pendidikan_terakhir} onChange={update('pendidikan_terakhir')} placeholder="S1 Pendidikan Guru SD" />
+        <Input label="PIN Mesin Fingerprint" value={form.pin_fingerprint} onChange={update('pin_fingerprint')} placeholder="Sesuai PIN terdaftar di mesin Solution" />
         <Input label="Alamat" value={form.alamat} onChange={update('alamat')} containerClassName="sm:col-span-2" />
 
         <Select label="Unit Sekolah" value={form.school_id} onChange={update('school_id')}>
@@ -178,6 +185,6 @@ function mapInitial(d) {
     alamat: d.alamat || '', no_hp: d.no_hp || '', email: d.email || '',
     school_id: d.school_id || '', department_id: d.department_id || '', position_id: d.position_id || '',
     status_kepegawaian: d.status_kepegawaian || 'Kontrak', status: d.status || 'aktif',
-    tanggal_masuk: d.tanggal_masuk || '', pendidikan_terakhir: d.pendidikan_terakhir || '',
+    tanggal_masuk: d.tanggal_masuk || '', pendidikan_terakhir: d.pendidikan_terakhir || '', pin_fingerprint: d.pin_fingerprint || '',
   }
 }
