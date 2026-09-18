@@ -214,7 +214,7 @@ function DepartmentsTab({ departments, schools, reload }) {
   )
 }
 
-const emptyPositionForm = { nama: '', department_id: '', jenis: 'struktural', tunjangan_jenis: '', tunjangan_nominal: '' }
+const emptyPositionForm = { nama: '', department_id: '', jenis: 'struktural', tunjangan_jenis: '', tunjangan_nominal: '', jp_ekuivalensi: '' }
 
 function PositionsTab({ positions, departments, reload }) {
   const [modalOpen, setModalOpen] = useState(false)
@@ -229,6 +229,7 @@ function PositionsTab({ positions, departments, reload }) {
     setForm({
       nama: p.nama || '', department_id: p.department_id || '', jenis: p.jenis || 'struktural',
       tunjangan_jenis: p.tunjangan_jenis || '', tunjangan_nominal: p.tunjangan_nominal || '',
+      jp_ekuivalensi: p.jp_ekuivalensi || '',
     })
     setError('')
     setModalOpen(true)
@@ -242,6 +243,7 @@ function PositionsTab({ positions, departments, reload }) {
       nama: form.nama, department_id: form.department_id || null, jenis: form.jenis,
       tunjangan_jenis: form.tunjangan_jenis || null,
       tunjangan_nominal: form.tunjangan_jenis ? Number(form.tunjangan_nominal) || 0 : 0,
+      jp_ekuivalensi: form.tunjangan_jenis === 'struktural' ? Number(form.jp_ekuivalensi) || 0 : 0,
     }
     const query = editingId ? supabase.from('positions').update(payload).eq('id', editingId) : supabase.from('positions').insert(payload)
     const { error: err } = await query
@@ -260,7 +262,7 @@ function PositionsTab({ positions, departments, reload }) {
   return (
     <SectionCard title="Jabatan" actions={<Button size="sm" variant="outline" onClick={openAdd}><Plus className="h-4 w-4" /> Tambah</Button>}>
       {positions.length === 0 ? <EmptyState icon={Building2} title="Belum ada jabatan" /> : (
-        <Table columns={['Nama Jabatan', 'Jenis', 'Tunjangan Jabatan', 'Unit Kerja', '']}>
+        <Table columns={['Nama Jabatan', 'Jenis', 'Tunjangan Jabatan', 'Ekuivalensi JP', 'Unit Kerja', '']}>
           {positions.map((p) => (
             <Tr key={p.id}>
               <Td className="font-medium">{p.nama}</Td>
@@ -273,6 +275,7 @@ function PositionsTab({ positions, departments, reload }) {
                   </>
                 ) : '—'}
               </Td>
+              <Td className="text-[var(--color-ink-soft)]">{p.tunjangan_jenis === 'struktural' && p.jp_ekuivalensi > 0 ? `${p.jp_ekuivalensi} JP/mg` : '—'}</Td>
               <Td className="text-[var(--color-ink-soft)]">{p.departments?.nama || '—'}</Td>
               <Td className="text-right">
                 <div className="flex justify-end gap-2">
@@ -310,8 +313,17 @@ function PositionsTab({ positions, departments, reload }) {
               placeholder="Rp"
             />
           </div>
+          <Input
+            label="Ekuivalensi JP/Minggu (untuk Beban Kerja)"
+            type="number" min="0" step="0.5"
+            value={form.jp_ekuivalensi}
+            onChange={(e) => setForm((s) => ({ ...s, jp_ekuivalensi: e.target.value }))}
+            disabled={form.tunjangan_jenis !== 'struktural'}
+            placeholder="mis. 24 untuk Kepala Sekolah"
+          />
           <p className="text-xs text-[var(--color-ink-soft)]">
-            Diisi otomatis ke Komponen Gaji (P1) tiap pegawai yang menjabat posisi ini. Maksimal 1 tunjangan jabatan per pegawai walau merangkap &gt;1 jabatan (Pasal 5 ayat 3).
+            Tunjangan Jabatan diisi otomatis ke Komponen Gaji (P1) tiap pegawai yang menjabat posisi ini. Maksimal 1 tunjangan jabatan per pegawai walau merangkap &gt;1 jabatan (Pasal 5 ayat 3).
+            Ekuivalensi JP dipakai HANYA untuk halaman Beban Kerja (tidak memengaruhi gaji).
             Tunjangan Fungsional (tugas tambahan seperti Wali Kelas, Sarpras, dll — bisa lebih dari satu per pegawai) dikelola di tab "Tugas Tambahan", bukan di sini.
           </p>
           {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
@@ -325,7 +337,7 @@ function PositionsTab({ positions, departments, reload }) {
   )
 }
 
-const emptyTugasTambahanForm = { nama: '', tunjangan_nominal: '', keterangan: '' }
+const emptyTugasTambahanForm = { nama: '', tunjangan_nominal: '', jp_ekuivalensi: '', keterangan: '' }
 
 function TugasTambahanTab({ tugasTambahan, reload }) {
   const [modalOpen, setModalOpen] = useState(false)
@@ -337,7 +349,7 @@ function TugasTambahanTab({ tugasTambahan, reload }) {
   const openAdd = () => { setEditingId(null); setForm(emptyTugasTambahanForm); setError(''); setModalOpen(true) }
   const openEdit = (t) => {
     setEditingId(t.id)
-    setForm({ nama: t.nama || '', tunjangan_nominal: t.tunjangan_nominal ?? '', keterangan: t.keterangan || '' })
+    setForm({ nama: t.nama || '', tunjangan_nominal: t.tunjangan_nominal ?? '', jp_ekuivalensi: t.jp_ekuivalensi ?? '', keterangan: t.keterangan || '' })
     setError('')
     setModalOpen(true)
   }
@@ -346,7 +358,10 @@ function TugasTambahanTab({ tugasTambahan, reload }) {
     e.preventDefault()
     setSaving(true)
     setError('')
-    const payload = { nama: form.nama, tunjangan_nominal: Number(form.tunjangan_nominal) || 0, keterangan: form.keterangan || null }
+    const payload = {
+      nama: form.nama, tunjangan_nominal: Number(form.tunjangan_nominal) || 0,
+      jp_ekuivalensi: Number(form.jp_ekuivalensi) || 0, keterangan: form.keterangan || null,
+    }
     const query = editingId ? supabase.from('tugas_tambahan').update(payload).eq('id', editingId) : supabase.from('tugas_tambahan').insert(payload)
     const { error: err } = await query
     setSaving(false)
@@ -369,11 +384,12 @@ function TugasTambahanTab({ tugasTambahan, reload }) {
       actions={<Button size="sm" variant="outline" onClick={openAdd}><Plus className="h-4 w-4" /> Tambah</Button>}
     >
       {tugasTambahan.length === 0 ? <EmptyState icon={ClipboardList} title="Belum ada tugas tambahan" /> : (
-        <Table columns={['Nama Tugas Tambahan', 'Tunjangan/Bulan', 'Keterangan', '']}>
+        <Table columns={['Nama Tugas Tambahan', 'Tunjangan/Bulan', 'Ekuivalensi JP', 'Keterangan', '']}>
           {tugasTambahan.map((t) => (
             <Tr key={t.id}>
               <Td className="font-medium">{t.nama}</Td>
-              <Td><Badge color="gold">{formatRupiah(t.tunjangan_nominal)}</Badge></Td>
+              <Td>{t.tunjangan_nominal > 0 ? <Badge color="gold">{formatRupiah(t.tunjangan_nominal)}</Badge> : <span className="text-[var(--color-ink-soft)]">—</span>}</Td>
+              <Td className="text-[var(--color-ink-soft)]">{t.jp_ekuivalensi > 0 ? `${t.jp_ekuivalensi} JP/mg` : '—'}</Td>
               <Td className="text-[var(--color-ink-soft)]">{t.keterangan || '—'}</Td>
               <Td className="text-right">
                 <div className="flex justify-end gap-2">
@@ -388,10 +404,14 @@ function TugasTambahanTab({ tugasTambahan, reload }) {
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'Ubah Tugas Tambahan' : 'Tambah Tugas Tambahan'}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <Input label="Nama Tugas Tambahan" required value={form.nama} onChange={(e) => setForm((s) => ({ ...s, nama: e.target.value }))} placeholder="Wali Kelas, Sarpras, Musyrif, dll." />
-          <Input label="Tunjangan / Bulan" type="number" min="0" required value={form.tunjangan_nominal} onChange={(e) => setForm((s) => ({ ...s, tunjangan_nominal: e.target.value }))} placeholder="Rp" />
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Tunjangan / Bulan" type="number" min="0" value={form.tunjangan_nominal} onChange={(e) => setForm((s) => ({ ...s, tunjangan_nominal: e.target.value }))} placeholder="Rp — kosongkan jika tidak ada" />
+            <Input label="Ekuivalensi JP/Minggu (Beban Kerja)" type="number" min="0" step="0.5" value={form.jp_ekuivalensi} onChange={(e) => setForm((s) => ({ ...s, jp_ekuivalensi: e.target.value }))} placeholder="mis. 2" />
+          </div>
           <Input label="Keterangan (opsional)" value={form.keterangan} onChange={(e) => setForm((s) => ({ ...s, keterangan: e.target.value }))} />
           <p className="text-xs text-[var(--color-ink-soft)]">
-            Diisi otomatis ke Komponen Gaji (P1) tiap pegawai yang mengemban tugas ini. Beberapa tugas tambahan bisa diemban sekaligus oleh satu pegawai — nominalnya dijumlahkan sebagai Tunjangan Fungsional.
+            Tunjangan/Bulan diisi otomatis ke Komponen Gaji (P1) tiap pegawai yang mengemban tugas ini. Pegawai boleh mengemban lebih dari satu tugas tambahan sekaligus, tapi Tunjangan Fungsional yang dibayarkan hanya SATU — nominal yang paling tinggi (yang lain tetap tercatat, tidak dibayar dobel).
+            Ekuivalensi JP dipakai HANYA untuk halaman Beban Kerja (tidak memengaruhi gaji) — SEMUA tugas tambahan yang diemban ikut dihitung di sana.
           </p>
           {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
           <div className="flex justify-end gap-2">

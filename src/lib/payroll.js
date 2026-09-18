@@ -14,10 +14,12 @@
 // Koreksi arsitektur (disepakati 2026-09-18): Tunjangan Struktural
 // melekat pada Jabatan formal (maks 1/pegawai, Pasal 5 ayat 3).
 // Tunjangan Fungsional TIDAK melekat pada Jabatan — melainkan pada
-// Tugas Tambahan (tabel tugas_tambahan / employee_tugas_tambahan),
-// yang bisa diemban lebih dari satu sekaligus oleh satu pegawai
-// (mis. Wali Kelas + Sarpras). Tunjangan Fungsional = jumlah nominal
-// seluruh Tugas Tambahan yang sedang diemban.
+// Tugas Tambahan (tabel tugas_tambahan / employee_tugas_tambahan).
+// Pegawai BOLEH mengemban lebih dari satu Tugas Tambahan sekaligus
+// (mis. Wali Kelas + Sarpras) — dicatat semua untuk keperluan Beban
+// Kerja (lib/workload.js) — tetapi Tunjangan Fungsional yang DIBAYAR
+// hanya SATU: yang nominalnya PALING TINGGI (disepakati 2026-09-18,
+// koreksi dari versi sebelumnya yang menjumlahkan semuanya).
 // =====================================================================
 
 import { hitungRuang, ambilSkalaGaji } from './remunerasi'
@@ -95,8 +97,16 @@ export function hitungKomponenGaji({
   const gajiPokok = scaleRow?.gaji_pokok ?? 0
   const nilaiJabatan = scaleRow?.nilai_jabatan ?? 0
   const tunjanganStruktural = isStruktural ? Number(position.tunjangan_nominal) : 0
-  const rincianFungsional = (tugasTambahanList || []).map((t) => ({ nama: t.nama, nominal: Number(t.tunjangan_nominal) || 0 }))
-  const tunjanganFungsional = rincianFungsional.reduce((sum, t) => sum + t.nominal, 0)
+
+  // Tugas Tambahan diurutkan dari nominal tertinggi — hanya baris pertama
+  // (dibayarkan=true) yang masuk ke Tunjangan Fungsional; sisanya tetap
+  // dicatat (untuk Beban Kerja) tapi tidak dibayarkan.
+  const rincianFungsional = (tugasTambahanList || [])
+    .map((t) => ({ nama: t.nama, nominal: Number(t.tunjangan_nominal) || 0 }))
+    .sort((a, b) => b.nominal - a.nominal || a.nama.localeCompare(b.nama))
+    .map((t, i) => ({ ...t, dibayarkan: i === 0 }))
+  const tunjanganFungsional = rincianFungsional[0]?.nominal || 0
+  const tunjanganFungsionalSumber = rincianFungsional[0]?.nama || null
   const transportMakan = Number(settings.transport_makan_nominal) || 0
 
   const totalP1 = gajiPokok + tunjanganStruktural + tunjanganFungsional + transportMakan
@@ -123,6 +133,7 @@ export function hitungKomponenGaji({
     nilaiJabatan,
     tunjanganStruktural,
     tunjanganFungsional,
+    tunjanganFungsionalSumber,
     rincianFungsional,
     transportMakan,
     totalP1,

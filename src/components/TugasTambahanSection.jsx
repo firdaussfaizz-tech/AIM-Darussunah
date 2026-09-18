@@ -48,8 +48,11 @@ export default function TugasTambahanSection({ employeeId, canManage }) {
     load()
   }
 
-  const assigned = master.filter((m) => assignedIds.includes(m.id))
-  const totalNominal = assigned.reduce((sum, m) => sum + Number(m.tunjangan_nominal || 0), 0)
+  const assigned = master
+    .filter((m) => assignedIds.includes(m.id))
+    .slice()
+    .sort((a, b) => Number(b.tunjangan_nominal || 0) - Number(a.tunjangan_nominal || 0) || a.nama.localeCompare(b.nama))
+  const dibayarId = assigned[0]?.id || null
 
   if (loading) return null
 
@@ -63,11 +66,17 @@ export default function TugasTambahanSection({ employeeId, canManage }) {
           ) : (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {assigned.map((m) => (
-                <Badge key={m.id} color="gold">{m.nama} · {formatRupiah(m.tunjangan_nominal)}</Badge>
+                <Badge key={m.id} color={m.id === dibayarId ? 'success' : 'neutral'}>
+                  {m.nama} · {formatRupiah(m.tunjangan_nominal)}{m.id !== dibayarId ? ' (tidak dibayar)' : ''}
+                </Badge>
               ))}
             </div>
           )}
-          {assigned.length > 0 && <p className="mt-2 text-sm font-medium text-[var(--color-ink)]">Total: {formatRupiah(totalNominal)} / bulan</p>}
+          {assigned.length > 1 && (
+            <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
+              Mengemban {assigned.length} tugas tambahan — hanya nominal tertinggi yang dibayarkan sebagai Tunjangan Fungsional.
+            </p>
+          )}
         </div>
         {canManage && (
           <Button size="sm" variant="outline" onClick={openEdit}>
@@ -100,7 +109,9 @@ export default function TugasTambahanSection({ employeeId, canManage }) {
               ))}
             </div>
           )}
-          <p className="text-xs text-[var(--color-ink-soft)]">Boleh memilih lebih dari satu — nominalnya dijumlahkan sebagai Tunjangan Fungsional.</p>
+          <p className="text-xs text-[var(--color-ink-soft)]">
+            Boleh memilih lebih dari satu (untuk keperluan pencatatan Beban Kerja), tapi Tunjangan Fungsional yang dibayarkan hanya SATU — nominal yang paling tinggi.
+          </p>
           {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Batal</Button>

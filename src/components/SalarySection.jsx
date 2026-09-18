@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { AlertTriangle, Pencil } from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
-import { SectionCard, Card, Table, Tr, Td, Button, Modal, Input, FullPageSpinner } from './ui'
+import { SectionCard, Card, Table, Tr, Td, Button, Badge, Modal, Input, FullPageSpinner } from './ui'
 import { formatRupiah } from '../lib/format'
 import { hitungIH } from '../lib/remunerasi'
 import { hitungKomponenGaji } from '../lib/payroll'
@@ -89,10 +89,6 @@ export default function SalarySection({ employee, canManage }) {
   const rows = [
     ['Gaji Pokok', komponen.gajiPokok, `Golongan ${komponen.golongan || '—'} / Ruang ${komponen.ruang || '—'}`],
     ['Tunjangan Jabatan Struktural', komponen.tunjanganStruktural, komponen.tunjanganStruktural ? employee.positions?.nama : 'Tidak menjabat struktural'],
-    ...(komponen.rincianFungsional.length > 0
-      ? komponen.rincianFungsional.map((t) => [`Tunjangan Fungsional — ${t.nama}`, t.nominal, 'Tugas Tambahan'])
-      : [['Tunjangan Fungsional', 0, 'Tidak mengemban tugas tambahan']]),
-    ['Tunjangan Transportasi & Makan', komponen.transportMakan, 'Nominal tetap'],
   ]
 
   return (
@@ -114,12 +110,38 @@ export default function SalarySection({ employee, canManage }) {
               <Td className="text-[var(--color-ink-soft)]">{ket}</Td>
             </Tr>
           ))}
+          {komponen.rincianFungsional.length === 0 ? (
+            <Tr>
+              <Td className="font-medium text-[var(--color-ink)]">Tunjangan Fungsional</Td>
+              <Td>{formatRupiah(0)}</Td>
+              <Td className="text-[var(--color-ink-soft)]">Tidak mengemban tugas tambahan</Td>
+            </Tr>
+          ) : (
+            komponen.rincianFungsional.map((t) => (
+              <Tr key={t.nama}>
+                <Td className="font-medium text-[var(--color-ink)]">Tunjangan Fungsional — {t.nama}</Td>
+                <Td className={t.dibayarkan ? '' : 'text-[var(--color-ink-soft)] line-through'}>{formatRupiah(t.nominal)}</Td>
+                <Td>
+                  {t.dibayarkan ? (
+                    <Badge color="success">Dibayarkan</Badge>
+                  ) : (
+                    <Badge color="neutral">Tidak dibayar — bukan yang tertinggi</Badge>
+                  )}
+                </Td>
+              </Tr>
+            ))
+          )}
           <Tr>
             <Td className="font-semibold text-[var(--color-ink)]">Total P1</Td>
             <Td className="font-semibold">{formatRupiah(komponen.totalP1)}</Td>
             <Td />
           </Tr>
         </Table>
+        {komponen.rincianFungsional.length > 1 && (
+          <p className="mt-3 text-xs text-[var(--color-ink-soft)]">
+            Mengemban {komponen.rincianFungsional.length} tugas tambahan sekaligus — hanya Tunjangan Fungsional yang nominalnya paling tinggi yang dibayarkan.
+          </p>
+        )}
       </SectionCard>
 
       <SectionCard title="P2 — Remunerasi Bulan Ini (Estimasi)" description="Otomatis dari Nilai Jabatan × Indeks Kinerja × Indeks Kehadiran bulan berjalan (Pasal 7)">

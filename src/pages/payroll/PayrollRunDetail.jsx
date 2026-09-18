@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, PlayCircle, Lock, Pencil } from 'lucide-react'
+import { ArrowLeft, PlayCircle, Lock, Pencil, RefreshCw } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner, Modal, Input, Textarea } from '../../components/ui'
 import { STATUS_BADGE_COLOR, formatRupiah, BULAN } from '../../lib/format'
@@ -13,57 +13,65 @@ export default function PayrollRunDetail() {
   const [run, setRun] = useState(null)
   const [details, setDetails] = useState([])
   const [settings, setSettings] = useState(null)
+  const [salaryScale, setSalaryScale] = useState([])
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
+  const [recomputingId, setRecomputingId] = useState(null)
   const [editRow, setEditRow] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: r }, { data: d }, { data: s }] = await Promise.all([
+    const [{ data: r }, { data: d }, { data: s }, { data: scale }] = await Promise.all([
       supabase.from('payroll_runs').select('*').eq('id', id).maybeSingle(),
-      supabase.from('payroll_details').select('*, employees(nama, golongan, positions(nama, tunjangan_jenis), schools!school_id(nama, jenjang))').eq('payroll_run_id', id).order('created_at'),
+      supabase.from('payroll_details').select('*, employees(nama, golongan, tanggal_masuk, positions(nama, tunjangan_jenis, tunjangan_nominal), schools!school_id(nama, jenjang))').eq('payroll_run_id', id).order('created_at'),
       supabase.from('payroll_settings').select('*').maybeSingle(),
+      supabase.from('salary_scale').select('*'),
     ])
     setRun(r)
     setDetails(d || [])
     setSettings(s || null)
+    setSalaryScale(scale || [])
     setLoading(false)
   }, [id])
 
   useEffect(() => { load() }, [load])
 
+  // Hitung ulang seluruh komponen (Gaji Pokok, Tunjangan Struktural/Fungsional,
+  // Remunerasi, Honor) satu pegawai dari data TERKINI (Golongan, Ruang,
+  // Jabatan, Tugas Tambahan, presensi, kinerja) — dipakai baik saat
+  // memproses pegawai baru maupun saat menghitung ulang slip yang sudah ada.
+  const hitungKomponenTerkini = async (emp, { jpTambahan = 0, jamLembur = 0, potonganPinjaman = 0, potonganLainnya = 0 } = {}) => {
+    const start = `${run.periode_tahun}-${String(run.periode_bulan).padStart(2, '0')}-01`
+    const endDate = new Date(run.periode_tahun, run.periode_bulan, 1).toISOString().slice(0, 10)
+    const [{ data: att }, { data: perf }, { data: salaryRow }, { data: tugas }] = await Promise.all([
+      supabase
+        .from('attendance')
+        .select('*, leave_requests(dokumen_terlampir, durasi_jam, leave_types(kode, nama, nilai_hari_hadir, hitung_hari_kerja_wajib, batas_kejadian_per_bulan, pengurangan_ih_setelah_batas))')
+        .eq('employee_id', emp.id).gte('tanggal', start).lt('tanggal', endDate),
+      supabase.from('performance_index').select('*').eq('employee_id', emp.id)
+        .lte('periode_mulai', endDate).gte('periode_selesai', start)
+        .order('periode_mulai', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('employee_salary').select('potongan_bpjs').eq('employee_id', emp.id)
+        .order('berlaku_sejak', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('employee_tugas_tambahan').select('tugas_tambahan(nama, tunjangan_nominal)').eq('employee_id', emp.id),
+    ])
+    const ih = hitungIH({ attendanceRows: att || [], tahun: run.periode_tahun, bulan: run.periode_bulan })
+    return hitungKomponenGaji({
+      employee: emp, position: emp.positions, tugasTambahanList: (tugas || []).map((t) => t.tugas_tambahan).filter(Boolean),
+      salaryScaleRows: salaryScale, settings,
+      ihResult: ih, performanceIndex: perf, potonganBpjs: salaryRow?.potongan_bpjs || 0,
+      jpTambahan, jamLembur, potonganPinjaman, potonganLainnya,
+    })
+  }
+
   const handleGenerate = async () => {
     setProcessing(true)
-    const [{ data: employees }, { data: salaryScale }, { data: settingsRow }] = await Promise.all([
-      supabase.from('employees').select('id, nama, golongan, tanggal_masuk, positions(tunjangan_jenis, tunjangan_nominal)').eq('status', 'aktif'),
-      supabase.from('salary_scale').select('*'),
-      supabase.from('payroll_settings').select('*').maybeSingle(),
-    ])
+    const { data: employees } = await supabase.from('employees').select('id, nama, golongan, tanggal_masuk, positions(tunjangan_jenis, tunjangan_nominal)').eq('status', 'aktif')
     const already = new Set(details.map((d) => d.employee_id))
     const toProcess = (employees || []).filter((e) => !already.has(e.id))
 
-    const start = `${run.periode_tahun}-${String(run.periode_bulan).padStart(2, '0')}-01`
-    const endDate = new Date(run.periode_tahun, run.periode_bulan, 1).toISOString().slice(0, 10)
-
     for (const emp of toProcess) {
-      const [{ data: att }, { data: perf }, { data: salaryRow }, { data: tugas }] = await Promise.all([
-        supabase
-          .from('attendance')
-          .select('*, leave_requests(dokumen_terlampir, durasi_jam, leave_types(kode, nama, nilai_hari_hadir, hitung_hari_kerja_wajib, batas_kejadian_per_bulan, pengurangan_ih_setelah_batas))')
-          .eq('employee_id', emp.id).gte('tanggal', start).lt('tanggal', endDate),
-        supabase.from('performance_index').select('*').eq('employee_id', emp.id)
-          .lte('periode_mulai', endDate).gte('periode_selesai', start)
-          .order('periode_mulai', { ascending: false }).limit(1).maybeSingle(),
-        supabase.from('employee_salary').select('potongan_bpjs').eq('employee_id', emp.id)
-          .order('berlaku_sejak', { ascending: false }).limit(1).maybeSingle(),
-        supabase.from('employee_tugas_tambahan').select('tugas_tambahan(nama, tunjangan_nominal)').eq('employee_id', emp.id),
-      ])
-      const ih = hitungIH({ attendanceRows: att || [], tahun: run.periode_tahun, bulan: run.periode_bulan })
-      const komponen = hitungKomponenGaji({
-        employee: emp, position: emp.positions, tugasTambahanList: (tugas || []).map((t) => t.tugas_tambahan).filter(Boolean),
-        salaryScaleRows: salaryScale || [], settings: settingsRow,
-        ihResult: ih, performanceIndex: perf, potonganBpjs: salaryRow?.potongan_bpjs || 0,
-      })
+      const komponen = await hitungKomponenTerkini(emp)
       await supabase.from('payroll_details').insert({
         payroll_run_id: id,
         employee_id: emp.id,
@@ -76,6 +84,36 @@ export default function PayrollRunDetail() {
       })
     }
     setProcessing(false)
+    load()
+  }
+
+  // Hitung ulang satu slip yang SUDAH diproses — dipakai ketika data dasar
+  // pegawai (Golongan/Ruang, Jabatan, Tugas Tambahan) berubah SETELAH
+  // "Proses Pegawai Aktif" diklik, sehingga slip lama jadi kadaluarsa.
+  // Input manual (JP Tambahan, Jam Lembur, Potongan Pinjaman) yang sudah
+  // diisi admin tetap dipertahankan.
+  const handleRecompute = async (row) => {
+    setRecomputingId(row.id)
+    const emp = {
+      id: row.employee_id,
+      golongan: row.employees?.golongan,
+      tanggal_masuk: row.employees?.tanggal_masuk,
+      positions: row.employees?.positions,
+    }
+    const komponen = await hitungKomponenTerkini(emp, {
+      jpTambahan: row.jp_tambahan || 0,
+      jamLembur: row.jam_lembur || 0,
+      potonganPinjaman: row.potongan_pinjaman || 0,
+      potonganLainnya: row.detail?.potonganLainnya || 0,
+    })
+    await supabase.from('payroll_details').update({
+      gaji_pokok: komponen.gajiPokok,
+      total_tunjangan: komponen.totalTunjangan,
+      total_potongan: komponen.totalPotongan,
+      gaji_bersih: komponen.gajiBersih,
+      detail: komponen,
+    }).eq('id', row.id)
+    setRecomputingId(null)
     load()
   }
 
@@ -133,9 +171,20 @@ export default function PayrollRunDetail() {
                   <Td className="font-medium">{formatRupiah(d.gaji_bersih)}</Td>
                   <Td>
                     {run.status === 'draft' && (
-                      <button onClick={() => setEditRow(d)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah honor/potongan">
-                        <Pencil className="h-4 w-4" />
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => handleRecompute(d)}
+                          disabled={recomputingId === d.id}
+                          className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)] disabled:opacity-50"
+                          aria-label="Hitung ulang dari data terkini"
+                          title="Hitung ulang dari data terkini (Golongan/Ruang, Jabatan, Tugas Tambahan)"
+                        >
+                          <RefreshCw className={`h-4 w-4 ${recomputingId === d.id ? 'animate-spin' : ''}`} />
+                        </button>
+                        <button onClick={() => setEditRow(d)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah honor/potongan">
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                      </div>
                     )}
                   </Td>
                 </Tr>
@@ -146,6 +195,7 @@ export default function PayrollRunDetail() {
       </Card>
       <p className="mt-3 text-xs text-[var(--color-ink-soft)]">
         Gaji Pokok, Tunjangan Jabatan, dan Remunerasi dihitung otomatis. Klik ikon pensil untuk menambahkan JP mengajar tambahan, jam lembur, atau potongan pinjaman/cicilan per pegawai.
+        Jika data Golongan/Ruang, Jabatan, atau Tugas Tambahan pegawai diubah SETELAH slipnya diproses, klik ikon <RefreshCw className="inline h-3.5 w-3.5 align-text-bottom" /> untuk menghitung ulang slip tsb dari data terbaru (input JP/lembur/pinjaman yang sudah diisi tetap tersimpan).
       </p>
 
       <EditSlipModal row={editRow} settings={settings} onClose={() => setEditRow(null)} onSaved={() => { setEditRow(null); load() }} />

@@ -11,6 +11,7 @@ import LeaveList from './pages/leave/LeaveList'
 import PayrollList from './pages/payroll/PayrollList'
 import PayrollRunDetail from './pages/payroll/PayrollRunDetail'
 import PerformanceList from './pages/performance/PerformanceList'
+import WorkloadList from './pages/workload/WorkloadList'
 import TrainingList from './pages/training/TrainingList'
 import TrainingDetail from './pages/training/TrainingDetail'
 import OrgStructure from './pages/org/OrgStructure'
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="penggajian" element={<PayrollList />} />
             <Route path="penggajian/:id" element={<RequireFullAccess><PayrollRunDetail /></RequireFullAccess>} />
             <Route path="kinerja" element={<PerformanceList />} />
+            <Route path="beban-kerja" element={<WorkloadList />} />
             <Route path="pelatihan" element={<TrainingList />} />
             <Route path="pelatihan/:id" element={<RequireFullAccess><TrainingDetail /></RequireFullAccess>} />
             <Route path="struktur" element={<RequireFullAccess><OrgStructure /></RequireFullAccess>} />
