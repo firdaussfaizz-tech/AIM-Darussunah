@@ -35,7 +35,7 @@ function ManagerDashboard() {
         supabase.from('employees').select('id, status, status_kepegawaian, schools!school_id(nama, jenjang)'),
         supabase
           .from('leave_requests')
-          .select('id, tanggal_mulai, tanggal_selesai, employees(nama), leave_types(nama)')
+          .select('id, tanggal_mulai, tanggal_selesai, employees!employee_id(nama), leave_types(nama)')
           .eq('status', 'pending')
           .order('created_at', { ascending: false })
           .limit(5),

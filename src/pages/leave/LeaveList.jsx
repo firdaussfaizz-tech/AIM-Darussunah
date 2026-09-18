@@ -49,18 +49,21 @@ export default function LeaveList() {
   const [statusFilter, setStatusFilter] = useState(isManager ? 'pending' : '')
   const [formOpen, setFormOpen] = useState(false)
   const [decideRow, setDecideRow] = useState(null)
+  const [loadError, setLoadError] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
+    setLoadError('')
     let q = supabase
       .from('leave_requests')
-      .select('*, employees(nama, schools!school_id(nama, jenjang)), leave_types(nama, kode), approver:approved_by(nama)')
+      .select('*, employees!employee_id(nama, schools!school_id(nama, jenjang)), leave_types(nama, kode), approver:approved_by(nama)')
       .order('created_at', { ascending: false })
     if (statusFilter) q = q.eq('status', statusFilter)
-    const [{ data: lt }, { data: leave }] = await Promise.all([
+    const [{ data: lt }, { data: leave, error: leaveErr }] = await Promise.all([
       supabase.from('leave_types').select('*').order('kategori').order('nama'),
       q,
     ])
+    if (leaveErr) setLoadError(leaveErr.message)
     setLeaveTypes(lt || [])
     setRows(leave || [])
     setLoading(false)
@@ -116,6 +119,12 @@ export default function LeaveList() {
           </Select>
         </div>
       </Card>
+
+      {loadError && (
+        <Card className="mb-4 border-[var(--color-danger)] bg-[var(--color-danger-soft)]">
+          <p className="text-sm text-[var(--color-danger)]">Gagal memuat data: {loadError}</p>
+        </Card>
+      )}
 
       <Card padded={false}>
         <div className="p-5">

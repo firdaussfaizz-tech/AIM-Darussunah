@@ -17,7 +17,7 @@ export default function PerformanceList() {
     setLoading(true)
     const { data: p } = await supabase.from('performance_periods').select('*').order('tahun', { ascending: false }).order('semester', { ascending: false })
     setPeriods(p || [])
-    let q = supabase.from('performance_reviews').select('*, employees(nama), performance_periods(nama, tahun, semester), reviewer:reviewer_id(nama)').order('created_at', { ascending: false })
+    let q = supabase.from('performance_reviews').select('*, employees!employee_id(nama), performance_periods(nama, tahun, semester), reviewer:reviewer_id(nama)').order('created_at', { ascending: false })
     if (periodFilter) q = q.eq('period_id', periodFilter)
     const { data: r } = await q
     setRows(r || [])
