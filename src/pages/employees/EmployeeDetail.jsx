@@ -5,12 +5,14 @@ import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Badge, Button, FullPageSpinner, EmptyState } from '../../components/ui'
 import { STATUS_BADGE_COLOR, formatDate } from '../../lib/format'
+import { hitungRuang } from '../../lib/remunerasi'
 import EmployeeFormModal from './EmployeeFormModal'
 import RecordListSection from '../../components/RecordListSection'
 import DocumentsSection from '../../components/DocumentsSection'
 import SalarySection from '../../components/SalarySection'
+import IndeksKehadiranSection from '../../components/IndeksKehadiranSection'
 
-const TABS = ['Biodata', 'Pendidikan', 'Riwayat Kerja', 'Kontrak', 'Dokumen', 'Gaji']
+const TABS = ['Biodata', 'Pendidikan', 'Riwayat Kerja', 'Kontrak', 'Dokumen', 'Gaji', 'Indeks Kehadiran']
 
 export default function EmployeeDetail() {
   const { id } = useParams()
@@ -41,7 +43,7 @@ export default function EmployeeDetail() {
   const isOwnProfile = myEmployee?.id === employee.id
   const canManage = isManager
   const canViewSalary = hasFullAccess || isOwnProfile
-  const visibleTabs = canViewSalary ? TABS : TABS.filter((t) => t !== 'Gaji')
+  const visibleTabs = canViewSalary ? TABS : TABS.filter((t) => t !== 'Gaji' && t !== 'Indeks Kehadiran')
 
   const handleDelete = async () => {
     if (!confirm(`Hapus data pegawai "${employee.nama}"? Seluruh riwayat presensi, cuti, gaji, kinerja, dan pelatihannya akan ikut terhapus permanen.`)) return
@@ -160,6 +162,7 @@ export default function EmployeeDetail() {
       )}
       {tab === 'Dokumen' && <DocumentsSection employeeId={employee.id} canManage={canManage} />}
       {tab === 'Gaji' && canViewSalary && <SalarySection employeeId={employee.id} canManage={hasFullAccess} />}
+      {tab === 'Indeks Kehadiran' && canViewSalary && <IndeksKehadiranSection employee={employee} canManage={hasFullAccess} />}
 
       <EmployeeFormModal open={editOpen} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); load() }} schools={schools} initialData={employee} />
     </div>
@@ -178,6 +181,7 @@ function BiodataTab({ employee }) {
     ['Pendidikan Terakhir', employee.pendidikan_terakhir],
     ['PIN Mesin Fingerprint', employee.pin_fingerprint],
     ['Tanggal Masuk Kerja', formatDate(employee.tanggal_masuk)],
+    ['Golongan / Ruang', employee.golongan ? `Golongan ${employee.golongan} / Ruang ${hitungRuang(employee.tanggal_masuk) || '—'}` : 'Belum ditentukan'],
   ]
   return (
     <Card>
