@@ -12,6 +12,7 @@ export default function SalarySection({ employee, canManage }) {
   const [settings, setSettings] = useState(null)
   const [attendanceRows, setAttendanceRows] = useState([])
   const [performanceIndex, setPerformanceIndex] = useState(null)
+  const [tugasTambahanList, setTugasTambahanList] = useState([])
   const [potonganBpjs, setPotonganBpjs] = useState(0)
   const [bpjsModalOpen, setBpjsModalOpen] = useState(false)
   const [bpjsInput, setBpjsInput] = useState('0')
@@ -25,7 +26,7 @@ export default function SalarySection({ employee, canManage }) {
     setLoading(true)
     const start = `${tahun}-${String(bulan).padStart(2, '0')}-01`
     const endDate = new Date(tahun, bulan, 1).toISOString().slice(0, 10)
-    const [{ data: scale }, { data: settingsRow }, { data: att }, { data: perf }, { data: salaryRow }] = await Promise.all([
+    const [{ data: scale }, { data: settingsRow }, { data: att }, { data: perf }, { data: salaryRow }, { data: tugas }] = await Promise.all([
       supabase.from('salary_scale').select('*'),
       supabase.from('payroll_settings').select('*').maybeSingle(),
       supabase
@@ -44,12 +45,14 @@ export default function SalarySection({ employee, canManage }) {
         .limit(1)
         .maybeSingle(),
       supabase.from('employee_salary').select('potongan_bpjs').eq('employee_id', employee.id).order('berlaku_sejak', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('employee_tugas_tambahan').select('tugas_tambahan(nama, tunjangan_nominal)').eq('employee_id', employee.id),
     ])
     setSalaryScale(scale || [])
     setSettings(settingsRow || null)
     setAttendanceRows(att || [])
     setPerformanceIndex(perf || null)
     setPotonganBpjs(salaryRow?.potongan_bpjs || 0)
+    setTugasTambahanList((tugas || []).map((t) => t.tugas_tambahan).filter(Boolean))
     setLoading(false)
   }, [employee.id, tahun, bulan])
 
@@ -63,10 +66,10 @@ export default function SalarySection({ employee, canManage }) {
   const komponen = useMemo(() => {
     if (!settings || !ih) return null
     return hitungKomponenGaji({
-      employee, position: employee.positions, salaryScaleRows: salaryScale, settings,
+      employee, position: employee.positions, tugasTambahanList, salaryScaleRows: salaryScale, settings,
       ihResult: ih, performanceIndex, potonganBpjs,
     })
-  }, [employee, salaryScale, settings, ih, performanceIndex, potonganBpjs])
+  }, [employee, salaryScale, settings, ih, performanceIndex, potonganBpjs, tugasTambahanList])
 
   const saveBpjs = async () => {
     setSaving(true)
@@ -86,7 +89,9 @@ export default function SalarySection({ employee, canManage }) {
   const rows = [
     ['Gaji Pokok', komponen.gajiPokok, `Golongan ${komponen.golongan || '—'} / Ruang ${komponen.ruang || '—'}`],
     ['Tunjangan Jabatan Struktural', komponen.tunjanganStruktural, komponen.tunjanganStruktural ? employee.positions?.nama : 'Tidak menjabat struktural'],
-    ['Tunjangan Fungsional', komponen.tunjanganFungsional, komponen.tunjanganFungsional ? employee.positions?.nama : 'Tidak menjabat fungsional'],
+    ...(komponen.rincianFungsional.length > 0
+      ? komponen.rincianFungsional.map((t) => [`Tunjangan Fungsional — ${t.nama}`, t.nominal, 'Tugas Tambahan'])
+      : [['Tunjangan Fungsional', 0, 'Tidak mengemban tugas tambahan']]),
     ['Tunjangan Transportasi & Makan', komponen.transportMakan, 'Nominal tetap'],
   ]
 

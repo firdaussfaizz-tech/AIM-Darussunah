@@ -1,32 +1,35 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Building2, Plus, Pencil, Trash2, CalendarClock, Clock } from 'lucide-react'
+import { Building2, Plus, Pencil, Trash2, CalendarClock, Clock, ClipboardList } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, SectionCard, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
 import { formatRupiah } from '../../lib/format'
 
-const TABS = ['Unit Sekolah', 'Unit Kerja', 'Jabatan', 'Jenis Cuti & Izin', 'Jam Kerja']
+const TABS = ['Unit Sekolah', 'Unit Kerja', 'Jabatan', 'Tugas Tambahan', 'Jenis Cuti & Izin', 'Jam Kerja']
 
 export default function OrgStructure() {
   const [tab, setTab] = useState('Unit Sekolah')
   const [schools, setSchools] = useState([])
   const [departments, setDepartments] = useState([])
   const [positions, setPositions] = useState([])
+  const [tugasTambahan, setTugasTambahan] = useState([])
   const [leaveTypes, setLeaveTypes] = useState([])
   const [workSchedules, setWorkSchedules] = useState([])
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: s }, { data: d }, { data: p }, { data: lt }, { data: ws }] = await Promise.all([
+    const [{ data: s }, { data: d }, { data: p }, { data: tt }, { data: lt }, { data: ws }] = await Promise.all([
       supabase.from('schools').select('*').order('jenjang'),
       supabase.from('departments').select('*, schools(nama, jenjang)').order('nama'),
       supabase.from('positions').select('*, departments(nama)').order('nama'),
+      supabase.from('tugas_tambahan').select('*').order('nama'),
       supabase.from('leave_types').select('*').order('kategori').order('nama'),
       supabase.from('work_schedules').select('*').order('urutan'),
     ])
     setSchools(s || [])
     setDepartments(d || [])
     setPositions(p || [])
+    setTugasTambahan(tt || [])
     setLeaveTypes(lt || [])
     setWorkSchedules(ws || [])
     setLoading(false)
@@ -56,6 +59,7 @@ export default function OrgStructure() {
           {tab === 'Unit Sekolah' && <SchoolsTab schools={schools} reload={load} />}
           {tab === 'Unit Kerja' && <DepartmentsTab departments={departments} schools={schools} reload={load} />}
           {tab === 'Jabatan' && <PositionsTab positions={positions} departments={departments} reload={load} />}
+          {tab === 'Tugas Tambahan' && <TugasTambahanTab tugasTambahan={tugasTambahan} reload={load} />}
           {tab === 'Jenis Cuti & Izin' && <LeavePolicyTab leaveTypes={leaveTypes} reload={load} />}
           {tab === 'Jam Kerja' && <WorkScheduleTab schedules={workSchedules} reload={load} />}
         </>
@@ -262,9 +266,9 @@ function PositionsTab({ positions, departments, reload }) {
               <Td className="font-medium">{p.nama}</Td>
               <Td className="capitalize text-[var(--color-ink-soft)]">{p.jenis.replace('_', ' ')}</Td>
               <Td className="text-[var(--color-ink-soft)]">
-                {p.tunjangan_jenis ? (
+                {p.tunjangan_jenis === 'struktural' ? (
                   <>
-                    <Badge color={p.tunjangan_jenis === 'struktural' ? 'navy' : 'gold'}>{p.tunjangan_jenis}</Badge>
+                    <Badge color="navy">struktural</Badge>
                     <span className="ml-1.5">{formatRupiah(p.tunjangan_nominal)}</span>
                   </>
                 ) : '—'}
@@ -296,7 +300,6 @@ function PositionsTab({ positions, departments, reload }) {
             <Select label="Jenis Tunjangan Jabatan" value={form.tunjangan_jenis} onChange={(e) => setForm((s) => ({ ...s, tunjangan_jenis: e.target.value }))}>
               <option value="">— Tidak ada —</option>
               <option value="struktural">Struktural (Pasal 5)</option>
-              <option value="fungsional">Fungsional (Pasal 6)</option>
             </Select>
             <Input
               label="Nominal / Bulan"
@@ -309,6 +312,86 @@ function PositionsTab({ positions, departments, reload }) {
           </div>
           <p className="text-xs text-[var(--color-ink-soft)]">
             Diisi otomatis ke Komponen Gaji (P1) tiap pegawai yang menjabat posisi ini. Maksimal 1 tunjangan jabatan per pegawai walau merangkap &gt;1 jabatan (Pasal 5 ayat 3).
+            Tunjangan Fungsional (tugas tambahan seperti Wali Kelas, Sarpras, dll — bisa lebih dari satu per pegawai) dikelola di tab "Tugas Tambahan", bukan di sini.
+          </p>
+          {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Batal</Button>
+            <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+          </div>
+        </form>
+      </Modal>
+    </SectionCard>
+  )
+}
+
+const emptyTugasTambahanForm = { nama: '', tunjangan_nominal: '', keterangan: '' }
+
+function TugasTambahanTab({ tugasTambahan, reload }) {
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [form, setForm] = useState(emptyTugasTambahanForm)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const openAdd = () => { setEditingId(null); setForm(emptyTugasTambahanForm); setError(''); setModalOpen(true) }
+  const openEdit = (t) => {
+    setEditingId(t.id)
+    setForm({ nama: t.nama || '', tunjangan_nominal: t.tunjangan_nominal ?? '', keterangan: t.keterangan || '' })
+    setError('')
+    setModalOpen(true)
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    const payload = { nama: form.nama, tunjangan_nominal: Number(form.tunjangan_nominal) || 0, keterangan: form.keterangan || null }
+    const query = editingId ? supabase.from('tugas_tambahan').update(payload).eq('id', editingId) : supabase.from('tugas_tambahan').insert(payload)
+    const { error: err } = await query
+    setSaving(false)
+    if (err) { setError(err.message.includes('duplicate') ? 'Nama tugas tambahan ini sudah ada.' : err.message); return }
+    setModalOpen(false)
+    reload()
+  }
+
+  const handleDelete = async (id) => {
+    if (!confirm('Hapus tugas tambahan ini? Penugasan pegawai yang memakainya akan ikut terhapus.')) return
+    const { error } = await supabase.from('tugas_tambahan').delete().eq('id', id)
+    if (error) alert('Gagal menghapus: ' + error.message)
+    reload()
+  }
+
+  return (
+    <SectionCard
+      title="Tugas Tambahan"
+      description="Tunjangan Fungsional (Pasal 6 SK 01.012) — tidak terikat Jabatan, satu pegawai bisa mengemban lebih dari satu (mis. Wali Kelas + Sarpras)."
+      actions={<Button size="sm" variant="outline" onClick={openAdd}><Plus className="h-4 w-4" /> Tambah</Button>}
+    >
+      {tugasTambahan.length === 0 ? <EmptyState icon={ClipboardList} title="Belum ada tugas tambahan" /> : (
+        <Table columns={['Nama Tugas Tambahan', 'Tunjangan/Bulan', 'Keterangan', '']}>
+          {tugasTambahan.map((t) => (
+            <Tr key={t.id}>
+              <Td className="font-medium">{t.nama}</Td>
+              <Td><Badge color="gold">{formatRupiah(t.tunjangan_nominal)}</Badge></Td>
+              <Td className="text-[var(--color-ink-soft)]">{t.keterangan || '—'}</Td>
+              <Td className="text-right">
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => openEdit(t)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
+                  <button onClick={() => handleDelete(t.id)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                </div>
+              </Td>
+            </Tr>
+          ))}
+        </Table>
+      )}
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'Ubah Tugas Tambahan' : 'Tambah Tugas Tambahan'}>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <Input label="Nama Tugas Tambahan" required value={form.nama} onChange={(e) => setForm((s) => ({ ...s, nama: e.target.value }))} placeholder="Wali Kelas, Sarpras, Musyrif, dll." />
+          <Input label="Tunjangan / Bulan" type="number" min="0" required value={form.tunjangan_nominal} onChange={(e) => setForm((s) => ({ ...s, tunjangan_nominal: e.target.value }))} placeholder="Rp" />
+          <Input label="Keterangan (opsional)" value={form.keterangan} onChange={(e) => setForm((s) => ({ ...s, keterangan: e.target.value }))} />
+          <p className="text-xs text-[var(--color-ink-soft)]">
+            Diisi otomatis ke Komponen Gaji (P1) tiap pegawai yang mengemban tugas ini. Beberapa tugas tambahan bisa diemban sekaligus oleh satu pegawai — nominalnya dijumlahkan sebagai Tunjangan Fungsional.
           </p>
           {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
           <div className="flex justify-end gap-2">

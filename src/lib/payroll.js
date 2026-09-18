@@ -1,15 +1,23 @@
 // =====================================================================
 // Mesin perhitungan Komponen Gaji (P1 Komponen Tetap, P2 Remunerasi &
-// Honor), sesuai Pasal 2-3 (struktur), Pasal 5-6 (tunjangan jabatan),
-// Pasal 17 (honor mengajar/lembur) SK 01.012/SK-YDC/VIII/26, dan
-// Pasal 9 ayat 5 Draft SK (honor lembur tidak berlaku untuk jabatan
-// struktural).
+// Honor), sesuai Pasal 2-3 (struktur), Pasal 5 (tunjangan jabatan
+// struktural), Pasal 6 (tunjangan fungsional/tugas tambahan), Pasal 17
+// (honor mengajar/lembur) SK 01.012/SK-YDC/VIII/26, dan Pasal 9 ayat 5
+// Draft SK (honor lembur tidak berlaku untuk jabatan struktural).
 //
 // Filosofi (disepakati bersama pengguna 2026-09-18): Gaji Pokok dan
 // Tunjangan Remunerasi TIDAK diinput manual — keduanya dihitung otomatis
 // dari Golongan/Ruang, Jabatan, dan Indeks Kehadiran/Kinerja. Input
 // manual per bulan hanya untuk: jumlah JP tambahan (Honor Mengajar),
 // jumlah jam lembur (Honor Lembur), dan Potongan Pinjaman/Cicilan.
+//
+// Koreksi arsitektur (disepakati 2026-09-18): Tunjangan Struktural
+// melekat pada Jabatan formal (maks 1/pegawai, Pasal 5 ayat 3).
+// Tunjangan Fungsional TIDAK melekat pada Jabatan — melainkan pada
+// Tugas Tambahan (tabel tugas_tambahan / employee_tugas_tambahan),
+// yang bisa diemban lebih dari satu sekaligus oleh satu pegawai
+// (mis. Wali Kelas + Sarpras). Tunjangan Fungsional = jumlah nominal
+// seluruh Tugas Tambahan yang sedang diemban.
 // =====================================================================
 
 import { hitungRuang, ambilSkalaGaji } from './remunerasi'
@@ -55,6 +63,7 @@ export function batasLemburBulanan(settings, jumlahMingguEfektif = 4.3) {
  * @param {Object} p
  * @param {Object} p.employee - { golongan, tanggal_masuk }
  * @param {Object|null} p.position - baris positions { tunjangan_jenis, tunjangan_nominal }
+ * @param {Array} [p.tugasTambahanList] - daftar tugas tambahan yang diemban { nama, tunjangan_nominal }
  * @param {Array} p.salaryScaleRows - seluruh baris salary_scale
  * @param {Object} p.settings - baris payroll_settings
  * @param {Object|null} p.ihResult - hasil hitungIH() bulan berjalan (boleh null bila belum ada data presensi)
@@ -68,6 +77,7 @@ export function batasLemburBulanan(settings, jumlahMingguEfektif = 4.3) {
 export function hitungKomponenGaji({
   employee,
   position,
+  tugasTambahanList = [],
   salaryScaleRows = [],
   settings,
   ihResult = null,
@@ -81,12 +91,12 @@ export function hitungKomponenGaji({
   const ruang = hitungRuang(employee.tanggal_masuk)
   const scaleRow = ambilSkalaGaji(salaryScaleRows, employee.golongan, ruang)
   const isStruktural = position?.tunjangan_jenis === 'struktural'
-  const isFungsional = position?.tunjangan_jenis === 'fungsional'
 
   const gajiPokok = scaleRow?.gaji_pokok ?? 0
   const nilaiJabatan = scaleRow?.nilai_jabatan ?? 0
   const tunjanganStruktural = isStruktural ? Number(position.tunjangan_nominal) : 0
-  const tunjanganFungsional = isFungsional ? Number(position.tunjangan_nominal) : 0
+  const rincianFungsional = (tugasTambahanList || []).map((t) => ({ nama: t.nama, nominal: Number(t.tunjangan_nominal) || 0 }))
+  const tunjanganFungsional = rincianFungsional.reduce((sum, t) => sum + t.nominal, 0)
   const transportMakan = Number(settings.transport_makan_nominal) || 0
 
   const totalP1 = gajiPokok + tunjanganStruktural + tunjanganFungsional + transportMakan
@@ -113,6 +123,7 @@ export function hitungKomponenGaji({
     nilaiJabatan,
     tunjanganStruktural,
     tunjanganFungsional,
+    rincianFungsional,
     transportMakan,
     totalP1,
     tunjanganRemunerasi,

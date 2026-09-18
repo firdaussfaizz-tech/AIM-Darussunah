@@ -46,7 +46,7 @@ export default function PayrollRunDetail() {
     const endDate = new Date(run.periode_tahun, run.periode_bulan, 1).toISOString().slice(0, 10)
 
     for (const emp of toProcess) {
-      const [{ data: att }, { data: perf }, { data: salaryRow }] = await Promise.all([
+      const [{ data: att }, { data: perf }, { data: salaryRow }, { data: tugas }] = await Promise.all([
         supabase
           .from('attendance')
           .select('*, leave_requests(dokumen_terlampir, durasi_jam, leave_types(kode, nama, nilai_hari_hadir, hitung_hari_kerja_wajib, batas_kejadian_per_bulan, pengurangan_ih_setelah_batas))')
@@ -56,10 +56,12 @@ export default function PayrollRunDetail() {
           .order('periode_mulai', { ascending: false }).limit(1).maybeSingle(),
         supabase.from('employee_salary').select('potongan_bpjs').eq('employee_id', emp.id)
           .order('berlaku_sejak', { ascending: false }).limit(1).maybeSingle(),
+        supabase.from('employee_tugas_tambahan').select('tugas_tambahan(nama, tunjangan_nominal)').eq('employee_id', emp.id),
       ])
       const ih = hitungIH({ attendanceRows: att || [], tahun: run.periode_tahun, bulan: run.periode_bulan })
       const komponen = hitungKomponenGaji({
-        employee: emp, position: emp.positions, salaryScaleRows: salaryScale || [], settings: settingsRow,
+        employee: emp, position: emp.positions, tugasTambahanList: (tugas || []).map((t) => t.tugas_tambahan).filter(Boolean),
+        salaryScaleRows: salaryScale || [], settings: settingsRow,
         ihResult: ih, performanceIndex: perf, potonganBpjs: salaryRow?.potongan_bpjs || 0,
       })
       await supabase.from('payroll_details').insert({

@@ -11,6 +11,7 @@ import RecordListSection from '../../components/RecordListSection'
 import DocumentsSection from '../../components/DocumentsSection'
 import SalarySection from '../../components/SalarySection'
 import IndeksKehadiranSection from '../../components/IndeksKehadiranSection'
+import TugasTambahanSection from '../../components/TugasTambahanSection'
 
 const TABS = ['Biodata', 'Pendidikan', 'Riwayat Kerja', 'Kontrak', 'Dokumen', 'Gaji', 'Indeks Kehadiran']
 
@@ -93,7 +94,12 @@ export default function EmployeeDetail() {
         ))}
       </div>
 
-      {tab === 'Biodata' && <BiodataTab employee={employee} />}
+      {tab === 'Biodata' && (
+        <div className="flex flex-col gap-5">
+          <BiodataTab employee={employee} />
+          {canViewSalary && <TugasTambahanSection employeeId={employee.id} canManage={canManage} />}
+        </div>
+      )}
       {tab === 'Pendidikan' && (
         <RecordListSection
           title="Riwayat Pendidikan"

@@ -163,7 +163,10 @@ function SlipDetailBody({ row }) {
         <div className="flex flex-col gap-1.5">
           <Row label={`Gaji Pokok (Gol. ${d.golongan || '—'} / Ruang ${d.ruang || '—'})`} value={formatRupiah(d.gajiPokok)} />
           {d.tunjanganStruktural > 0 && <Row label="Tunjangan Jabatan Struktural" value={formatRupiah(d.tunjanganStruktural)} />}
-          {d.tunjanganFungsional > 0 && <Row label="Tunjangan Fungsional" value={formatRupiah(d.tunjanganFungsional)} />}
+          {(d.rincianFungsional || []).map((t) => (
+            <Row key={t.nama} label={`Tunjangan Fungsional — ${t.nama}`} value={formatRupiah(t.nominal)} />
+          ))}
+          {!d.rincianFungsional?.length && d.tunjanganFungsional > 0 && <Row label="Tunjangan Fungsional" value={formatRupiah(d.tunjanganFungsional)} />}
           <Row label="Tunjangan Transportasi & Makan" value={formatRupiah(d.transportMakan)} />
           <Row label="Total P1" value={formatRupiah(d.totalP1)} bold />
         </div>
