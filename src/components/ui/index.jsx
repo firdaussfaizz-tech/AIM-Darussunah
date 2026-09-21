@@ -1,4 +1,4 @@
-import { forwardRef } from 'react'
+import { forwardRef, useEffect, useState } from 'react'
 
 export function PageHeader({ title, description, actions }) {
   return (
@@ -179,11 +179,35 @@ export function StatCard({ label, value, sub }) {
   )
 }
 
+// Modal tetap dirender sesaat setelah `open` jadi false, supaya animasi
+// "keluar" (fade + turun sedikit) sempat diputar dulu sebelum benar-benar
+// dilepas dari layar — durasi di sini (180ms) harus sama dengan durasi
+// animasi .is-closing di index.css.
+const MODAL_EXIT_MS = 180
+
 export function Modal({ open, onClose, title, children, width = 'max-w-lg' }) {
-  if (!open) return null
+  const [rendered, setRendered] = useState(open)
+  const [closing, setClosing] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setRendered(true)
+      setClosing(false)
+      return
+    }
+    if (!rendered) return
+    setClosing(true)
+    const timer = setTimeout(() => {
+      setRendered(false)
+      setClosing(false)
+    }, MODAL_EXIT_MS)
+    return () => clearTimeout(timer)
+  }, [open, rendered])
+
+  if (!rendered) return null
   return (
-    <div className="modal-backdrop fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 backdrop-blur-sm p-4 pt-10 sm:pt-16">
-      <div className={`modal-panel glass w-full ${width} rounded-[var(--radius-window)] shadow-2xl`}>
+    <div className={`modal-backdrop ${closing ? 'is-closing' : ''} fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 backdrop-blur-sm p-4 pt-10 sm:pt-16`}>
+      <div className={`modal-panel ${closing ? 'is-closing' : ''} glass w-full ${width} rounded-[var(--radius-window)] shadow-2xl`}>
         <div className="flex items-center justify-between border-b border-white/40 px-6 py-4">
           <h3 className="text-[17px] font-semibold text-[var(--color-ink)]">{title}</h3>
           <button onClick={onClose} className="nav-link flex h-7 w-7 items-center justify-center rounded-full bg-black/[0.06] text-[var(--color-ink-soft)] hover:bg-black/[0.1]" aria-label="Tutup">
