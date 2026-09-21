@@ -127,6 +127,25 @@ html {
   animation: modal-panel-in 280ms var(--ease-smooth) both;
 }
 
+/* Animasi saat modal DITUTUP — arah kebalikan dari animasi masuk di atas.
+   Durasi (180ms) harus sama dengan MODAL_EXIT_MS di komponen Modal
+   (src/components/ui/index.jsx), supaya modal baru benar-benar dilepas dari
+   layar setelah animasi ini selesai diputar. */
+@keyframes modal-backdrop-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes modal-panel-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(8px) scale(0.97); }
+}
+.modal-backdrop.is-closing {
+  animation: modal-backdrop-out 180ms var(--ease-smooth) both;
+}
+.modal-panel.is-closing {
+  animation: modal-panel-out 180ms var(--ease-smooth) both;
+}
+
 /* Transisi konten halaman saat berpindah menu — fade + naik sedikit,
    supaya perpindahan antar halaman tidak terasa "loncat" instan. */
 @keyframes page-fade-in {
