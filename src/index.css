@@ -49,6 +49,94 @@ html, body, #root {
   height: 100%;
 }
 
+/* =====================================================================
+   MOTION SYSTEM — kurva easing "soft landing" ala macOS (dipakai di
+   seluruh aplikasi lewat kelas-kelas di bawah), supaya interaksi terasa
+   lembut/menyatu, bukan langsung snap seperti sebelumnya. Elemen mendekati
+   posisi akhirnya dengan cepat lalu melambat halus di ujung — beda dari
+   easing linear/ease bawaan browser yang terasa "kaku".
+   ===================================================================== */
+:root {
+  --ease-smooth: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Tautan/tombol navigasi (Sidebar) — transisi warna & sedikit "tekan"
+   saat diklik, seperti item sidebar di aplikasi macOS. */
+.nav-link {
+  transition: background-color 220ms var(--ease-smooth), color 220ms var(--ease-smooth), transform 150ms var(--ease-smooth);
+}
+.nav-link:active {
+  transform: scale(0.97);
+}
+
+/* Tombol (komponen Button) — transisi warna/bayangan halus + efek
+   "tekan" ringan saat diklik. */
+.btn-press {
+  transition: background-color 200ms var(--ease-smooth), color 200ms var(--ease-smooth), transform 150ms var(--ease-smooth), filter 200ms var(--ease-smooth), opacity 200ms var(--ease-smooth), box-shadow 200ms var(--ease-smooth);
+}
+.btn-press:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Baris tabel yang bisa diklik. */
+.row-hover {
+  transition: background-color 200ms var(--ease-smooth);
+}
+
+/* Grup navigasi yang bisa dilipat (mis. "Kepegawaian" di Sidebar) —
+   memakai trik CSS grid-template-rows 0fr/1fr supaya tinggi konten bisa
+   dianimasikan secara halus tanpa mengukur tinggi lewat JavaScript. */
+.nav-group-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 320ms var(--ease-smooth);
+}
+.nav-group-panel.is-open {
+  grid-template-rows: 1fr;
+}
+.nav-group-panel > div {
+  overflow: hidden;
+}
+.nav-group-chevron {
+  transition: transform 280ms var(--ease-smooth);
+}
+
+/* Panel mobile Sidebar (slide in/out) & overlay gelap di belakangnya. */
+.sidebar-slide {
+  transition: transform 320ms var(--ease-smooth);
+}
+
+/* Modal — animasi muncul (fade + naik sedikit + scale), backdrop fade
+   terpisah supaya terasa seperti sheet/panel macOS, bukan pop instan. */
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modal-panel-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.modal-backdrop {
+  animation: modal-backdrop-in 200ms var(--ease-smooth) both;
+}
+.modal-panel {
+  animation: modal-panel-in 280ms var(--ease-smooth) both;
+}
+
+/* Transisi konten halaman saat berpindah menu — fade + naik sedikit,
+   supaya perpindahan antar halaman tidak terasa "loncat" instan. */
+@keyframes page-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.page-fade-in {
+  animation: page-fade-in 320ms var(--ease-smooth) both;
+}
+
 body {
   background-color: var(--color-paper);
   background-image:
