@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* Apple-esque neutral palette */
+  --color-paper: #f5f5f7;
+  --color-surface: #ffffff;
+  --color-ink: #1d1d1f;
+  --color-ink-soft: #6e6e73;
+
+  /* Primary accent — Apple's signature interactive blue */
+  --color-navy: #0071e3;
+  --color-navy-light: #0077ed;
+  --color-navy-50: #e8f2fd;
+
+  /* Secondary accent (repurposed as amber/warning, Apple systemOrange) */
+  --color-gold: #ff9500;
+  --color-gold-soft: #fff2de;
+
+  --color-success: #1d7d34;
+  --color-success-soft: #e6f6ea;
+  --color-danger: #d70015;
+  --color-danger-soft: #fdeceb;
+  --color-border: #d2d2d7;
+
+  --radius-pill: 980px;
+  --radius-card: 18px;
+  --radius-window: 22px;
+}
+
+/* Liquid Glass surface — used only for floating chrome (sidebar, toolbar,
+   modals), never for ordinary content cards, so data stays easy to read. */
+.glass {
+  background-color: rgba(255, 255, 255, 0.6);
+  -webkit-backdrop-filter: blur(32px) saturate(190%);
+  backdrop-filter: blur(32px) saturate(190%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.glass-edge-right {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 1px 0 24px -8px rgba(0, 0, 0, 0.12);
+}
+.glass-edge-bottom {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 1px 24px -8px rgba(0, 0, 0, 0.1);
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+/* =====================================================================
+   MOTION SYSTEM — kurva easing "soft landing" ala macOS (dipakai di
+   seluruh aplikasi lewat kelas-kelas di bawah), supaya interaksi terasa
+   lembut/menyatu, bukan langsung snap seperti sebelumnya. Elemen mendekati
+   posisi akhirnya dengan cepat lalu melambat halus di ujung — beda dari
+   easing linear/ease bawaan browser yang terasa "kaku".
+   ===================================================================== */
+:root {
+  --ease-smooth: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Tautan/tombol navigasi (Sidebar) — transisi warna & sedikit "tekan"
+   saat diklik, seperti item sidebar di aplikasi macOS. */
+.nav-link {
+  transition: background-color 220ms var(--ease-smooth), color 220ms var(--ease-smooth), transform 150ms var(--ease-smooth);
+}
+.nav-link:active {
+  transform: scale(0.97);
+}
+
+/* Tombol (komponen Button) — transisi warna/bayangan halus + efek
+   "tekan" ringan saat diklik. */
+.btn-press {
+  transition: background-color 200ms var(--ease-smooth), color 200ms var(--ease-smooth), transform 150ms var(--ease-smooth), filter 200ms var(--ease-smooth), opacity 200ms var(--ease-smooth), box-shadow 200ms var(--ease-smooth);
+}
+.btn-press:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Baris tabel yang bisa diklik. */
+.row-hover {
+  transition: background-color 200ms var(--ease-smooth);
+}
+
+/* Grup navigasi yang bisa dilipat (mis. "Kepegawaian" di Sidebar) —
+   memakai trik CSS grid-template-rows 0fr/1fr supaya tinggi konten bisa
+   dianimasikan secara halus tanpa mengukur tinggi lewat JavaScript. */
+.nav-group-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 320ms var(--ease-smooth);
+}
+.nav-group-panel.is-open {
+  grid-template-rows: 1fr;
+}
+.nav-group-panel > div {
+  overflow: hidden;
+}
+.nav-group-chevron {
+  transition: transform 280ms var(--ease-smooth);
+}
+
+/* Panel mobile Sidebar (slide in/out) & overlay gelap di belakangnya. */
+.sidebar-slide {
+  transition: transform 320ms var(--ease-smooth);
+}
+
+/* Modal — animasi muncul (fade + naik sedikit + scale), backdrop fade
+   terpisah supaya terasa seperti sheet/panel macOS, bukan pop instan. */
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modal-panel-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.modal-backdrop {
+  animation: modal-backdrop-in 200ms var(--ease-smooth) both;
+}
+.modal-panel {
+  animation: modal-panel-in 280ms var(--ease-smooth) both;
+}
+
+/* Transisi konten halaman saat berpindah menu — fade + naik sedikit,
+   supaya perpindahan antar halaman tidak terasa "loncat" instan. */
+@keyframes page-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.page-fade-in {
+  animation: page-fade-in 320ms var(--ease-smooth) both;
+}
+
+body {
+  background-color: var(--color-paper);
+  background-image:
+    radial-gradient(880px circle at 8% -8%, rgba(0, 113, 227, 0.10), transparent 60%),
+    radial-gradient(720px circle at 100% 18%, rgba(255, 149, 0, 0.07), transparent 60%),
+    radial-gradient(900px circle at 15% 100%, rgba(0, 113, 227, 0.06), transparent 60%);
+  background-attachment: fixed;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.011em;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+::selection {
+  background-color: var(--color-navy-50);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-navy);
+  outline-offset: 2px;
+}
+
+.scroll-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
