@@ -19,6 +19,9 @@ import UserRoles from './pages/users/UserRoles'
 import HolidayList from './pages/holidays/HolidayList'
 import ActivityLog from './pages/activity/ActivityLog'
 import NotificationSettings from './pages/settings/NotificationSettings'
+import StudentList from './pages/students/StudentList'
+import StudentDetail from './pages/students/StudentDetail'
+import AcademicSettings from './pages/academic/AcademicSettings'
 
 export default function App() {
   return (
@@ -50,6 +53,9 @@ export default function App() {
             <Route path="pengguna" element={<RequireFullAccess><UserRoles /></RequireFullAccess>} />
             <Route path="log-aktivitas" element={<RequireFullAccess><ActivityLog /></RequireFullAccess>} />
             <Route path="notifikasi-email" element={<RequireFullAccess><NotificationSettings /></RequireFullAccess>} />
+            <Route path="siswa" element={<StudentList />} />
+            <Route path="siswa/:id" element={<StudentDetail />} />
+            <Route path="akademik" element={<AcademicSettings />} />
           </Route>
         </Routes>
       </BrowserRouter>

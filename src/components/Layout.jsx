@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CalendarCheck, CalendarClock, Wallet, Star,
   GraduationCap, Building2, UserCog, LogOut, Menu, X, Activity, CalendarOff,
-  History, Mail, ChevronRight,
+  History, Mail, ChevronRight, BookOpen, Contact, CalendarRange,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/format'
@@ -26,6 +26,15 @@ function navGroupsFor({ isManager, hasFullAccess }) {
   if (isManager) kepegawaian.push({ to: '/kalender-libur', label: 'Kalender Libur', icon: CalendarOff })
   if (hasFullAccess) kepegawaian.push({ to: '/struktur', label: 'Struktur Organisasi', icon: Building2 })
 
+  // Modul Kesiswaan (Student Information Management) — dikelompokkan
+  // terpisah dari Kepegawaian, hanya untuk manajemen (Admin Yayasan/HR/
+  // Admin Sekolah/Kepala Sekolah); siswa sendiri tidak login ke sistem ini.
+  const kesiswaan = []
+  if (isManager) {
+    kesiswaan.push({ to: '/siswa', label: 'Data Siswa', icon: Contact })
+    kesiswaan.push({ to: '/akademik', label: 'Kelas & Tahun Ajaran', icon: CalendarRange })
+  }
+
   const lainnya = []
   if (hasFullAccess) {
     lainnya.push({ to: '/pengguna', label: 'Pengguna & Peran', icon: UserCog })
@@ -33,7 +42,7 @@ function navGroupsFor({ isManager, hasFullAccess }) {
     lainnya.push({ to: '/notifikasi-email', label: 'Notifikasi Email', icon: Mail })
   }
 
-  return { kepegawaian, lainnya }
+  return { kepegawaian, kesiswaan, lainnya }
 }
 
 function NavItem({ to, label, icon: Icon, end, onClick }) {
@@ -98,7 +107,7 @@ function NavGroup({ storageKey, label, icon: Icon, defaultOpen = true, children 
 
 function Sidebar({ open, onClose }) {
   const { isManager, hasFullAccess } = useAuth()
-  const { kepegawaian, lainnya } = navGroupsFor({ isManager, hasFullAccess })
+  const { kepegawaian, kesiswaan, lainnya } = navGroupsFor({ isManager, hasFullAccess })
 
   return (
     <aside
@@ -126,6 +135,14 @@ function Sidebar({ open, onClose }) {
             <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
           ))}
         </NavGroup>
+
+        {kesiswaan.length > 0 && (
+          <NavGroup storageKey="simpeg_nav_kesiswaan_open" label="Kesiswaan" icon={BookOpen} defaultOpen>
+            {kesiswaan.map(({ to, label, icon, end }) => (
+              <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
+            ))}
+          </NavGroup>
+        )}
 
         {lainnya.length > 0 && (
           <div>

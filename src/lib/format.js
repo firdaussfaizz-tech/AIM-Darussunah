@@ -21,7 +21,7 @@ export const BULAN = [
 
 export const STATUS_KEPEGAWAIAN_OPTIONS = ['PNS Dipekerjakan', 'Tetap Yayasan', 'Kontrak', 'Honorer', 'GTT', 'PTT']
 export const EMPLOYEE_STATUS_OPTIONS = ['aktif', 'cuti', 'nonaktif', 'pensiun']
-export const ROLE_OPTIONS = ['admin_yayasan', 'hr', 'admin_sekolah', 'kepala_sekolah', 'guru', 'staff']
+export const ROLE_OPTIONS = ['admin_yayasan', 'hr', 'admin_sekolah', 'kepala_sekolah', 'guru', 'staff', 'bendahara']
 
 export const ROLE_LABELS = {
   admin_yayasan: 'Admin Yayasan',
@@ -30,7 +30,24 @@ export const ROLE_LABELS = {
   kepala_sekolah: 'Kepala Sekolah',
   guru: 'Guru',
   staff: 'Staf',
+  bendahara: 'Bendahara',
 }
+
+// ---- Modul Kesiswaan ----
+export const SISWA_STATUS_OPTIONS = ['aktif', 'lulus', 'pindah', 'keluar']
+export const SISWA_STATUS_LABELS = {
+  aktif: 'Aktif',
+  lulus: 'Lulus',
+  pindah: 'Pindah',
+  keluar: 'Keluar',
+}
+export const JENIS_DOKUMEN_SISWA_OPTIONS = [
+  { value: 'akta_lahir', label: 'Akta Lahir' },
+  { value: 'kartu_keluarga', label: 'Kartu Keluarga' },
+  { value: 'ijazah_sebelumnya', label: 'Ijazah Jenjang Sebelumnya' },
+  { value: 'foto', label: 'Foto' },
+  { value: 'lainnya', label: 'Lainnya' },
+]
 
 export const STATUS_BADGE_COLOR = {
   aktif: 'success',
@@ -52,4 +69,7 @@ export const STATUS_BADGE_COLOR = {
   dinas_luar: 'navy',
   berakhir: 'neutral',
   diperpanjang: 'navy',
+  lulus: 'navy',
+  pindah: 'gold',
+  keluar: 'danger',
 }
