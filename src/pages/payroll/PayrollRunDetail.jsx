@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, PlayCircle, Lock, Pencil, RefreshCw } from 'lucide-react'
+import Papa from 'papaparse'
+import { ArrowLeft, PlayCircle, Lock, Pencil, RefreshCw, Download } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner, Modal, Input, Textarea } from '../../components/ui'
 import { STATUS_BADGE_COLOR, formatRupiah, BULAN } from '../../lib/format'
@@ -17,13 +18,14 @@ export default function PayrollRunDetail() {
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
   const [recomputingId, setRecomputingId] = useState(null)
+  const [recomputingAll, setRecomputingAll] = useState(false)
   const [editRow, setEditRow] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     const [{ data: r }, { data: d }, { data: s }, { data: scale }] = await Promise.all([
       supabase.from('payroll_runs').select('*').eq('id', id).maybeSingle(),
-      supabase.from('payroll_details').select('*, employees(nama, golongan, tanggal_masuk, positions(nama, tunjangan_jenis, tunjangan_nominal), schools!school_id(nama, jenjang))').eq('payroll_run_id', id).order('created_at'),
+      supabase.from('payroll_details').select('*, employees(nama, golongan, tanggal_masuk, school_id, positions(nama, tunjangan_jenis, tunjangan_nominal), schools!school_id(nama, jenjang))').eq('payroll_run_id', id).order('created_at'),
       supabase.from('payroll_settings').select('*').maybeSingle(),
       supabase.from('salary_scale').select('*'),
     ])
@@ -43,7 +45,7 @@ export default function PayrollRunDetail() {
   const hitungKomponenTerkini = async (emp, { jpTambahan = 0, jamLembur = 0, potonganPinjaman = 0, potonganLainnya = 0 } = {}) => {
     const start = `${run.periode_tahun}-${String(run.periode_bulan).padStart(2, '0')}-01`
     const endDate = new Date(run.periode_tahun, run.periode_bulan, 1).toISOString().slice(0, 10)
-    const [{ data: att }, { data: perf }, { data: salaryRow }, { data: tugas }] = await Promise.all([
+    const [{ data: att }, { data: perf }, { data: salaryRow }, { data: tugas }, { data: holidays }] = await Promise.all([
       supabase
         .from('attendance')
         .select('*, leave_requests(dokumen_terlampir, durasi_jam, leave_types(kode, nama, nilai_hari_hadir, hitung_hari_kerja_wajib, batas_kejadian_per_bulan, pengurangan_ih_setelah_batas))')
@@ -54,8 +56,15 @@ export default function PayrollRunDetail() {
       supabase.from('employee_salary').select('potongan_bpjs').eq('employee_id', emp.id)
         .order('berlaku_sejak', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('employee_tugas_tambahan').select('tugas_tambahan(nama, tunjangan_nominal)').eq('employee_id', emp.id),
+      // Libur yayasan (school_id null) + libur khusus sekolah pegawai ini,
+      // dikecualikan dari Hari Kerja Wajib (Roadmap B Otomasi #6).
+      supabase
+        .from('school_holidays')
+        .select('tanggal')
+        .gte('tanggal', start).lt('tanggal', endDate)
+        .or(`school_id.is.null${emp.school_id ? `,school_id.eq.${emp.school_id}` : ''}`),
     ])
-    const ih = hitungIH({ attendanceRows: att || [], tahun: run.periode_tahun, bulan: run.periode_bulan })
+    const ih = hitungIH({ attendanceRows: att || [], tahun: run.periode_tahun, bulan: run.periode_bulan, holidayDates: (holidays || []).map((h) => h.tanggal) })
     return hitungKomponenGaji({
       employee: emp, position: emp.positions, tugasTambahanList: (tugas || []).map((t) => t.tugas_tambahan).filter(Boolean),
       salaryScaleRows: salaryScale, settings,
@@ -67,7 +76,7 @@ export default function PayrollRunDetail() {
   const handleGenerate = async () => {
     setProcessing(true)
     try {
-      const { data: employees } = await supabase.from('employees').select('id, nama, golongan, tanggal_masuk, positions(tunjangan_jenis, tunjangan_nominal)').eq('status', 'aktif')
+      const { data: employees } = await supabase.from('employees').select('id, nama, golongan, tanggal_masuk, school_id, positions(tunjangan_jenis, tunjangan_nominal)').eq('status', 'aktif')
       const already = new Set(details.map((d) => d.employee_id))
       const toProcess = (employees || []).filter((e) => !already.has(e.id))
 
@@ -104,6 +113,7 @@ export default function PayrollRunDetail() {
         id: row.employee_id,
         golongan: row.employees?.golongan,
         tanggal_masuk: row.employees?.tanggal_masuk,
+        school_id: row.employees?.school_id,
         positions: row.employees?.positions,
       }
       const komponen = await hitungKomponenTerkini(emp, {
@@ -133,12 +143,58 @@ export default function PayrollRunDetail() {
   // dihitung ulang dari data TERKINI setiap kali slip disimpan, persis
   // seperti tombol "Hitung Ulang". Ini menutup celah yang sama dengan
   // bug Golongan Yanah/Karsih — kali ini di jalur ubah honor/potongan.
+  // Hitung ulang SEMUA slip draft sekaligus dari data terkini (Golongan/Ruang,
+  // Jabatan, Tugas Tambahan, presensi, kinerja) — dipakai setelah perubahan
+  // massal (mis. kenaikan golongan banyak pegawai, revisi Payroll Settings)
+  // supaya admin tidak perlu klik ikon Hitung Ulang satu per satu.
+  const handleRecomputeAll = async () => {
+    if (!confirm(`Hitung ulang seluruh ${details.length} slip pada periode ini dari data terkini?`)) return
+    setRecomputingAll(true)
+    const gagal = []
+    try {
+      for (const row of details) {
+        try {
+          const emp = {
+            id: row.employee_id,
+            golongan: row.employees?.golongan,
+            tanggal_masuk: row.employees?.tanggal_masuk,
+            school_id: row.employees?.school_id,
+            positions: row.employees?.positions,
+          }
+          const komponen = await hitungKomponenTerkini(emp, {
+            jpTambahan: row.jp_tambahan || 0,
+            jamLembur: row.jam_lembur || 0,
+            potonganPinjaman: row.potongan_pinjaman || 0,
+            potonganLainnya: row.detail?.potonganLainnya || 0,
+          })
+          const { error: updErr } = await supabase.from('payroll_details').update({
+            gaji_pokok: komponen.gajiPokok,
+            total_tunjangan: komponen.totalTunjangan,
+            total_potongan: komponen.totalPotongan,
+            gaji_bersih: komponen.gajiBersih,
+            detail: komponen,
+          }).eq('id', row.id)
+          if (updErr) gagal.push(`${row.employees?.nama || row.employee_id}: ${updErr.message}`)
+        } catch (err) {
+          gagal.push(`${row.employees?.nama || row.employee_id}: ${err.message}`)
+        }
+      }
+      if (gagal.length > 0) {
+        alert(`Selesai dengan ${gagal.length} kegagalan:\n\n${gagal.join('\n')}`)
+      }
+    } finally {
+      setRecomputingAll(false)
+      load()
+    }
+  }
+
   const persistEditedSlip = async (row, { jpTambahan, jamLembur, potonganPinjaman, keterangan }) => {
     try {
       const emp = {
         id: row.employee_id,
         golongan: row.employees?.golongan,
         tanggal_masuk: row.employees?.tanggal_masuk,
+        school_id: row.employees?.school_id,
         positions: row.employees?.positions,
       }
       const komponen = await hitungKomponenTerkini(emp, {
@@ -161,8 +217,52 @@ export default function PayrollRunDetail() {
     }
   }
 
+  // Ekspor rekap periode ini ke CSV (bisa dibuka di Excel/Google Sheets).
+  // Memakai papaparse yang sudah jadi dependensi proyek — tidak menambah
+  // paket baru.
+  const handleExportCsv = () => {
+    const rows = details.map((d) => ({
+      'Nama Pegawai': d.employees?.nama || '',
+      'Unit': d.employees?.schools ? `${d.employees.schools.jenjang} — ${d.employees.schools.nama}` : '',
+      'Golongan': d.employees?.golongan || '',
+      'P1 (Gaji Pokok + Tunjangan Tetap)': d.detail?.totalP1 ?? d.gaji_pokok,
+      'Tunjangan Remunerasi': d.detail?.tunjanganRemunerasi || 0,
+      'Honor Mengajar': d.detail?.honorMengajar || 0,
+      'Honor Lembur': d.detail?.honorLembur || 0,
+      'Total Potongan': d.total_potongan,
+      'Gaji Bersih': d.gaji_bersih,
+      'Data Lengkap': d.detail?.lengkap === true ? 'Ya' : 'Tidak',
+    }))
+    const csv = Papa.unparse(rows)
+    const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `Rekap-Gaji-${BULAN[run.periode_bulan - 1]}-${run.periode_tahun}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  // Sebelum Finalisasi, cek setiap slip: detail.lengkap (dihitung di
+  // hitungKomponenGaji, payroll.js) hanya true jika Golongan, baris Skala
+  // Gaji, hasil Indeks Kehadiran, dan Indeks Kinerja semuanya tersedia.
+  // Slip yang belum lengkap kemungkinan memakai nilai 0/default yang keliru
+  // — admin diberi peringatan berisi nama pegawai sebelum bisa lanjut.
   const handleFinalize = async () => {
-    if (!confirm('Finalisasi periode ini? Slip gaji akan terlihat oleh pegawai dan tidak disarankan diubah lagi.')) return
+    const belumLengkap = details.filter((d) => d.detail?.lengkap !== true)
+    if (belumLengkap.length > 0) {
+      const daftar = belumLengkap.map((d) => `- ${d.employees?.nama || d.employee_id}`).join('\n')
+      const lanjut = confirm(
+        `Peringatan: ${belumLengkap.length} slip berikut datanya belum lengkap (Golongan/Skala Gaji/Indeks Kehadiran/Indeks Kinerja belum tersedia saat dihitung):\n\n${daftar}\n\n` +
+        `Slip ini kemungkinan memakai nilai default/0 yang tidak akurat. Disarankan periksa dan "Hitung Ulang" dulu sebelum Finalisasi.\n\n` +
+        `Tetap lanjutkan Finalisasi sekarang?`
+      )
+      if (!lanjut) return
+    } else if (!confirm('Finalisasi periode ini? Slip gaji akan terlihat oleh pegawai dan tidak disarankan diubah lagi.')) {
+      return
+    }
     await supabase.from('payroll_runs').update({ status: 'final' }).eq('id', id)
     load()
   }
@@ -188,8 +288,18 @@ export default function PayrollRunDetail() {
                 <Button variant="outline" onClick={handleGenerate} disabled={processing}>
                   <PlayCircle className="h-4 w-4" /> {processing ? 'Memproses…' : 'Proses Pegawai Aktif'}
                 </Button>
+                {details.length > 0 && (
+                  <Button variant="outline" onClick={handleRecomputeAll} disabled={recomputingAll}>
+                    <RefreshCw className={`h-4 w-4 ${recomputingAll ? 'animate-spin' : ''}`} /> {recomputingAll ? 'Menghitung Ulang…' : 'Hitung Ulang Semua'}
+                  </Button>
+                )}
                 <Button onClick={handleFinalize}><Lock className="h-4 w-4" /> Finalisasi</Button>
               </>
+            )}
+            {details.length > 0 && (
+              <Button variant="outline" onClick={handleExportCsv}>
+                <Download className="h-4 w-4" /> Ekspor CSV
+              </Button>
             )}
             <Badge color={STATUS_BADGE_COLOR[run.status]}>{run.status}</Badge>
           </div>

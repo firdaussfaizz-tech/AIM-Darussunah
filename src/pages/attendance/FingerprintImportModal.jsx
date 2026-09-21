@@ -111,13 +111,11 @@ export default function FingerprintImportModal({ open, onClose, onImported }) {
     pins.forEach((p) => { if (!pinToEmployee[p]) unmatchedPins.add(p) })
 
     // 3. Tentukan jam masuk/pulang per pegawai per tanggal
-    const dates = []
     const perEmployeeDay = {} // key: employeeId_tanggal -> { jam_masuk, jam_pulang }
     for (const pin of pins) {
       const employeeId = pinToEmployee[pin]
       if (!employeeId) continue
       for (const tanggal of Object.keys(raw[pin])) {
-        dates.push(tanggal)
         const entries = raw[pin][tanggal]
         let jamMasuk = null, jamPulang = null
         const masukEntry = entries.find((e) => /masuk|in\b/.test(e.jenisRaw))
@@ -141,29 +139,27 @@ export default function FingerprintImportModal({ open, onClose, onImported }) {
       return
     }
 
-    // 4. Ambil presensi yang sudah ada, supaya status manual (Cuti/Izin/dst) tidak tertimpa
-    const minDate = dates.sort()[0]
-    const maxDate = dates.sort()[dates.length - 1]
-    const employeeIds = [...new Set(Object.values(perEmployeeDay).map((v) => v.employee_id))]
-    const { data: existing } = await supabase
-      .from('attendance').select('id, employee_id, tanggal, status')
-      .in('employee_id', employeeIds).gte('tanggal', minDate).lte('tanggal', maxDate)
-    const existingMap = {}
-    ;(existing || []).forEach((r) => { existingMap[`${r.employee_id}_${r.tanggal}`] = r })
-
-    let processed = 0
-    for (const key of keys) {
+    // Simpan per-batch (bukan satu request per baris) — jauh lebih cepat
+    // untuk file besar, dan setiap batch benar-benar dicek error-nya
+    // (sebelumnya baris yang gagal tersimpan tetap dihitung "berhasil").
+    // Baris yang SUDAH ada (existingMap) dipertahankan statusnya (mis.
+    // Cuti/Izin manual) — hanya jam_masuk/jam_pulang yang diperbarui,
+    // makanya upsert TIDAK menyertakan kolom status.
+    const BATCH_SIZE = 300
+    const upsertRows = keys.map((key) => {
       const { employee_id, tanggal, jam_masuk, jam_pulang } = perEmployeeDay[key]
-      const found = existingMap[key]
-      if (found) {
-        await supabase.from('attendance').update({ jam_masuk, jam_pulang }).eq('id', found.id)
-      } else {
-        await supabase.from('attendance').insert({ employee_id, tanggal, jam_masuk, jam_pulang, status: 'hadir' })
-      }
-      processed++
+      return { employee_id, tanggal, jam_masuk, jam_pulang }
+    })
+    let processed = 0
+    const failedBatches = []
+    for (let i = 0; i < upsertRows.length; i += BATCH_SIZE) {
+      const batch = upsertRows.slice(i, i + BATCH_SIZE)
+      const { error: batchErr } = await supabase.from('attendance').upsert(batch, { onConflict: 'employee_id,tanggal' })
+      if (batchErr) failedBatches.push({ jumlah: batch.length, pesan: batchErr.message })
+      else processed += batch.length
     }
 
-    setResult({ processed, unmatchedPins: [...unmatchedPins], skipped })
+    setResult({ processed, unmatchedPins: [...unmatchedPins], skipped, failedBatches })
     setStep('result')
   }
 
@@ -246,6 +242,18 @@ export default function FingerprintImportModal({ open, onClose, onImported }) {
           )}
           {result.skipped > 0 && (
             <p className="text-sm text-[var(--color-ink-soft)]">{result.skipped} baris dilewati karena data tanggal/jam tidak terbaca.</p>
+          )}
+          {result.failedBatches?.length > 0 && (
+            <div className="flex items-start gap-3 rounded-[var(--radius-card)] bg-[var(--color-danger-soft)] p-4">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-danger)]" />
+              <div className="text-sm text-[var(--color-danger)]">
+                <p><strong>{result.failedBatches.reduce((s, b) => s + b.jumlah, 0)}</strong> data GAGAL tersimpan (tidak termasuk dalam angka berhasil di atas):</p>
+                <ul className="mt-1 list-inside list-disc">
+                  {result.failedBatches.map((b, i) => <li key={i}>{b.jumlah} data — {b.pesan}</li>)}
+                </ul>
+                <p className="mt-1">Aman untuk mengimpor ulang file yang sama setelah masalahnya diperbaiki — data yang sudah berhasil tidak akan dobel.</p>
+              </div>
+            </div>
           )}
           <div className="flex justify-end gap-2">
             <Button type="button" onClick={() => { handleClose(); onImported() }}>Selesai</Button>

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Star, Plus, Info } from 'lucide-react'
+import { Star, Plus, Info, Pencil, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Select, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner, Modal, Input, Textarea } from '../../components/ui'
@@ -13,6 +13,7 @@ export default function PerformanceList() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [formOpen, setFormOpen] = useState(false)
+  const [editingRow, setEditingRow] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -26,6 +27,13 @@ export default function PerformanceList() {
   }, [periodFilter])
 
   useEffect(() => { if (!authLoading) load() }, [authLoading, load])
+
+  const handleDelete = async (row) => {
+    if (!confirm(`Hapus penilaian draft "${row.employees?.nama}" — ${row.performance_periods?.nama} ${row.performance_periods?.tahun}? Tindakan ini tidak bisa dibatalkan.`)) return
+    const { error } = await supabase.from('performance_reviews').delete().eq('id', row.id)
+    if (error) { alert('Gagal menghapus: ' + error.message); return }
+    load()
+  }
 
   if (authLoading || loading) return <FullPageSpinner />
 
@@ -62,7 +70,7 @@ export default function PerformanceList() {
           {rows.length === 0 ? (
             <EmptyState icon={Star} title="Belum ada penilaian" description="Belum ada data penilaian kinerja pada periode ini." />
           ) : (
-            <Table columns={isManager ? ['Pegawai', 'Periode', 'Nilai Akhir', 'Penilai', 'Status'] : ['Periode', 'Nilai Akhir', 'Status']}>
+            <Table columns={isManager ? ['Pegawai', 'Periode', 'Nilai Akhir', 'Penilai', 'Status', ''] : ['Periode', 'Nilai Akhir', 'Status']}>
               {rows.map((r) => (
                 <Tr key={r.id}>
                   {isManager && <Td className="font-medium text-[var(--color-ink)]">{r.employees?.nama}</Td>}
@@ -70,6 +78,20 @@ export default function PerformanceList() {
                   <Td className="font-medium">{r.nilai_akhir ?? '—'}</Td>
                   {isManager && <Td className="text-[var(--color-ink-soft)]">{r.reviewer?.nama || '—'}</Td>}
                   <Td><Badge color={STATUS_BADGE_COLOR[r.status]}>{r.status}</Badge></Td>
+                  {isManager && (
+                    <Td className="text-right">
+                      {r.status === 'draft' && (
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => setEditingRow(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah penilaian">
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus penilaian">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      )}
+                    </Td>
+                  )}
                 </Tr>
               ))}
             </Table>
@@ -77,33 +99,54 @@ export default function PerformanceList() {
         </div>
       </Card>
 
-      <PerformanceFormModal open={formOpen} onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); load() }} periods={periods} reviewerId={employee?.id} />
+      <PerformanceFormModal
+        open={formOpen || !!editingRow}
+        editingRow={editingRow}
+        onClose={() => { setFormOpen(false); setEditingRow(null) }}
+        onSaved={() => { setFormOpen(false); setEditingRow(null); load() }}
+        periods={periods}
+        defaultReviewerId={employee?.id}
+      />
     </div>
   )
 }
 
-function PerformanceFormModal({ open, onClose, onSaved, periods, reviewerId }) {
+function PerformanceFormModal({ open, editingRow, onClose, onSaved, periods, defaultReviewerId }) {
   const [employees, setEmployees] = useState([])
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const isEdit = !!editingRow
 
   useEffect(() => {
     if (open) {
       const now = new Date()
       const periodeGaji = defaultPeriodeKinerja(now.getFullYear(), now.getMonth() + 1)
-      setForm({
+      setForm(editingRow ? {
+        employee_id: editingRow.employee_id,
+        period_id: editingRow.period_id,
+        nilai_kedisiplinan: editingRow.nilai_kedisiplinan,
+        nilai_kinerja: editingRow.nilai_kinerja,
+        nilai_kerjasama: editingRow.nilai_kerjasama,
+        catatan: editingRow.catatan || '',
+        status: editingRow.status,
+        reviewer_id: editingRow.reviewer_id || defaultReviewerId || '',
+        periode_gaji_mulai: periodeGaji.mulai,
+        periode_gaji_selesai: periodeGaji.selesai,
+      } : {
         employee_id: '', period_id: '', nilai_kedisiplinan: 80, nilai_kinerja: 80, nilai_kerjasama: 80, catatan: '', status: 'draft',
+        reviewer_id: defaultReviewerId || '',
         periode_gaji_mulai: periodeGaji.mulai, periode_gaji_selesai: periodeGaji.selesai,
       })
       setError('')
       supabase.from('employees').select('id, nama').eq('status', 'aktif').order('nama').then(({ data }) => setEmployees(data || []))
     }
-  }, [open])
+  }, [open, editingRow, defaultReviewerId])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!form.employee_id || !form.period_id) { setError('Pilih pegawai dan periode.'); return }
+    if (!form.reviewer_id) { setError('Pilih penilai.'); return }
     if (form.status === 'final' && (!form.periode_gaji_mulai || !form.periode_gaji_selesai)) {
       setError('Isi rentang periode gaji yang akan memakai Indeks Kinerja ini.')
       return
@@ -112,7 +155,9 @@ function PerformanceFormModal({ open, onClose, onSaved, periods, reviewerId }) {
     setError('')
     const nilaiAkhir = Number(((Number(form.nilai_kedisiplinan) + Number(form.nilai_kinerja) + Number(form.nilai_kerjasama)) / 3).toFixed(2))
     const { periode_gaji_mulai, periode_gaji_selesai, ...reviewForm } = form
-    const { error: err } = await supabase.from('performance_reviews').insert({ ...reviewForm, reviewer_id: reviewerId, nilai_akhir: nilaiAkhir })
+    const { error: err } = isEdit
+      ? await supabase.from('performance_reviews').update({ ...reviewForm, nilai_akhir: nilaiAkhir }).eq('id', editingRow.id)
+      : await supabase.from('performance_reviews').insert({ ...reviewForm, nilai_akhir: nilaiAkhir })
     if (err) { setSaving(false); setError(err.message.includes('duplicate') ? 'Pegawai ini sudah dinilai pada periode tersebut.' : err.message); return }
 
     // Status Final → sinkron otomatis ke Indeks Kinerja (angka yang benar-
@@ -136,7 +181,7 @@ function PerformanceFormModal({ open, onClose, onSaved, periods, reviewerId }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Tambah Penilaian Kinerja" width="max-w-xl">
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Ubah Penilaian Kinerja (Draft)' : 'Tambah Penilaian Kinerja'} width="max-w-xl">
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-4">
           <Select label="Pegawai" required value={form.employee_id || ''} onChange={(e) => setForm((s) => ({ ...s, employee_id: e.target.value }))}>
@@ -148,6 +193,10 @@ function PerformanceFormModal({ open, onClose, onSaved, periods, reviewerId }) {
             {periods.map((p) => <option key={p.id} value={p.id}>{p.nama} {p.tahun}</option>)}
           </Select>
         </div>
+        <Select label="Penilai" required value={form.reviewer_id || ''} onChange={(e) => setForm((s) => ({ ...s, reviewer_id: e.target.value }))}>
+          <option value="">— Pilih —</option>
+          {employees.map((e) => <option key={e.id} value={e.id}>{e.nama}</option>)}
+        </Select>
         <div className="grid grid-cols-3 gap-4">
           <Input label="Kedisiplinan" type="number" min={1} max={100} value={form.nilai_kedisiplinan ?? ''} onChange={(e) => setForm((s) => ({ ...s, nilai_kedisiplinan: e.target.value }))} />
           <Input label="Kinerja" type="number" min={1} max={100} value={form.nilai_kinerja ?? ''} onChange={(e) => setForm((s) => ({ ...s, nilai_kinerja: e.target.value }))} />
@@ -173,7 +222,7 @@ function PerformanceFormModal({ open, onClose, onSaved, periods, reviewerId }) {
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
-          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : isEdit ? 'Simpan Perubahan' : 'Simpan'}</Button>
         </div>
       </form>
     </Modal>

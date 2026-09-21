@@ -38,7 +38,8 @@ async function syncAttendanceForApproval(row) {
     leave_request_id: row.id,
   }))
   if (payload.length === 0) return
-  await supabase.from('attendance').upsert(payload, { onConflict: 'employee_id,tanggal' })
+  const { error } = await supabase.from('attendance').upsert(payload, { onConflict: 'employee_id,tanggal' })
+  if (error) alert('Pengajuan berhasil diproses, tetapi gagal menautkan ke data presensi: ' + error.message + '. Silakan periksa/tautkan manual di halaman Presensi.')
 }
 
 export default function LeaveList() {
@@ -72,12 +73,13 @@ export default function LeaveList() {
   useEffect(() => { if (!authLoading) load() }, [authLoading, load])
 
   const decide = async (row, status, extra = {}) => {
-    const { data: updated } = await supabase
+    const { data: updated, error } = await supabase
       .from('leave_requests')
       .update({ status, approved_at: new Date().toISOString(), ...extra })
       .eq('id', row.id)
       .select('*, leave_types(nama, kode)')
       .single()
+    if (error) { alert('Gagal memproses pengajuan: ' + error.message); return }
     if (status === 'disetujui' && updated) {
       await syncAttendanceForApproval(updated)
     }

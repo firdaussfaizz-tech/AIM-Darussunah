@@ -99,16 +99,23 @@ export function ambilSkalaGaji(salaryScaleRows, golongan, ruang) {
 
 /**
  * Hitung jumlah Hari Kerja Wajib dalam satu bulan.
- * ASUMSI: mengikuti pola Pegawai Reguler (Senin-Sabtu kerja, Minggu
- * libur) dari Pasal 3 Draft SK, BELUM memperhitungkan hari libur
- * nasional/kalender pendidikan — lihat catatan di UI transparansi.
+ * Mengikuti pola Pegawai Reguler (Senin-Sabtu kerja, Minggu libur) dari
+ * Pasal 3 Draft SK, dan sejak ditambahkannya kalender `school_holidays`
+ * (Roadmap B Otomasi #6), tanggal yang terdaftar sebagai hari libur juga
+ * dikecualikan — lihat `holidayDates`.
+ *
+ * @param {number} tahun
+ * @param {number} bulan - 1-12
+ * @param {Iterable<string>} [holidayDates] - tanggal 'YYYY-MM-DD' yang dikecualikan.
  */
-export function hitungHariKerjaWajibDefault(tahun, bulan) {
+export function hitungHariKerjaWajibDefault(tahun, bulan, holidayDates = []) {
+  const holidaySet = holidayDates instanceof Set ? holidayDates : new Set(holidayDates)
   const totalHari = new Date(tahun, bulan, 0).getDate()
   let count = 0
   for (let d = 1; d <= totalHari; d++) {
     const dow = new Date(tahun, bulan - 1, d).getDay()
-    if (dow !== 0) count++
+    const iso = `${tahun}-${String(bulan).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    if (dow !== 0 && !holidaySet.has(iso)) count++
   }
   return count
 }
@@ -128,6 +135,9 @@ export function hitungHariKerjaWajibDefault(tahun, bulan) {
  * @param {Array} [params.manualAdjustments] - koreksi manual admin:
  *   [{ jenis: 'tidak_ikut_rapat', jumlah_kejadian }, { jenis: 'lainnya', nilai_pengurangan, keterangan }]
  * @param {string} [params.lateThreshold]
+ * @param {Iterable<string>} [params.holidayDates] - tanggal 'YYYY-MM-DD' dari
+ *   `school_holidays` (yayasan + sekolah pegawai) yang dikecualikan dari
+ *   Hari Kerja Wajib, diperlakukan sama seperti libur mingguan hari Minggu.
  */
 export function hitungIH({
   attendanceRows = [],
@@ -136,7 +146,9 @@ export function hitungIH({
   scheduleByDay = null,
   manualAdjustments = [],
   lateThreshold = LATE_THRESHOLD,
+  holidayDates = [],
 }) {
+  const holidaySet = holidayDates instanceof Set ? holidayDates : new Set(holidayDates)
   const totalHariBulan = new Date(tahun, bulan, 0).getDate()
   const attendanceByDate = {}
   attendanceRows.forEach((r) => { attendanceByDate[r.tanggal] = r })
@@ -146,6 +158,7 @@ export function hitungIH({
   let terlambatCount = 0
   let pulangAwalCount = 0
   let alpaCount = 0
+  let hariLiburKalenderCount = 0
   const byKodeCount = {}
   const byKodeMeta = {}
   const detail = []
@@ -155,7 +168,8 @@ export function hitungIH({
     const iso = `${tahun}-${String(bulan).padStart(2, '0')}-${String(d).padStart(2, '0')}`
     const jadwalHari = scheduleByDay?.[dow]
     const hariLiburMingguan = jadwalHari ? jadwalHari.aktif === false : dow === 0
-    if (hariLiburMingguan) continue
+    if (holidaySet.has(iso) && !hariLiburMingguan) hariLiburKalenderCount++
+    if (hariLiburMingguan || holidaySet.has(iso)) continue
 
     const att = attendanceByDate[iso]
     const lr = att?.leave_requests
@@ -251,6 +265,7 @@ export function hitungIH({
     rincianPengurangan,
     ihFinal,
     terlambatCount, pulangAwalCount, alpaCount,
+    hariLiburKalenderCount,
     detail,
   }
 }

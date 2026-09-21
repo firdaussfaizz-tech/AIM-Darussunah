@@ -28,6 +28,7 @@ export default function IndeksKehadiranSection({ employee, canManage }) {
   const [salaryScale, setSalaryScale] = useState([])
   const [attendanceRows, setAttendanceRows] = useState([])
   const [performanceIndex, setPerformanceIndex] = useState(null)
+  const [holidayDates, setHolidayDates] = useState([])
   const [ikForm, setIkForm] = useState({ open: false, skor: '', kategori: 'A' })
   const [savingIk, setSavingIk] = useState(false)
 
@@ -37,7 +38,7 @@ export default function IndeksKehadiranSection({ employee, canManage }) {
     setLoading(true)
     const start = `${month}-01`
     const endDate = new Date(tahun, bulan, 1).toISOString().slice(0, 10)
-    const [{ data: ws }, { data: scale }, { data: att }, { data: perf }] = await Promise.all([
+    const [{ data: ws }, { data: scale }, { data: att }, { data: perf }, { data: holidays }] = await Promise.all([
       supabase.from('work_schedules').select('hari, jam_pulang'),
       supabase.from('salary_scale').select('*'),
       supabase
@@ -55,13 +56,21 @@ export default function IndeksKehadiranSection({ employee, canManage }) {
         .order('periode_mulai', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      // Libur yayasan (school_id null) + libur khusus sekolah pegawai ini.
+      supabase
+        .from('school_holidays')
+        .select('tanggal, school_id')
+        .gte('tanggal', start)
+        .lt('tanggal', endDate)
+        .or(`school_id.is.null${employee.school_id ? `,school_id.eq.${employee.school_id}` : ''}`),
     ])
     setScheduleByDay(buildScheduleByDay(ws || []))
     setSalaryScale(scale || [])
     setAttendanceRows(att || [])
     setPerformanceIndex(perf || null)
+    setHolidayDates((holidays || []).map((h) => h.tanggal))
     setLoading(false)
-  }, [employee.id, month, tahun, bulan])
+  }, [employee.id, employee.school_id, month, tahun, bulan])
 
   useEffect(() => { load() }, [load])
 
@@ -70,8 +79,8 @@ export default function IndeksKehadiranSection({ employee, canManage }) {
 
   const ih = useMemo(() => {
     if (loading) return null
-    return hitungIH({ attendanceRows, tahun, bulan, scheduleByDay })
-  }, [attendanceRows, tahun, bulan, scheduleByDay, loading])
+    return hitungIH({ attendanceRows, tahun, bulan, scheduleByDay, holidayDates })
+  }, [attendanceRows, tahun, bulan, scheduleByDay, holidayDates, loading])
 
   const remunerasi = useMemo(() => {
     if (!ih || !scaleRow || !performanceIndex) return null
@@ -111,7 +120,8 @@ export default function IndeksKehadiranSection({ employee, canManage }) {
           <Input type="month" containerClassName="sm:w-48" value={month} onChange={(e) => setMonth(e.target.value)} label="Bulan" />
           <p className="flex items-start gap-1.5 text-xs text-[var(--color-ink-soft)] sm:max-w-md">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            Hari Kerja Wajib dihitung Senin–Sabtu mengikuti Jam Kerja yang berlaku, belum memperhitungkan libur nasional/kalender pendidikan.
+            Hari Kerja Wajib dihitung Senin–Sabtu mengikuti Jam Kerja yang berlaku, dikurangi hari libur pada Kalender Libur (yayasan & sekolah pegawai ini)
+            {ih && ih.hariLiburKalenderCount > 0 ? ` — ${ih.hariLiburKalenderCount} hari libur dikecualikan bulan ini.` : '.'}
           </p>
         </div>
       </Card>

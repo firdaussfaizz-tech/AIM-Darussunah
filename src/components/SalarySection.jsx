@@ -12,6 +12,7 @@ export default function SalarySection({ employee, canManage }) {
   const [settings, setSettings] = useState(null)
   const [attendanceRows, setAttendanceRows] = useState([])
   const [performanceIndex, setPerformanceIndex] = useState(null)
+  const [holidayDates, setHolidayDates] = useState([])
   const [tugasTambahanList, setTugasTambahanList] = useState([])
   const [potonganBpjs, setPotonganBpjs] = useState(0)
   const [bpjsModalOpen, setBpjsModalOpen] = useState(false)
@@ -26,7 +27,7 @@ export default function SalarySection({ employee, canManage }) {
     setLoading(true)
     const start = `${tahun}-${String(bulan).padStart(2, '0')}-01`
     const endDate = new Date(tahun, bulan, 1).toISOString().slice(0, 10)
-    const [{ data: scale }, { data: settingsRow }, { data: att }, { data: perf }, { data: salaryRow }, { data: tugas }] = await Promise.all([
+    const [{ data: scale }, { data: settingsRow }, { data: att }, { data: perf }, { data: salaryRow }, { data: tugas }, { data: holidays }] = await Promise.all([
       supabase.from('salary_scale').select('*'),
       supabase.from('payroll_settings').select('*').maybeSingle(),
       supabase
@@ -46,6 +47,11 @@ export default function SalarySection({ employee, canManage }) {
         .maybeSingle(),
       supabase.from('employee_salary').select('potongan_bpjs').eq('employee_id', employee.id).order('berlaku_sejak', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('employee_tugas_tambahan').select('tugas_tambahan(nama, tunjangan_nominal)').eq('employee_id', employee.id),
+      supabase
+        .from('school_holidays')
+        .select('tanggal')
+        .gte('tanggal', start).lt('tanggal', endDate)
+        .or(`school_id.is.null${employee.school_id ? `,school_id.eq.${employee.school_id}` : ''}`),
     ])
     setSalaryScale(scale || [])
     setSettings(settingsRow || null)
@@ -53,15 +59,16 @@ export default function SalarySection({ employee, canManage }) {
     setPerformanceIndex(perf || null)
     setPotonganBpjs(salaryRow?.potongan_bpjs || 0)
     setTugasTambahanList((tugas || []).map((t) => t.tugas_tambahan).filter(Boolean))
+    setHolidayDates((holidays || []).map((h) => h.tanggal))
     setLoading(false)
-  }, [employee.id, tahun, bulan])
+  }, [employee.id, employee.school_id, tahun, bulan])
 
   useEffect(() => { load() }, [load])
 
   const ih = useMemo(() => {
     if (loading) return null
-    return hitungIH({ attendanceRows, tahun, bulan })
-  }, [attendanceRows, tahun, bulan, loading])
+    return hitungIH({ attendanceRows, tahun, bulan, holidayDates })
+  }, [attendanceRows, tahun, bulan, holidayDates, loading])
 
   const komponen = useMemo(() => {
     if (!settings || !ih) return null

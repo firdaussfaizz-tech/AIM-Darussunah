@@ -26,19 +26,21 @@ export default function WorkloadList() {
 
 function useBebanKerjaSettings() {
   const [settings, setSettings] = useState(DEFAULT_BEBAN_KERJA_SETTINGS)
+  const [settingsRow, setSettingsRow] = useState(null)
   const [loaded, setLoaded] = useState(false)
   const load = useCallback(async () => {
     const { data } = await supabase.from('beban_kerja_settings').select('*').maybeSingle()
+    setSettingsRow(data || null)
     setSettings(data || DEFAULT_BEBAN_KERJA_SETTINGS)
     setLoaded(true)
   }, [])
   useEffect(() => { load() }, [load])
-  return { settings, loaded, reload: load }
+  return { settings, settingsRow, loaded, reload: load }
 }
 
 function ManagerWorkload() {
   const { hasFullAccess } = useAuth()
-  const { settings, loaded: settingsLoaded, reload: reloadSettings } = useBebanKerjaSettings()
+  const { settings, settingsRow, loaded: settingsLoaded, reload: reloadSettings } = useBebanKerjaSettings()
   const [employees, setEmployees] = useState([])
   const [schools, setSchools] = useState([])
   const [bebanRows, setBebanRows] = useState([])
@@ -162,7 +164,7 @@ function ManagerWorkload() {
       </Card>
 
       <EditBebanKerjaModal row={editEmployee} onClose={() => setEditEmployee(null)} onSaved={() => { setEditEmployee(null); load() }} />
-      <BebanKerjaSettingsModal open={settingsOpen} settings={settings} onClose={() => setSettingsOpen(false)} onSaved={() => { setSettingsOpen(false); reloadSettings() }} />
+      <BebanKerjaSettingsModal open={settingsOpen} settings={settings} settingsRow={settingsRow} onClose={() => setSettingsOpen(false)} onSaved={() => { setSettingsOpen(false); reloadSettings() }} />
     </div>
   )
 }
@@ -242,7 +244,7 @@ const SETTINGS_FIELDS = [
   ['durasi_jp_boarding', 'Durasi 1 JP — Boarding (menit)'],
 ]
 
-function BebanKerjaSettingsModal({ open, settings, onClose, onSaved }) {
+function BebanKerjaSettingsModal({ open, settings, settingsRow, onClose, onSaved }) {
   const [form, setForm] = useState(settings)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -253,7 +255,14 @@ function BebanKerjaSettingsModal({ open, settings, onClose, onSaved }) {
     setSaving(true)
     setError('')
     const payload = Object.fromEntries(SETTINGS_FIELDS.map(([key]) => [key, Number(form[key]) || 0]))
-    const { error: err } = await supabase.from('beban_kerja_settings').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', true)
+    // Baris beban_kerja_settings mungkin belum pernah dibuat — kalau
+    // .eq('id', true) tidak mengenai baris manapun, Supabase TIDAK
+    // melaporkan error (sukses tapi 0 baris berubah), jadi penyimpanan
+    // terlihat berhasil padahal tidak. Insert baris baru kalau memang
+    // belum ada, alih-alih selalu update-by-id.
+    const { error: err } = settingsRow?.id
+      ? await supabase.from('beban_kerja_settings').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', settingsRow.id)
+      : await supabase.from('beban_kerja_settings').insert({ ...payload, updated_at: new Date().toISOString() })
     setSaving(false)
     if (err) { setError(err.message); return }
     onSaved()

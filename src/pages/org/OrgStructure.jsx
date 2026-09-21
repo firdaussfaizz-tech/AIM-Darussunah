@@ -98,9 +98,13 @@ function SchoolsTab({ schools, reload }) {
   }
 
   const handleDelete = async (id) => {
-    if (!confirm('Hapus unit sekolah ini? Pastikan tidak ada pegawai yang masih terhubung.')) return
+    const { count } = await supabase.from('employees').select('id', { count: 'exact', head: true }).eq('school_id', id)
+    const peringatan = count > 0
+      ? `${count} pegawai masih terhubung ke unit sekolah ini — penempatan unit mereka akan menjadi kosong (tidak terhapus datanya).`
+      : 'Tidak ada pegawai yang terhubung ke unit sekolah ini.'
+    if (!confirm(`Hapus unit sekolah ini? ${peringatan}`)) return
     const { error } = await supabase.from('schools').delete().eq('id', id)
-    if (error) alert('Gagal menghapus: ' + error.message)
+    if (error) { alert('Gagal menghapus: ' + error.message); return }
     reload()
   }
 

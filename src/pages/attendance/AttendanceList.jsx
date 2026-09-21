@@ -61,11 +61,12 @@ function ManagerAttendance() {
   const setStatus = async (employeeId, status) => {
     setSaving((s) => ({ ...s, [employeeId]: true }))
     const existing = attendanceMap[employeeId]
-    if (existing) {
-      const { data } = await supabase.from('attendance').update({ status }).eq('id', existing.id).select().single()
-      setAttendanceMap((m) => ({ ...m, [employeeId]: data }))
+    const { data, error } = existing
+      ? await supabase.from('attendance').update({ status }).eq('id', existing.id).select().single()
+      : await supabase.from('attendance').insert({ employee_id: employeeId, tanggal: date, status }).select().single()
+    if (error) {
+      alert('Gagal menyimpan status presensi: ' + error.message)
     } else {
-      const { data } = await supabase.from('attendance').insert({ employee_id: employeeId, tanggal: date, status }).select().single()
       setAttendanceMap((m) => ({ ...m, [employeeId]: data }))
     }
     setSaving((s) => ({ ...s, [employeeId]: false }))

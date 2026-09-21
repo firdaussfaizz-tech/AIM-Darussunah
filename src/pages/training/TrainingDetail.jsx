@@ -39,19 +39,22 @@ export default function TrainingDetail() {
   const handleAddParticipant = async (e) => {
     e.preventDefault()
     if (!selectedEmployee) return
-    await supabase.from('training_participants').insert({ training_id: id, employee_id: selectedEmployee })
+    const { error } = await supabase.from('training_participants').insert({ training_id: id, employee_id: selectedEmployee })
+    if (error) { alert('Gagal menambahkan peserta: ' + error.message); return }
     setModalOpen(false)
     load()
   }
 
   const updateStatus = async (participantId, status) => {
-    await supabase.from('training_participants').update({ status }).eq('id', participantId)
+    const { error } = await supabase.from('training_participants').update({ status }).eq('id', participantId)
+    if (error) { alert('Gagal mengubah status peserta: ' + error.message); return }
     load()
   }
 
   const removeParticipant = async (participantId) => {
     if (!confirm('Hapus peserta ini dari pelatihan?')) return
-    await supabase.from('training_participants').delete().eq('id', participantId)
+    const { error } = await supabase.from('training_participants').delete().eq('id', participantId)
+    if (error) { alert('Gagal menghapus peserta: ' + error.message); return }
     load()
   }
 

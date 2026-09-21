@@ -16,6 +16,9 @@ import TrainingList from './pages/training/TrainingList'
 import TrainingDetail from './pages/training/TrainingDetail'
 import OrgStructure from './pages/org/OrgStructure'
 import UserRoles from './pages/users/UserRoles'
+import HolidayList from './pages/holidays/HolidayList'
+import ActivityLog from './pages/activity/ActivityLog'
+import NotificationSettings from './pages/settings/NotificationSettings'
 
 export default function App() {
   return (
@@ -42,8 +45,11 @@ export default function App() {
             <Route path="beban-kerja" element={<WorkloadList />} />
             <Route path="pelatihan" element={<TrainingList />} />
             <Route path="pelatihan/:id" element={<RequireFullAccess><TrainingDetail /></RequireFullAccess>} />
+            <Route path="kalender-libur" element={<HolidayList />} />
             <Route path="struktur" element={<RequireFullAccess><OrgStructure /></RequireFullAccess>} />
             <Route path="pengguna" element={<RequireFullAccess><UserRoles /></RequireFullAccess>} />
+            <Route path="log-aktivitas" element={<RequireFullAccess><ActivityLog /></RequireFullAccess>} />
+            <Route path="notifikasi-email" element={<RequireFullAccess><NotificationSettings /></RequireFullAccess>} />
           </Route>
         </Routes>
       </BrowserRouter>

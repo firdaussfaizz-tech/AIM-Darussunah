@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CalendarCheck, CalendarClock, Wallet, Star,
-  GraduationCap, Building2, UserCog, LogOut, Menu, X, Activity,
+  GraduationCap, Building2, UserCog, LogOut, Menu, X, Activity, CalendarOff, History, Mail,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/format'
@@ -16,8 +16,11 @@ function navItemsFor({ isManager, hasFullAccess }) {
   items.push({ to: '/kinerja', label: isManager ? 'Kinerja' : 'Kinerja Saya', icon: Star })
   items.push({ to: '/beban-kerja', label: isManager ? 'Beban Kerja' : 'Beban Kerja Saya', icon: Activity })
   items.push({ to: '/pelatihan', label: isManager ? 'Pelatihan' : 'Pelatihan Saya', icon: GraduationCap })
+  if (isManager) items.push({ to: '/kalender-libur', label: 'Kalender Libur', icon: CalendarOff })
   if (hasFullAccess) items.push({ to: '/struktur', label: 'Struktur Organisasi', icon: Building2 })
   if (hasFullAccess) items.push({ to: '/pengguna', label: 'Pengguna & Peran', icon: UserCog })
+  if (hasFullAccess) items.push({ to: '/log-aktivitas', label: 'Log Aktivitas', icon: History })
+  if (hasFullAccess) items.push({ to: '/notifikasi-email', label: 'Notifikasi Email', icon: Mail })
   return items
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Wallet, Plus, Settings2 } from 'lucide-react'
+import { Wallet, Plus, Settings2, Printer } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner, Modal, Select, Input } from '../../components/ui'
@@ -33,7 +33,7 @@ export default function PayrollList() {
   return (
     <div>
       <PageHeader title={hasFullAccess ? 'Penggajian' : 'Slip Gaji Saya'} description={hasFullAccess ? 'Kelola periode penggajian bulanan seluruh pegawai.' : 'Riwayat slip gaji Anda.'} />
-      {hasFullAccess ? <ManagerPayroll /> : <SelfPayroll employeeId={employee?.id} />}
+      {hasFullAccess ? <ManagerPayroll /> : <SelfPayroll employeeId={employee?.id} employee={employee} />}
     </div>
   )
 }
@@ -175,7 +175,7 @@ function PayrollSettingsModal({ open, settings, onClose, onSaved }) {
   )
 }
 
-function SelfPayroll({ employeeId }) {
+function SelfPayroll({ employeeId, employee }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [detailModal, setDetailModal] = useState(null)
@@ -203,9 +203,9 @@ function SelfPayroll({ employeeId }) {
             <Table columns={['Periode', 'Gaji Bersih', 'Status', '']}>
               {rows.map((r) => (
                 <Tr key={r.id}>
-                  <Td className="font-medium">{BULAN[r.payroll_runs.periode_bulan - 1]} {r.payroll_runs.periode_tahun}</Td>
+                  <Td className="font-medium">{r.payroll_runs ? `${BULAN[r.payroll_runs.periode_bulan - 1]} ${r.payroll_runs.periode_tahun}` : '—'}</Td>
                   <Td>{formatRupiah(r.gaji_bersih)}</Td>
-                  <Td><Badge color={STATUS_BADGE_COLOR[r.payroll_runs.status]}>{r.payroll_runs.status}</Badge></Td>
+                  <Td>{r.payroll_runs ? <Badge color={STATUS_BADGE_COLOR[r.payroll_runs.status]}>{r.payroll_runs.status}</Badge> : '—'}</Td>
                   <Td className="text-right">
                     <button onClick={() => setDetailModal(r)} className="text-sm font-medium text-[var(--color-navy)] hover:underline">Lihat Rincian</button>
                   </Td>
@@ -217,10 +217,93 @@ function SelfPayroll({ employeeId }) {
       </Card>
 
       <Modal open={!!detailModal} onClose={() => setDetailModal(null)} title="Rincian Slip Gaji">
-        {detailModal && <SlipDetailBody row={detailModal} />}
+        {detailModal && (
+          <div className="flex flex-col gap-4">
+            <SlipDetailBody row={detailModal} />
+            <div className="flex justify-end border-t border-[var(--color-border)] pt-3">
+              <Button type="button" variant="outline" onClick={() => printSlip(detailModal, employee)}>
+                <Printer className="h-4 w-4" /> Cetak / PDF
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   )
+}
+
+// Buka tab baru berisi slip gaji siap cetak, lalu panggil dialog cetak
+// browser (pilih "Simpan sebagai PDF" pada dialog tersebut untuk mengunduh
+// PDF). Tidak menambah dependensi baru — memakai window.print() bawaan.
+function printSlip(row, employee) {
+  const d = row.detail
+  const periode = row.payroll_runs ? `${BULAN[row.payroll_runs.periode_bulan - 1]} ${row.payroll_runs.periode_tahun}` : '—'
+  const nama = employee?.nama || '—'
+  const unit = employee?.schools ? `${employee.schools.jenjang} — ${employee.schools.nama}` : '—'
+
+  const rowsHtml = (label, value, bold) =>
+    `<div style="display:flex;justify-content:space-between;gap:16px;padding:3px 0;${bold ? 'font-weight:600;border-top:1px solid #ddd;margin-top:4px;padding-top:6px;' : ''}"><span>${label}</span><span>${value}</span></div>`
+
+  let body
+  if (!d) {
+    body = [
+      rowsHtml('Gaji Pokok', formatRupiah(row.gaji_pokok)),
+      rowsHtml('Total Tunjangan', `+${formatRupiah(row.total_tunjangan)}`),
+      rowsHtml('Total Potongan', `-${formatRupiah(row.total_potongan)}`),
+      rowsHtml('Gaji Bersih', formatRupiah(row.gaji_bersih), true),
+    ].join('')
+  } else {
+    const fungsionalRows = (d.rincianFungsional || []).length
+      ? d.rincianFungsional.map((t) => rowsHtml(`Tunjangan Fungsional — ${t.nama}${t.dibayarkan === false ? ' (tidak dibayar)' : ''}`, formatRupiah(t.nominal))).join('')
+      : (d.tunjanganFungsional > 0 ? rowsHtml('Tunjangan Fungsional', formatRupiah(d.tunjanganFungsional)) : '')
+    body = `
+      <p style="font-weight:600;margin:14px 0 4px;">P1 — Komponen Tetap</p>
+      ${rowsHtml(`Gaji Pokok (Gol. ${d.golongan || '—'} / Ruang ${d.ruang || '—'})`, formatRupiah(d.gajiPokok))}
+      ${d.tunjanganStruktural > 0 ? rowsHtml('Tunjangan Jabatan Struktural', formatRupiah(d.tunjanganStruktural)) : ''}
+      ${fungsionalRows}
+      ${rowsHtml('Tunjangan Transportasi & Makan', formatRupiah(d.transportMakan))}
+      ${rowsHtml('Total P1', formatRupiah(d.totalP1), true)}
+
+      <p style="font-weight:600;margin:14px 0 4px;">P2 — Remunerasi & Honor</p>
+      ${rowsHtml(`Tunjangan Remunerasi${d.indeksKinerja != null && d.ihFinal != null ? ` (IK ${Number(d.indeksKinerja).toFixed(2)} × IH ${Number(d.ihFinal).toFixed(2)})` : ''}`, formatRupiah(d.tunjanganRemunerasi))}
+      ${d.honorMengajar > 0 ? rowsHtml(`Honor Jam Mengajar (${d.jpTambahan} JP)`, formatRupiah(d.honorMengajar)) : ''}
+      ${d.honorLembur > 0 ? rowsHtml(`Honor Lembur (${d.jamLembur} jam)`, formatRupiah(d.honorLembur)) : ''}
+      ${rowsHtml('Total P2', formatRupiah(d.totalP2), true)}
+
+      <p style="font-weight:600;margin:14px 0 4px;">Potongan</p>
+      ${d.potonganBpjs > 0 ? rowsHtml('Potongan BPJS', `-${formatRupiah(d.potonganBpjs)}`) : ''}
+      ${d.potonganPinjaman > 0 ? rowsHtml('Potongan Pinjaman/Cicilan', `-${formatRupiah(d.potonganPinjaman)}`) : ''}
+      ${d.potonganLainnya > 0 ? rowsHtml('Potongan Lainnya', `-${formatRupiah(d.potonganLainnya)}`) : ''}
+      ${rowsHtml('Total Potongan', `-${formatRupiah(d.totalPotongan)}`, true)}
+
+      <div style="margin-top:16px;">${rowsHtml('Gaji Bersih', formatRupiah(row.gaji_bersih), true)}</div>
+    `
+  }
+
+  const html = `<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8"><title>Slip Gaji — ${nama} — ${periode}</title>
+<style>
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1a1a1a; max-width: 640px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .meta { color: #555; margin-bottom: 18px; font-size: 12.5px; }
+  .meta div { margin-bottom: 2px; }
+  @media print { body { margin: 0; padding: 16px; } }
+</style></head>
+<body>
+  <h1>Slip Gaji</h1>
+  <div class="meta">
+    <div><strong>${nama}</strong> — ${unit}</div>
+    <div>Periode: ${periode}</div>
+  </div>
+  ${body}
+</body></html>`
+
+  const w = window.open('', '_blank')
+  if (!w) { alert('Popup diblokir browser. Izinkan popup untuk mencetak slip gaji.'); return }
+  w.document.open()
+  w.document.write(html)
+  w.document.close()
+  w.onload = () => { w.focus(); w.print() }
 }
 
 function SlipDetailBody({ row }) {
