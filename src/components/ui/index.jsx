@@ -182,7 +182,7 @@ export function StatCard({ label, value, sub }) {
 export function Modal({ open, onClose, title, children, width = 'max-w-lg' }) {
   if (!open) return null
   return (
-    <div className="modal-backdrop fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-10 sm:pt-16">
+    <div className="modal-backdrop fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 backdrop-blur-sm p-4 pt-10 sm:pt-16">
       <div className={`modal-panel glass w-full ${width} rounded-[var(--radius-window)] shadow-2xl`}>
         <div className="flex items-center justify-between border-b border-white/40 px-6 py-4">
           <h3 className="text-[17px] font-semibold text-[var(--color-ink)]">{title}</h3>
