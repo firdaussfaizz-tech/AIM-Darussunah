@@ -133,8 +133,16 @@ html {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* PENTING: TIDAK memakai fill-mode "both"/"forwards" di sini. Kalau transform
+   dari keyframe (translateY) dibuat "menempel" setelah animasi selesai, elemen
+   ini jadi containing block baru untuk semua descendant position:fixed —
+   termasuk overlay Modal — sehingga overlay itu cuma menutupi area konten
+   utama (bukan seluruh layar), dan Sidebar/Topbar/tombol yang berada di luar
+   area itu terlihat "tidak ke-blur/tidak meredup" (bug yang pernah dilaporkan).
+   Tanpa fill-mode, begitu animasi 320ms ini selesai, transform otomatis
+   kembali ke "none" dan Modal kembali menutupi seluruh viewport dengan benar. */
 .page-fade-in {
-  animation: page-fade-in 320ms var(--ease-smooth) both;
+  animation: page-fade-in 320ms var(--ease-smooth);
 }
 
 body {
