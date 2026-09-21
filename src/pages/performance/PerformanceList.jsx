@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Star, Plus } from 'lucide-react'
+import { Star, Plus, Info } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Select, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner, Modal, Input, Textarea } from '../../components/ui'
 import { STATUS_BADGE_COLOR } from '../../lib/format'
+import { kategoriFromSkor, defaultPeriodeKinerja } from '../../lib/remunerasi'
 
 export default function PerformanceList() {
   const { isManager, employee, loading: authLoading } = useAuth()
@@ -37,6 +38,15 @@ export default function PerformanceList() {
           <Button onClick={() => setFormOpen(true)}><Plus className="h-4 w-4" /> Tambah Penilaian</Button>
         )}
       />
+
+      {isManager && (
+        <Card className="mb-4 border-[var(--color-navy)]/20 bg-[var(--color-navy-50)]">
+          <p className="flex items-start gap-2 text-xs text-[var(--color-ink-soft)]">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            Penilaian yang disimpan dengan status <strong>Final</strong> otomatis mengisi Indeks Kinerja pegawai tsb untuk periode gaji yang dipilih pada form — inilah angka yang dipakai untuk menghitung Tunjangan Remunerasi. Status Draft tidak memengaruhi gaji.
+          </p>
+        </Card>
+      )}
 
       <Card className="mb-4" padded={false}>
         <div className="p-4">
@@ -80,7 +90,12 @@ function PerformanceFormModal({ open, onClose, onSaved, periods, reviewerId }) {
 
   useEffect(() => {
     if (open) {
-      setForm({ employee_id: '', period_id: '', nilai_kedisiplinan: 80, nilai_kinerja: 80, nilai_kerjasama: 80, catatan: '', status: 'draft' })
+      const now = new Date()
+      const periodeGaji = defaultPeriodeKinerja(now.getFullYear(), now.getMonth() + 1)
+      setForm({
+        employee_id: '', period_id: '', nilai_kedisiplinan: 80, nilai_kinerja: 80, nilai_kerjasama: 80, catatan: '', status: 'draft',
+        periode_gaji_mulai: periodeGaji.mulai, periode_gaji_selesai: periodeGaji.selesai,
+      })
       setError('')
       supabase.from('employees').select('id, nama').eq('status', 'aktif').order('nama').then(({ data }) => setEmployees(data || []))
     }
@@ -89,11 +104,34 @@ function PerformanceFormModal({ open, onClose, onSaved, periods, reviewerId }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!form.employee_id || !form.period_id) { setError('Pilih pegawai dan periode.'); return }
+    if (form.status === 'final' && (!form.periode_gaji_mulai || !form.periode_gaji_selesai)) {
+      setError('Isi rentang periode gaji yang akan memakai Indeks Kinerja ini.')
+      return
+    }
     setSaving(true)
-    const nilaiAkhir = (Number(form.nilai_kedisiplinan) + Number(form.nilai_kinerja) + Number(form.nilai_kerjasama)) / 3
-    const { error: err } = await supabase.from('performance_reviews').insert({ ...form, reviewer_id: reviewerId, nilai_akhir: nilaiAkhir.toFixed(2) })
+    setError('')
+    const nilaiAkhir = Number(((Number(form.nilai_kedisiplinan) + Number(form.nilai_kinerja) + Number(form.nilai_kerjasama)) / 3).toFixed(2))
+    const { periode_gaji_mulai, periode_gaji_selesai, ...reviewForm } = form
+    const { error: err } = await supabase.from('performance_reviews').insert({ ...reviewForm, reviewer_id: reviewerId, nilai_akhir: nilaiAkhir })
+    if (err) { setSaving(false); setError(err.message.includes('duplicate') ? 'Pegawai ini sudah dinilai pada periode tersebut.' : err.message); return }
+
+    // Status Final → sinkron otomatis ke Indeks Kinerja (angka yang benar-
+    // benar dipakai mesin gaji), supaya HR tidak perlu mengisi dua kali di
+    // dua tempat berbeda.
+    if (form.status === 'final') {
+      const kategoriRow = kategoriFromSkor(nilaiAkhir)
+      const { error: ikErr } = await supabase.from('performance_index').upsert({
+        employee_id: form.employee_id,
+        periode_mulai: periode_gaji_mulai,
+        periode_selesai: periode_gaji_selesai,
+        skor: nilaiAkhir,
+        kategori: kategoriRow.kategori,
+        indeks_kinerja: kategoriRow.indeks,
+      }, { onConflict: 'employee_id,periode_mulai' })
+      if (ikErr) alert('Penilaian tersimpan, tetapi gagal menyinkronkan ke Indeks Kinerja (perlu diatur manual di tab Indeks Kehadiran pegawai): ' + ikErr.message)
+    }
+
     setSaving(false)
-    if (err) { setError(err.message.includes('duplicate') ? 'Pegawai ini sudah dinilai pada periode tersebut.' : err.message); return }
     onSaved()
   }
 
@@ -120,6 +158,18 @@ function PerformanceFormModal({ open, onClose, onSaved, periods, reviewerId }) {
           <option value="draft">Draft</option>
           <option value="final">Final</option>
         </Select>
+
+        {form.status === 'final' && (
+          <div className="rounded-[12px] border border-[var(--color-border)] p-4">
+            <p className="mb-3 text-[13px] font-medium text-[var(--color-ink)]">Berlaku untuk Periode Gaji</p>
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Mulai" type="date" value={form.periode_gaji_mulai || ''} onChange={(e) => setForm((s) => ({ ...s, periode_gaji_mulai: e.target.value }))} />
+              <Input label="Sampai Dengan" type="date" value={form.periode_gaji_selesai || ''} onChange={(e) => setForm((s) => ({ ...s, periode_gaji_selesai: e.target.value }))} />
+            </div>
+            <p className="mt-2 text-xs text-[var(--color-ink-soft)]">Otomatis mengikuti semester berjalan (Pasal 9 Draft SK) — ubah bila periode penilaian ini berbeda. Rentang ini akan mengisi Indeks Kinerja pegawai untuk perhitungan Tunjangan Remunerasi pada bulan-bulan gaji di dalamnya.</p>
+          </div>
+        )}
+
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Batal</Button>

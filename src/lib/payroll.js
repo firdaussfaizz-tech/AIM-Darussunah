@@ -90,6 +90,10 @@ export function hitungKomponenGaji({
   potonganBpjs = 0,
   potonganLainnya = 0,
 }) {
+  if (!settings) {
+    throw new Error('Pengaturan Penggajian (tarif honor/lembur/transport) belum diisi. Buka Penggajian → Pengaturan untuk mengisinya terlebih dahulu.')
+  }
+
   const ruang = hitungRuang(employee.tanggal_masuk)
   const scaleRow = ambilSkalaGaji(salaryScaleRows, employee.golongan, ruang)
   const isStruktural = position?.tunjangan_jenis === 'struktural'

@@ -66,25 +66,30 @@ export default function PayrollRunDetail() {
 
   const handleGenerate = async () => {
     setProcessing(true)
-    const { data: employees } = await supabase.from('employees').select('id, nama, golongan, tanggal_masuk, positions(tunjangan_jenis, tunjangan_nominal)').eq('status', 'aktif')
-    const already = new Set(details.map((d) => d.employee_id))
-    const toProcess = (employees || []).filter((e) => !already.has(e.id))
+    try {
+      const { data: employees } = await supabase.from('employees').select('id, nama, golongan, tanggal_masuk, positions(tunjangan_jenis, tunjangan_nominal)').eq('status', 'aktif')
+      const already = new Set(details.map((d) => d.employee_id))
+      const toProcess = (employees || []).filter((e) => !already.has(e.id))
 
-    for (const emp of toProcess) {
-      const komponen = await hitungKomponenTerkini(emp)
-      await supabase.from('payroll_details').insert({
-        payroll_run_id: id,
-        employee_id: emp.id,
-        gaji_pokok: komponen.gajiPokok,
-        total_tunjangan: komponen.totalTunjangan,
-        total_potongan: komponen.totalPotongan,
-        gaji_bersih: komponen.gajiBersih,
-        jp_tambahan: 0, jam_lembur: 0, potongan_pinjaman: 0,
-        detail: komponen,
-      })
+      for (const emp of toProcess) {
+        const komponen = await hitungKomponenTerkini(emp)
+        await supabase.from('payroll_details').insert({
+          payroll_run_id: id,
+          employee_id: emp.id,
+          gaji_pokok: komponen.gajiPokok,
+          total_tunjangan: komponen.totalTunjangan,
+          total_potongan: komponen.totalPotongan,
+          gaji_bersih: komponen.gajiBersih,
+          jp_tambahan: 0, jam_lembur: 0, potongan_pinjaman: 0,
+          detail: komponen,
+        })
+      }
+    } catch (err) {
+      alert('Gagal memproses: ' + err.message)
+    } finally {
+      setProcessing(false)
+      load()
     }
-    setProcessing(false)
-    load()
   }
 
   // Hitung ulang satu slip yang SUDAH diproses — dipakai ketika data dasar
@@ -94,27 +99,66 @@ export default function PayrollRunDetail() {
   // diisi admin tetap dipertahankan.
   const handleRecompute = async (row) => {
     setRecomputingId(row.id)
-    const emp = {
-      id: row.employee_id,
-      golongan: row.employees?.golongan,
-      tanggal_masuk: row.employees?.tanggal_masuk,
-      positions: row.employees?.positions,
+    try {
+      const emp = {
+        id: row.employee_id,
+        golongan: row.employees?.golongan,
+        tanggal_masuk: row.employees?.tanggal_masuk,
+        positions: row.employees?.positions,
+      }
+      const komponen = await hitungKomponenTerkini(emp, {
+        jpTambahan: row.jp_tambahan || 0,
+        jamLembur: row.jam_lembur || 0,
+        potonganPinjaman: row.potongan_pinjaman || 0,
+        potonganLainnya: row.detail?.potonganLainnya || 0,
+      })
+      await supabase.from('payroll_details').update({
+        gaji_pokok: komponen.gajiPokok,
+        total_tunjangan: komponen.totalTunjangan,
+        total_potongan: komponen.totalPotongan,
+        gaji_bersih: komponen.gajiBersih,
+        detail: komponen,
+      }).eq('id', row.id)
+    } catch (err) {
+      alert('Gagal menghitung ulang: ' + err.message)
+    } finally {
+      setRecomputingId(null)
+      load()
     }
-    const komponen = await hitungKomponenTerkini(emp, {
-      jpTambahan: row.jp_tambahan || 0,
-      jamLembur: row.jam_lembur || 0,
-      potonganPinjaman: row.potongan_pinjaman || 0,
-      potonganLainnya: row.detail?.potonganLainnya || 0,
-    })
-    await supabase.from('payroll_details').update({
-      gaji_pokok: komponen.gajiPokok,
-      total_tunjangan: komponen.totalTunjangan,
-      total_potongan: komponen.totalPotongan,
-      gaji_bersih: komponen.gajiBersih,
-      detail: komponen,
-    }).eq('id', row.id)
-    setRecomputingId(null)
-    load()
+  }
+
+  // Simpan hasil EditSlipModal (JP mengajar/jam lembur/potongan pinjaman)
+  // — dipakai HANYA lewat jalur ini (bukan menempel ke row.detail lama)
+  // supaya Gaji Pokok/Tunjangan Struktural/Fungsional/Remunerasi ikut
+  // dihitung ulang dari data TERKINI setiap kali slip disimpan, persis
+  // seperti tombol "Hitung Ulang". Ini menutup celah yang sama dengan
+  // bug Golongan Yanah/Karsih — kali ini di jalur ubah honor/potongan.
+  const persistEditedSlip = async (row, { jpTambahan, jamLembur, potonganPinjaman, keterangan }) => {
+    try {
+      const emp = {
+        id: row.employee_id,
+        golongan: row.employees?.golongan,
+        tanggal_masuk: row.employees?.tanggal_masuk,
+        positions: row.employees?.positions,
+      }
+      const komponen = await hitungKomponenTerkini(emp, {
+        jpTambahan, jamLembur, potonganPinjaman,
+        potonganLainnya: row.detail?.potonganLainnya || 0,
+      })
+      return await supabase.from('payroll_details').update({
+        jp_tambahan: jpTambahan,
+        jam_lembur: jamLembur,
+        potongan_pinjaman: potonganPinjaman,
+        potongan_pinjaman_keterangan: keterangan,
+        gaji_pokok: komponen.gajiPokok,
+        total_tunjangan: komponen.totalTunjangan,
+        total_potongan: komponen.totalPotongan,
+        gaji_bersih: komponen.gajiBersih,
+        detail: komponen,
+      }).eq('id', row.id)
+    } catch (err) {
+      return { error: err }
+    }
   }
 
   const handleFinalize = async () => {
@@ -194,21 +238,23 @@ export default function PayrollRunDetail() {
         </div>
       </Card>
       <p className="mt-3 text-xs text-[var(--color-ink-soft)]">
-        Gaji Pokok, Tunjangan Jabatan, dan Remunerasi dihitung otomatis. Klik ikon pensil untuk menambahkan JP mengajar tambahan, jam lembur, atau potongan pinjaman/cicilan per pegawai.
-        Jika data Golongan/Ruang, Jabatan, atau Tugas Tambahan pegawai diubah SETELAH slipnya diproses, klik ikon <RefreshCw className="inline h-3.5 w-3.5 align-text-bottom" /> untuk menghitung ulang slip tsb dari data terbaru (input JP/lembur/pinjaman yang sudah diisi tetap tersimpan).
+        Gaji Pokok, Tunjangan Jabatan, dan Remunerasi dihitung otomatis. Klik ikon pensil untuk menambahkan JP mengajar tambahan, jam lembur, atau potongan pinjaman/cicilan per pegawai —
+        menyimpan lewat ikon pensil ini SELALU ikut menghitung ulang Gaji Pokok/Tunjangan dari data Golongan/Ruang, Jabatan, dan Tugas Tambahan pegawai yang terkini, jadi tidak akan
+        menimpa dengan angka lama. Ikon <RefreshCw className="inline h-3.5 w-3.5 align-text-bottom" /> tersedia untuk menghitung ulang cepat tanpa membuka form honor/potongan.
       </p>
 
-      <EditSlipModal row={editRow} settings={settings} onClose={() => setEditRow(null)} onSaved={() => { setEditRow(null); load() }} />
+      <EditSlipModal row={editRow} settings={settings} onSave={persistEditedSlip} onClose={() => setEditRow(null)} onSaved={() => { setEditRow(null); load() }} />
     </div>
   )
 }
 
-function EditSlipModal({ row, settings, onClose, onSaved }) {
+function EditSlipModal({ row, settings, onSave, onClose, onSaved }) {
   const [jpTambahan, setJpTambahan] = useState('0')
   const [jamLembur, setJamLembur] = useState('0')
   const [potonganPinjaman, setPotonganPinjaman] = useState('0')
   const [keterangan, setKeterangan] = useState('')
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (row) {
@@ -216,42 +262,28 @@ function EditSlipModal({ row, settings, onClose, onSaved }) {
       setJamLembur(String(row.jam_lembur ?? 0))
       setPotonganPinjaman(String(row.potongan_pinjaman ?? 0))
       setKeterangan(row.potongan_pinjaman_keterangan || '')
+      setError('')
     }
   }, [row])
 
   if (!row) return null
   const isStruktural = row.employees?.positions?.tunjangan_jenis === 'struktural'
 
+  // Catatan: Gaji Pokok/Tunjangan/Remunerasi TIDAK dihitung manual di sini
+  // lagi — persistEditedSlip() di komponen induk selalu mengambil data
+  // Golongan/Ruang, Jabatan, dan Tugas Tambahan TERKINI dan menghitung
+  // ulang semuanya, sama seperti tombol "Hitung Ulang". Ini mencegah slip
+  // tersimpan dengan Gaji Pokok/Tunjangan yang sudah kadaluarsa.
   const handleSave = async () => {
     setSaving(true)
-    const detail = { ...row.detail }
+    setError('')
     const jp = Number(jpTambahan) || 0
     const jam = isStruktural ? 0 : (Number(jamLembur) || 0)
     const pinjaman = Number(potonganPinjaman) || 0
 
-    const tarifMengajar = detail.golongan === 'IV' ? settings.honor_mengajar_gol4 : settings.honor_mengajar_gol3
-    const honorMengajar = jp * Number(tarifMengajar)
-    const honorLembur = jam * Number(settings.honor_lembur_per_jam)
-
-    detail.jpTambahan = jp
-    detail.jamLembur = jam
-    detail.honorMengajar = honorMengajar
-    detail.honorLembur = honorLembur
-    detail.potonganPinjaman = pinjaman
-    detail.totalP2 = detail.tunjanganRemunerasi + honorMengajar + honorLembur
-
-    const totalTunjangan = (detail.totalP1 - detail.gajiPokok) + detail.totalP2
-    const totalPotongan = Number(detail.potonganBpjs || 0) + pinjaman + Number(detail.potonganLainnya || 0)
-    const gajiBersih = detail.gajiPokok + totalTunjangan - totalPotongan
-    detail.totalTunjangan = totalTunjangan
-    detail.totalPotongan = totalPotongan
-    detail.gajiBersih = gajiBersih
-
-    await supabase.from('payroll_details').update({
-      jp_tambahan: jp, jam_lembur: jam, potongan_pinjaman: pinjaman, potongan_pinjaman_keterangan: keterangan,
-      total_tunjangan: totalTunjangan, total_potongan: totalPotongan, gaji_bersih: gajiBersih, detail,
-    }).eq('id', row.id)
+    const { error: err } = await onSave(row, { jpTambahan: jp, jamLembur: jam, potonganPinjaman: pinjaman, keterangan })
     setSaving(false)
+    if (err) { setError(err.message); return }
     onSaved()
   }
 
@@ -278,6 +310,9 @@ function EditSlipModal({ row, settings, onClose, onSaved }) {
         <Input label="Potongan Pinjaman/Cicilan" type="number" min="0" value={potonganPinjaman} onChange={(e) => setPotonganPinjaman(e.target.value)} />
         <Textarea label="Keterangan Pinjaman (opsional)" rows={2} value={keterangan} onChange={(e) => setKeterangan(e.target.value)} placeholder="Cicilan bulan ke-3 dari 12" />
 
+        <p className="-mt-2 text-xs text-[var(--color-ink-soft)]">Menyimpan di sini juga otomatis menghitung ulang Gaji Pokok, Tunjangan, dan Remunerasi dari data pegawai terkini.</p>
+
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
           <Button type="button" onClick={handleSave} disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>

@@ -3,7 +3,7 @@ import { AlertTriangle, Info } from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
 import { Card, Input, Select, Button, Badge, FullPageSpinner, StatCard } from './ui'
 import { formatRupiah, formatDate } from '../lib/format'
-import { hitungIH, hitungRuang, hitungRemunerasi, ambilSkalaGaji, kategoriFromSkor, IK_TABLE } from '../lib/remunerasi'
+import { hitungIH, hitungRuang, hitungRemunerasi, ambilSkalaGaji, kategoriFromSkor, defaultPeriodeKinerja, IK_TABLE } from '../lib/remunerasi'
 
 const HARI_TO_DOW = {
   minggu: 0, senin: 1, selasa: 2, rabu: 3, kamis: 4, jumat: 5, "jum'at": 5, sabtu: 6,
@@ -19,13 +19,6 @@ function buildScheduleByDay(rows) {
   // Minggu default libur bila tidak ada baris eksplisit
   if (map[0] === undefined) map[0] = { aktif: false }
   return map
-}
-
-/** Semester PKP mengikuti Pasal 9 Draft SK: Jul-Des dinilai di semester genap, Jan-Jul di semester ganjil. */
-function defaultPeriode(tahun, bulan) {
-  if (bulan >= 8 && bulan <= 12) return { mulai: `${tahun}-08-01`, selesai: `${tahun}-12-31` }
-  if (bulan === 7) return { mulai: `${tahun}-01-01`, selesai: `${tahun}-07-31` }
-  return { mulai: `${tahun}-01-01`, selesai: `${tahun}-07-31` }
 }
 
 export default function IndeksKehadiranSection({ employee, canManage }) {
@@ -86,7 +79,7 @@ export default function IndeksKehadiranSection({ employee, canManage }) {
   }, [ih, scaleRow, performanceIndex])
 
   const openIkForm = () => {
-    const periode = defaultPeriode(tahun, bulan)
+    const periode = defaultPeriodeKinerja(tahun, bulan)
     setIkForm({ open: true, skor: performanceIndex?.skor ?? '', kategori: performanceIndex?.kategori || 'A', ...periode })
   }
 
@@ -151,6 +144,7 @@ export default function IndeksKehadiranSection({ employee, canManage }) {
             ) : (
               <p className="mt-1 text-sm text-[var(--color-ink-soft)]">Belum diatur untuk periode ini.</p>
             )}
+            <p className="mt-1.5 text-xs text-[var(--color-ink-soft)]">Terisi otomatis saat penilaian di menu Kinerja disimpan berstatus Final untuk periode ini — bisa diubah manual di sini bila perlu.</p>
           </div>
           {canManage && <Button variant="outline" size="sm" onClick={openIkForm}>{performanceIndex ? 'Ubah' : 'Atur'} Indeks Kinerja</Button>}
         </div>

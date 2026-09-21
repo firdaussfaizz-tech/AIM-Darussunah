@@ -47,6 +47,18 @@ export function indeksFromKategori(kategori) {
   return IK_TABLE.find((r) => r.kategori === kategori)?.indeks ?? null
 }
 
+/**
+ * Semester PKP mengikuti Pasal 9 Draft SK: Jul-Des dinilai di semester
+ * genap, Jan-Jul di semester ganjil — dipakai untuk mengisi otomatis
+ * rentang tanggal "berlaku untuk periode gaji" saat mencatat Indeks
+ * Kinerja (baik lewat form Kinerja maupun tab Indeks Kehadiran), boleh
+ * diubah manual oleh admin di masing-masing form.
+ */
+export function defaultPeriodeKinerja(tahun, bulan) {
+  if (bulan >= 8 && bulan <= 12) return { mulai: `${tahun}-08-01`, selesai: `${tahun}-12-31` }
+  return { mulai: `${tahun}-01-01`, selesai: `${tahun}-07-31` }
+}
+
 /** Tabel dasar Indeks Kehadiran dari persentase kehadiran efektif, Pasal 11 ayat 7 SK 01.012. */
 export const IH_BASE_TABLE = [
   { batasBawah: 100, ih: 1.00, label: 'Kehadiran sempurna' },

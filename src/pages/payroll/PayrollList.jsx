@@ -1,10 +1,31 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Wallet, Plus } from 'lucide-react'
+import { Wallet, Plus, Settings2 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner, Modal, Select, Input } from '../../components/ui'
 import { STATUS_BADGE_COLOR, formatRupiah, BULAN } from '../../lib/format'
+
+const PAYROLL_SETTINGS_FIELDS = [
+  ['honor_mengajar_gol3', 'Honor Jam Mengajar — Golongan III (Rp/JP)'],
+  ['honor_mengajar_gol4', 'Honor Jam Mengajar — Golongan IV (Rp/JP)'],
+  ['honor_lembur_per_jam', 'Honor Lembur (Rp/jam)'],
+  ['lembur_maks_jam_per_hari', 'Maks. Jam Lembur per Hari (jam)'],
+  ['lembur_maks_jam_per_minggu', 'Maks. Jam Lembur per Minggu (jam)'],
+  ['transport_makan_nominal', 'Tunjangan Transport & Makan (Rp/bulan)'],
+]
+
+function usePayrollSettings() {
+  const [settings, setSettings] = useState(null)
+  const [loaded, setLoaded] = useState(false)
+  const load = useCallback(async () => {
+    const { data } = await supabase.from('payroll_settings').select('*').maybeSingle()
+    setSettings(data || null)
+    setLoaded(true)
+  }, [])
+  useEffect(() => { load() }, [load])
+  return { settings, loaded, reload: load }
+}
 
 export default function PayrollList() {
   const { hasFullAccess, employee, loading: authLoading } = useAuth()
@@ -19,9 +40,11 @@ export default function PayrollList() {
 
 function ManagerPayroll() {
   const navigate = useNavigate()
+  const { settings, loaded: settingsLoaded, reload: reloadSettings } = usePayrollSettings()
   const [runs, setRuns] = useState([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [form, setForm] = useState({ periode_bulan: new Date().getMonth() + 1, periode_tahun: new Date().getFullYear() })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -48,7 +71,13 @@ function ManagerPayroll() {
 
   return (
     <div>
-      <div className="mb-4 flex justify-end">
+      {settingsLoaded && !settings && (
+        <Card className="mb-4 border-[var(--color-gold)] bg-[var(--color-gold-soft)]">
+          <p className="text-sm font-medium text-[var(--color-gold)]">Tarif penggajian (honor mengajar/lembur, transport &amp; makan) belum diatur. Klik "Pengaturan" untuk mengisinya sebelum memproses periode baru.</p>
+        </Card>
+      )}
+      <div className="mb-4 flex justify-end gap-2">
+        <Button variant="outline" onClick={() => setSettingsOpen(true)}><Settings2 className="h-4 w-4" /> Pengaturan</Button>
         <Button onClick={() => setModalOpen(true)}><Plus className="h-4 w-4" /> Buat Periode Baru</Button>
       </div>
       <Card padded={false}>
@@ -87,7 +116,62 @@ function ManagerPayroll() {
           </div>
         </form>
       </Modal>
+
+      <PayrollSettingsModal
+        open={settingsOpen}
+        settings={settings}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={() => { setSettingsOpen(false); reloadSettings() }}
+      />
     </div>
+  )
+}
+
+function PayrollSettingsModal({ open, settings, onClose, onSaved }) {
+  const [form, setForm] = useState(settings || {})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => { if (open) { setForm(settings || {}); setError('') } }, [open, settings])
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError('')
+    const payload = Object.fromEntries(PAYROLL_SETTINGS_FIELDS.map(([key]) => [key, Number(form[key]) || 0]))
+    // Baris payroll_settings mungkin belum pernah dibuat — update by id kalau
+    // sudah ada, kalau belum langsung insert baris baru, supaya penyimpanan
+    // tidak pernah "berhasil" secara diam-diam tanpa benar-benar tersimpan.
+    const { error: err } = settings?.id
+      ? await supabase.from('payroll_settings').update(payload).eq('id', settings.id)
+      : await supabase.from('payroll_settings').insert(payload)
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onSaved()
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Pengaturan Penggajian" width="max-w-xl">
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-4">
+          {PAYROLL_SETTINGS_FIELDS.map(([key, label]) => (
+            <Input
+              key={key} label={label} type="number" min="0" step="1"
+              value={form[key] ?? ''}
+              onChange={(e) => setForm((s) => ({ ...s, [key]: e.target.value }))}
+            />
+          ))}
+        </div>
+        <p className="text-xs text-[var(--color-ink-soft)]">
+          Tarif ini dipakai otomatis saat "Proses Pegawai Aktif" dan "Hitung Ulang" di setiap periode penggajian. Perubahan di sini TIDAK mengubah slip yang sudah diproses sebelumnya —
+          gunakan tombol Hitung Ulang per pegawai bila perlu menerapkan tarif baru ke slip yang sudah ada.
+        </p>
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
+          <Button type="button" onClick={handleSave} disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
