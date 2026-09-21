@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Wallet, Plus, Settings2, Printer } from 'lucide-react'
+import { Wallet, Plus, Settings2, Printer, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner, Modal, Select, Input } from '../../components/ui'
@@ -48,6 +48,7 @@ function ManagerPayroll() {
   const [form, setForm] = useState({ periode_bulan: new Date().getMonth() + 1, periode_tahun: new Date().getFullYear() })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [deletingId, setDeletingId] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -66,6 +67,27 @@ function ManagerPayroll() {
     setSaving(false)
     if (err) { setError(err.message.includes('duplicate') ? 'Periode ini sudah dibuat sebelumnya.' : err.message); return }
     setModalOpen(false)
+    load()
+  }
+
+  // Hapus periode penggajian — HANYA untuk status draft. Periode yang
+  // sudah final sengaja tidak bisa dihapus dari sini karena sudah pernah
+  // dilihat pegawai sebagai slip gaji resmi; menghapusnya menghilangkan
+  // jejak riwayat gaji. Menghapus periode ikut menghapus seluruh slip
+  // (payroll_details) di dalamnya lewat "on delete cascade" pada database.
+  const handleDelete = async (e, run) => {
+    e.stopPropagation()
+    const jumlah = run.payroll_details?.length || 0
+    const konfirmasi = confirm(
+      `Hapus periode ${BULAN[run.periode_bulan - 1]} ${run.periode_tahun}?\n\n` +
+      (jumlah > 0 ? `${jumlah} slip gaji pegawai yang sudah diproses pada periode ini akan ikut terhapus. ` : '') +
+      `Tindakan ini tidak dapat dibatalkan.`
+    )
+    if (!konfirmasi) return
+    setDeletingId(run.id)
+    const { error: err } = await supabase.from('payroll_runs').delete().eq('id', run.id)
+    setDeletingId(null)
+    if (err) { alert('Gagal menghapus periode: ' + err.message); return }
     load()
   }
 
@@ -93,7 +115,22 @@ function ManagerPayroll() {
                   <Td className="font-medium text-[var(--color-ink)]">{BULAN[r.periode_bulan - 1]} {r.periode_tahun}</Td>
                   <Td>{r.payroll_details?.length || 0} pegawai</Td>
                   <Td><Badge color={STATUS_BADGE_COLOR[r.status]}>{r.status}</Badge></Td>
-                  <Td className="text-right text-sm font-medium text-[var(--color-navy)]">Kelola →</Td>
+                  <Td className="text-right">
+                    <div className="flex items-center justify-end gap-3">
+                      {r.status === 'draft' && (
+                        <button
+                          onClick={(e) => handleDelete(e, r)}
+                          disabled={deletingId === r.id}
+                          className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)] disabled:opacity-50"
+                          aria-label="Hapus periode"
+                          title="Hapus periode (hanya draft)"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                      <span className="text-sm font-medium text-[var(--color-navy)]">Kelola →</span>
+                    </div>
+                  </Td>
                 </Tr>
               ))}
             </Table>
