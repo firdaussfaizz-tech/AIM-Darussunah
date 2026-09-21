@@ -70,17 +70,20 @@ function ManagerPayroll() {
     load()
   }
 
-  // Hapus periode penggajian — HANYA untuk status draft. Periode yang
-  // sudah final sengaja tidak bisa dihapus dari sini karena sudah pernah
-  // dilihat pegawai sebagai slip gaji resmi; menghapusnya menghilangkan
-  // jejak riwayat gaji. Menghapus periode ikut menghapus seluruh slip
+  // Hapus periode penggajian — atas permintaan eksplisit, ini berlaku untuk
+  // SEMUA status termasuk yang sudah final. Untuk periode final (sudah
+  // pernah dilihat pegawai sebagai slip gaji resmi), dialog konfirmasi
+  // diberi peringatan tambahan supaya penghapusan tidak dilakukan tanpa
+  // sadar konsekuensinya. Menghapus periode ikut menghapus seluruh slip
   // (payroll_details) di dalamnya lewat "on delete cascade" pada database.
   const handleDelete = async (e, run) => {
     e.stopPropagation()
     const jumlah = run.payroll_details?.length || 0
+    const isFinal = run.status === 'final'
     const konfirmasi = confirm(
       `Hapus periode ${BULAN[run.periode_bulan - 1]} ${run.periode_tahun}?\n\n` +
       (jumlah > 0 ? `${jumlah} slip gaji pegawai yang sudah diproses pada periode ini akan ikut terhapus. ` : '') +
+      (isFinal ? `\n\nPERINGATAN: Periode ini berstatus FINAL — kemungkinan sudah pernah dilihat pegawai sebagai slip gaji resmi mereka. ` : '') +
       `Tindakan ini tidak dapat dibatalkan.`
     )
     if (!konfirmasi) return
@@ -117,17 +120,15 @@ function ManagerPayroll() {
                   <Td><Badge color={STATUS_BADGE_COLOR[r.status]}>{r.status}</Badge></Td>
                   <Td className="text-right">
                     <div className="flex items-center justify-end gap-3">
-                      {r.status === 'draft' && (
-                        <button
-                          onClick={(e) => handleDelete(e, r)}
-                          disabled={deletingId === r.id}
-                          className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)] disabled:opacity-50"
-                          aria-label="Hapus periode"
-                          title="Hapus periode (hanya draft)"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
+                      <button
+                        onClick={(e) => handleDelete(e, r)}
+                        disabled={deletingId === r.id}
+                        className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)] disabled:opacity-50"
+                        aria-label="Hapus periode"
+                        title="Hapus periode"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                       <span className="text-sm font-medium text-[var(--color-navy)]">Kelola →</span>
                     </div>
                   </Td>
