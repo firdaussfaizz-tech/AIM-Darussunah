@@ -8,7 +8,7 @@ import { BULAN, formatRupiah, formatDate, STATUS_BADGE_COLOR, SPP_TAGIHAN_STATUS
 const TABS = ['Tagihan & Pembayaran', 'Tarif SPP']
 
 export default function SppList() {
-  const { isManager, isBendahara, employee, loading: authLoading } = useAuth()
+  const { isManager, isBendahara, hasFullAccess, managedSchoolIds, employee, loading: authLoading } = useAuth()
   const [tab, setTab] = useState('Tagihan & Pembayaran')
 
   if (authLoading) return <FullPageSpinner />
@@ -23,6 +23,10 @@ export default function SppList() {
   }
 
   const tabs = isManager ? TABS : [TABS[0]]
+  // Admin Sekolah/Kepala Sekolah (isManager tapi bukan Admin Yayasan/HR)
+  // dikunci ke unit-nya sendiri. Bendahara SENGAJA tidak dikunci — aksesnya
+  // memang lintas unit by design (lihat migrasi 0024/0026).
+  const lockedSchoolId = isManager && !hasFullAccess && !isBendahara && managedSchoolIds.length > 0 ? managedSchoolIds[0] : null
 
   return (
     <div>
@@ -41,8 +45,8 @@ export default function SppList() {
         ))}
       </div>
 
-      {tab === 'Tagihan & Pembayaran' && <TagihanTab employeeId={employee?.id} />}
-      {tab === 'Tarif SPP' && isManager && <TarifTab />}
+      {tab === 'Tagihan & Pembayaran' && <TagihanTab employeeId={employee?.id} lockedSchoolId={lockedSchoolId} />}
+      {tab === 'Tarif SPP' && isManager && <TarifTab lockedSchoolId={lockedSchoolId} />}
     </div>
   )
 }
@@ -50,15 +54,19 @@ export default function SppList() {
 // =========================================================================
 // TAB: TAGIHAN & PEMBAYARAN
 // =========================================================================
-function TagihanTab({ employeeId }) {
+function TagihanTab({ employeeId, lockedSchoolId }) {
   const now = new Date()
   const [tahunAjaranList, setTahunAjaranList] = useState([])
   const [schools, setSchools] = useState([])
   const [tahunAjaranId, setTahunAjaranId] = useState('')
   const [bulan, setBulan] = useState(now.getMonth() + 1)
   const [tahun, setTahun] = useState(now.getFullYear())
-  const [schoolFilter, setSchoolFilter] = useState('')
+  const [schoolFilter, setSchoolFilter] = useState(lockedSchoolId || '')
   const [statusFilter, setStatusFilter] = useState('')
+
+  useEffect(() => {
+    if (lockedSchoolId) setSchoolFilter(lockedSchoolId)
+  }, [lockedSchoolId])
 
   const [tagihanList, setTagihanList] = useState([])
   const [loading, setLoading] = useState(true)
@@ -151,10 +159,12 @@ function TagihanTab({ employeeId }) {
             {BULAN.map((b, i) => <option key={b} value={i + 1}>{b}</option>)}
           </Select>
           <Input containerClassName="sm:w-28" label="Tahun" type="number" value={tahun} onChange={(e) => setTahun(Number(e.target.value))} />
-          <Select containerClassName="sm:w-56" label="Unit Sekolah" value={schoolFilter} onChange={(e) => setSchoolFilter(e.target.value)}>
-            <option value="">Semua Unit</option>
-            {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
-          </Select>
+          {!lockedSchoolId && (
+            <Select containerClassName="sm:w-56" label="Unit Sekolah" value={schoolFilter} onChange={(e) => setSchoolFilter(e.target.value)}>
+              <option value="">Semua Unit</option>
+              {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
+            </Select>
+          )}
           <Select containerClassName="sm:w-44" label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="">Semua Status</option>
             {Object.entries(SPP_TAGIHAN_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -327,7 +337,7 @@ function PembayaranModal({ tagihan, employeeId, onClose, onChanged }) {
 // =========================================================================
 const emptyTarifForm = { school_id: '', tahun_ajaran_id: '', tingkat: '', nominal: '' }
 
-function TarifTab() {
+function TarifTab({ lockedSchoolId }) {
   const [tarifList, setTarifList] = useState([])
   const [schools, setSchools] = useState([])
   const [tahunAjaranList, setTahunAjaranList] = useState([])
@@ -337,6 +347,8 @@ function TarifTab() {
   const [form, setForm] = useState(emptyTarifForm)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  const visibleSchools = lockedSchoolId ? schools.filter((s) => s.id === lockedSchoolId) : schools
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -353,7 +365,7 @@ function TarifTab() {
 
   useEffect(() => { load() }, [load])
 
-  const openAdd = () => { setEditingId(null); setForm(emptyTarifForm); setError(''); setModalOpen(true) }
+  const openAdd = () => { setEditingId(null); setForm({ ...emptyTarifForm, school_id: lockedSchoolId || '' }); setError(''); setModalOpen(true) }
   const openEdit = (t) => {
     setEditingId(t.id)
     setForm({ school_id: t.school_id, tahun_ajaran_id: t.tahun_ajaran_id, tingkat: t.tingkat || '', nominal: t.nominal })
@@ -414,9 +426,9 @@ function TarifTab() {
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'Ubah Tarif SPP' : 'Tambah Tarif SPP'}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <Select label="Unit Sekolah" required value={form.school_id} onChange={(e) => setForm((s) => ({ ...s, school_id: e.target.value }))}>
+          <Select label="Unit Sekolah" required disabled={!!lockedSchoolId} value={form.school_id} onChange={(e) => setForm((s) => ({ ...s, school_id: e.target.value }))}>
             <option value="">— Pilih —</option>
-            {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
+            {visibleSchools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
           </Select>
           <Select label="Tahun Ajaran" required value={form.tahun_ajaran_id} onChange={(e) => setForm((s) => ({ ...s, tahun_ajaran_id: e.target.value }))}>
             <option value="">— Pilih —</option>

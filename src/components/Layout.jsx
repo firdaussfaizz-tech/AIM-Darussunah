@@ -35,6 +35,7 @@ function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara }) {
   // Siswa sendiri tidak login ke sistem ini (notifikasi lewat email saja).
   const kesiswaan = []
   if (isManager) {
+    kesiswaan.push({ to: '/kesiswaan', label: 'Dashboard Kesiswaan', icon: LayoutDashboard })
     kesiswaan.push({ to: '/siswa', label: 'Data Siswa', icon: Contact })
     kesiswaan.push({ to: '/akademik', label: 'Kelas & Tahun Ajaran', icon: CalendarRange })
   }

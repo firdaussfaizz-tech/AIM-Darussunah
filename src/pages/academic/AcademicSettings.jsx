@@ -7,7 +7,7 @@ import { PageHeader, SectionCard, Button, Badge, Table, Tr, Td, Modal, Input, Se
 const TABS = ['Tahun Ajaran', 'Rombel / Kelas', 'Kenaikan Kelas']
 
 export default function AcademicSettings() {
-  const { isManager, hasFullAccess, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, managedSchoolIds, loading: authLoading } = useAuth()
   const [tab, setTab] = useState('Tahun Ajaran')
   const [tahunAjaran, setTahunAjaran] = useState([])
   const [schools, setSchools] = useState([])
@@ -55,9 +55,18 @@ export default function AcademicSettings() {
     )
   }
 
+  // Admin Sekolah / Kepala Sekolah dikunci ke satuan pendidikannya sendiri
+  // untuk tab Rombel/Kelas & Kenaikan Kelas. Admin Yayasan/HR tetap bisa
+  // memilih/melihat seluruh unit.
+  const lockedSchoolId = !hasFullAccess && managedSchoolIds.length > 0 ? managedSchoolIds[0] : null
+  const visibleSchools = lockedSchoolId ? schools.filter((s) => s.id === lockedSchoolId) : schools
+
   return (
     <div>
-      <PageHeader title="Kelas & Tahun Ajaran" description="Kelola tahun ajaran dan rombongan belajar (rombel) di seluruh unit yayasan." />
+      <PageHeader
+        title="Kelas & Tahun Ajaran"
+        description={lockedSchoolId ? 'Kelola rombongan belajar (rombel) di unit Anda.' : 'Kelola tahun ajaran dan rombongan belajar (rombel) di seluruh unit yayasan.'}
+      />
       <div className="mb-6 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
         {TABS.map((t) => (
           <button
@@ -74,9 +83,9 @@ export default function AcademicSettings() {
 
       {tab === 'Tahun Ajaran' && <TahunAjaranTab tahunAjaran={tahunAjaran} reload={load} hasFullAccess={hasFullAccess} />}
       {tab === 'Rombel / Kelas' && (
-        <RombelTab rombel={rombel} schools={schools} employees={employees} tahunAjaran={tahunAjaran} reload={load} />
+        <RombelTab rombel={rombel} schools={visibleSchools} employees={employees} tahunAjaran={tahunAjaran} reload={load} lockedSchoolId={lockedSchoolId} />
       )}
-      {tab === 'Kenaikan Kelas' && <KenaikanKelasTab rombel={rombel} schools={schools} tahunAjaran={tahunAjaran} />}
+      {tab === 'Kenaikan Kelas' && <KenaikanKelasTab rombel={rombel} schools={visibleSchools} tahunAjaran={tahunAjaran} lockedSchoolId={lockedSchoolId} />}
     </div>
   )
 }
@@ -199,7 +208,7 @@ function TahunAjaranTab({ tahunAjaran, reload, hasFullAccess }) {
 // =========================================================================
 const emptyRombelForm = { school_id: '', tahun_ajaran_id: '', tingkat: '', nama_rombel: '', wali_kelas_employee_id: '', kapasitas: '' }
 
-function RombelTab({ rombel, schools, employees, tahunAjaran, reload }) {
+function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedSchoolId }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState(emptyRombelForm)
@@ -211,7 +220,7 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload }) {
 
   const openAdd = () => {
     setEditingId(null)
-    setForm({ ...emptyRombelForm, tahun_ajaran_id: tahunAktif?.id || '' })
+    setForm({ ...emptyRombelForm, tahun_ajaran_id: tahunAktif?.id || '', school_id: lockedSchoolId || '' })
     setError('')
     setModalOpen(true)
   }
@@ -285,7 +294,7 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload }) {
             <option value="">— Pilih —</option>
             {tahunAjaran.map((t) => <option key={t.id} value={t.id}>{t.nama}{t.status === 'aktif' ? ' (Aktif)' : ''}</option>)}
           </Select>
-          <Select label="Unit Sekolah" required value={form.school_id} onChange={(e) => setForm((s) => ({ ...s, school_id: e.target.value }))}>
+          <Select label="Unit Sekolah" required disabled={!!lockedSchoolId} value={form.school_id} onChange={(e) => setForm((s) => ({ ...s, school_id: e.target.value }))}>
             <option value="">— Pilih —</option>
             {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
           </Select>
@@ -428,11 +437,15 @@ function RosterModal({ rombel, onClose, onSaved }) {
 const AKSI_LULUS = '__LULUS__'
 const AKSI_KELUAR = '__KELUAR__'
 
-function KenaikanKelasTab({ rombel, schools, tahunAjaran }) {
-  const [schoolFilter, setSchoolFilter] = useState('')
+function KenaikanKelasTab({ rombel, schools, tahunAjaran, lockedSchoolId }) {
+  const [schoolFilter, setSchoolFilter] = useState(lockedSchoolId || '')
   const [asalTahunId, setAsalTahunId] = useState(tahunAjaran.find((t) => t.status === 'aktif')?.id || '')
   const [tujuanTahunId, setTujuanTahunId] = useState('')
   const [asalRombelId, setAsalRombelId] = useState('')
+
+  useEffect(() => {
+    if (lockedSchoolId) setSchoolFilter(lockedSchoolId)
+  }, [lockedSchoolId])
 
   const [siswaList, setSiswaList] = useState([])
   const [loadingSiswa, setLoadingSiswa] = useState(false)
@@ -525,10 +538,12 @@ function KenaikanKelasTab({ rombel, schools, tahunAjaran }) {
           <option value="">— Pilih —</option>
           {tahunAjaran.filter((t) => t.id !== asalTahunId).map((t) => <option key={t.id} value={t.id}>{t.nama}{t.status === 'aktif' ? ' (Aktif)' : ''}</option>)}
         </Select>
-        <Select label="Unit Sekolah (filter)" value={schoolFilter} onChange={(e) => { setSchoolFilter(e.target.value); setAsalRombelId('') }}>
-          <option value="">Semua Unit</option>
-          {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
-        </Select>
+        {!lockedSchoolId && (
+          <Select label="Unit Sekolah (filter)" value={schoolFilter} onChange={(e) => { setSchoolFilter(e.target.value); setAsalRombelId('') }}>
+            <option value="">Semua Unit</option>
+            {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
+          </Select>
+        )}
         <Select label="Rombel Asal" value={asalRombelId} onChange={(e) => setAsalRombelId(e.target.value)} disabled={!asalTahunId}>
           <option value="">— Pilih —</option>
           {rombelAsalOptions.map((r) => <option key={r.id} value={r.id}>{r.schools ? `${r.schools.jenjang} — ` : ''}{r.tingkat} {r.nama_rombel}</option>)}

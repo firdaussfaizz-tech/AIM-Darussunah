@@ -139,6 +139,11 @@ export default function SalarySection({ employee, canManage }) {
             ))
           )}
           <Tr>
+            <Td className="font-medium text-[var(--color-ink)]">Tunjangan Transportasi &amp; Makan</Td>
+            <Td>{formatRupiah(komponen.transportMakan)}</Td>
+            <Td className="text-[var(--color-ink-soft)]">Tarif tetap seluruh yayasan — diatur di menu Penggajian &gt; Pengaturan</Td>
+          </Tr>
+          <Tr>
             <Td className="font-semibold text-[var(--color-ink)]">Total P1</Td>
             <Td className="font-semibold">{formatRupiah(komponen.totalP1)}</Td>
             <Td />

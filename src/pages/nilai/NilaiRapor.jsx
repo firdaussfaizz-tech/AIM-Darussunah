@@ -16,7 +16,7 @@ function tebakSemester() {
 }
 
 export default function NilaiRapor() {
-  const { isManager, isWaliKelas, waliKelasRombel, employee, loading: authLoading } = useAuth()
+  const { isManager, isWaliKelas, waliKelasRombel, hasFullAccess, managedSchoolIds, employee, loading: authLoading } = useAuth()
   const [tab, setTab] = useState('Input Nilai & Rapor')
 
   if (authLoading) return <FullPageSpinner />
@@ -31,6 +31,9 @@ export default function NilaiRapor() {
   }
 
   const tabs = isManager ? TABS : [TABS[0]]
+  // Admin Sekolah/Kepala Sekolah dikunci ke unit-nya sendiri. Wali Kelas
+  // sudah otomatis terbatas pada rombelnya sendiri lewat waliKelasRombel.
+  const lockedSchoolId = isManager && !hasFullAccess && managedSchoolIds.length > 0 ? managedSchoolIds[0] : null
 
   return (
     <div>
@@ -49,8 +52,8 @@ export default function NilaiRapor() {
         ))}
       </div>
 
-      {tab === 'Input Nilai & Rapor' && <InputNilaiTab isManager={isManager} waliKelasRombel={waliKelasRombel} employeeId={employee?.id} />}
-      {tab === 'Mata Pelajaran' && isManager && <MataPelajaranTab />}
+      {tab === 'Input Nilai & Rapor' && <InputNilaiTab isManager={isManager} waliKelasRombel={waliKelasRombel} employeeId={employee?.id} lockedSchoolId={lockedSchoolId} />}
+      {tab === 'Mata Pelajaran' && isManager && <MataPelajaranTab lockedSchoolId={lockedSchoolId} />}
     </div>
   )
 }
@@ -58,7 +61,7 @@ export default function NilaiRapor() {
 // =========================================================================
 // TAB: INPUT NILAI & RAPOR
 // =========================================================================
-function InputNilaiTab({ isManager, waliKelasRombel, employeeId }) {
+function InputNilaiTab({ isManager, waliKelasRombel, employeeId, lockedSchoolId }) {
   const [semester, setSemester] = useState(tebakSemester())
   const [modalSiswa, setModalSiswa] = useState(null) // { siswa, rombel, tahunAjaranId }
   const [raporSiswa, setRaporSiswa] = useState(null)
@@ -74,7 +77,7 @@ function InputNilaiTab({ isManager, waliKelasRombel, employeeId }) {
       </Card>
 
       {isManager ? (
-        <ManagerRombelPicker onInputNilai={setModalSiswa} onRapor={setRaporSiswa} />
+        <ManagerRombelPicker onInputNilai={setModalSiswa} onRapor={setRaporSiswa} lockedSchoolId={lockedSchoolId} />
       ) : (
         <WaliKelasRombelPicker rombelList={waliKelasRombel} onInputNilai={setModalSiswa} onRapor={setRaporSiswa} />
       )}
@@ -94,9 +97,9 @@ function InputNilaiTab({ isManager, waliKelasRombel, employeeId }) {
   )
 }
 
-function ManagerRombelPicker({ onInputNilai, onRapor }) {
+function ManagerRombelPicker({ onInputNilai, onRapor, lockedSchoolId }) {
   const [schools, setSchools] = useState([])
-  const [schoolFilter, setSchoolFilter] = useState('')
+  const [schoolFilter, setSchoolFilter] = useState(lockedSchoolId || '')
   const [tahunAktif, setTahunAktif] = useState(null)
   const [rombelList, setRombelList] = useState([])
   const [rombelId, setRombelId] = useState('')
@@ -120,6 +123,10 @@ function ManagerRombelPicker({ onInputNilai, onRapor }) {
     load()
   }, [])
 
+  useEffect(() => {
+    if (lockedSchoolId) setSchoolFilter(lockedSchoolId)
+  }, [lockedSchoolId])
+
   if (loadingMeta) return <FullPageSpinner />
   if (!tahunAktif) return <EmptyState icon={NotebookText} title="Belum ada tahun ajaran aktif" description="Atur tahun ajaran aktif terlebih dahulu di menu Kelas & Tahun Ajaran." />
 
@@ -129,10 +136,12 @@ function ManagerRombelPicker({ onInputNilai, onRapor }) {
     <div>
       <Card className="mb-4" padded={false}>
         <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-          <Select containerClassName="sm:w-56" value={schoolFilter} onChange={(e) => { setSchoolFilter(e.target.value); setRombelId('') }}>
-            <option value="">Semua Unit</option>
-            {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
-          </Select>
+          {!lockedSchoolId && (
+            <Select containerClassName="sm:w-56" value={schoolFilter} onChange={(e) => { setSchoolFilter(e.target.value); setRombelId('') }}>
+              <option value="">Semua Unit</option>
+              {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
+            </Select>
+          )}
           <Select containerClassName="sm:w-56" value={rombelId} onChange={(e) => setRombelId(e.target.value)}>
             <option value="">— Pilih Rombel —</option>
             {filteredRombel.map((r) => <option key={r.id} value={r.id}>{r.tingkat} {r.nama_rombel}</option>)}
@@ -441,9 +450,9 @@ function RaporModal({ siswa, rombel, tahunAjaranId, semester, onClose }) {
 // =========================================================================
 // TAB: MATA PELAJARAN
 // =========================================================================
-function MataPelajaranTab() {
+function MataPelajaranTab({ lockedSchoolId }) {
   const [schools, setSchools] = useState([])
-  const [schoolFilter, setSchoolFilter] = useState('')
+  const [schoolFilter, setSchoolFilter] = useState(lockedSchoolId || '')
   const [mapelList, setMapelList] = useState([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -454,12 +463,14 @@ function MataPelajaranTab() {
   // Daftar unit sekolah & filter default dimuat SEKALI, terpisah dari
   // reload daftar mapel — supaya filter unit yang sedang dipilih pengguna
   // tidak ke-reset setiap kali daftar mapel dimuat ulang setelah tambah/hapus.
+  // Admin Sekolah/Kepala Sekolah dikunci ke unit-nya sendiri (lockedSchoolId).
   useEffect(() => {
     supabase.from('schools').select('id, nama, jenjang').order('jenjang').then(({ data }) => {
-      setSchools(data || [])
-      setSchoolFilter((prev) => prev || data?.[0]?.id || '')
+      const list = data || []
+      setSchools(lockedSchoolId ? list.filter((s) => s.id === lockedSchoolId) : list)
+      setSchoolFilter((prev) => prev || lockedSchoolId || list?.[0]?.id || '')
     })
-  }, [])
+  }, [lockedSchoolId])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -500,7 +511,7 @@ function MataPelajaranTab() {
       description="Daftar mata pelajaran per unit sekolah — dipakai saat input nilai."
       actions={<Button size="sm" variant="outline" onClick={openAdd}><Plus className="h-4 w-4" /> Tambah</Button>}
     >
-      <Select containerClassName="mb-4 sm:w-64" label="Unit Sekolah" value={schoolFilter} onChange={(e) => setSchoolFilter(e.target.value)}>
+      <Select containerClassName="mb-4 sm:w-64" label="Unit Sekolah" disabled={!!lockedSchoolId} value={schoolFilter} onChange={(e) => setSchoolFilter(e.target.value)}>
         {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
       </Select>
       {filtered.length === 0 ? <EmptyState icon={BookOpen} title="Belum ada mata pelajaran" description="Tambahkan mata pelajaran untuk unit sekolah ini." /> : (
@@ -518,7 +529,7 @@ function MataPelajaranTab() {
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Tambah Mata Pelajaran">
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <Select label="Unit Sekolah" required value={form.school_id} onChange={(e) => setForm((s) => ({ ...s, school_id: e.target.value }))}>
+          <Select label="Unit Sekolah" required disabled={!!lockedSchoolId} value={form.school_id} onChange={(e) => setForm((s) => ({ ...s, school_id: e.target.value }))}>
             <option value="">— Pilih —</option>
             {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
           </Select>

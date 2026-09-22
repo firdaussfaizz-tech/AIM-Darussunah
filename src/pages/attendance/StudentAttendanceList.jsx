@@ -11,7 +11,7 @@ import { PRESENSI_SISWA_STATUS_OPTIONS, PRESENSI_SISWA_STATUS_LABELS, STATUS_BAD
 // PERTAMA di modul Kesiswaan yang dibuka untuk pegawai non-manajemen,
 // sesuai keputusan scoping "Wali Kelas login sendiri".
 export default function StudentAttendanceList() {
-  const { isManager, isWaliKelas, waliKelasRombel, employee, loading: authLoading } = useAuth()
+  const { isManager, isWaliKelas, waliKelasRombel, hasFullAccess, managedSchoolIds, employee, loading: authLoading } = useAuth()
   if (authLoading) return <FullPageSpinner />
   if (!isManager && !isWaliKelas) {
     return (
@@ -22,17 +22,20 @@ export default function StudentAttendanceList() {
       />
     )
   }
+  // Admin Sekolah/Kepala Sekolah dikunci ke unit-nya sendiri. Wali Kelas
+  // sudah otomatis terbatas pada rombelnya sendiri lewat waliKelasRombel.
+  const lockedSchoolId = isManager && !hasFullAccess && managedSchoolIds.length > 0 ? managedSchoolIds[0] : null
   return (
     <div>
       <PageHeader title="Presensi Siswa" description="Catat kehadiran siswa harian per rombel." />
-      {isManager ? <ManagerView employeeId={employee?.id} /> : <WaliKelasView rombelList={waliKelasRombel} employeeId={employee?.id} />}
+      {isManager ? <ManagerView employeeId={employee?.id} lockedSchoolId={lockedSchoolId} /> : <WaliKelasView rombelList={waliKelasRombel} employeeId={employee?.id} />}
     </div>
   )
 }
 
-function ManagerView({ employeeId }) {
+function ManagerView({ employeeId, lockedSchoolId }) {
   const [schools, setSchools] = useState([])
-  const [schoolFilter, setSchoolFilter] = useState('')
+  const [schoolFilter, setSchoolFilter] = useState(lockedSchoolId || '')
   const [tahunAktif, setTahunAktif] = useState(null)
   const [rombelList, setRombelList] = useState([])
   const [rombelId, setRombelId] = useState('')
@@ -58,6 +61,10 @@ function ManagerView({ employeeId }) {
     load()
   }, [])
 
+  useEffect(() => {
+    if (lockedSchoolId) setSchoolFilter(lockedSchoolId)
+  }, [lockedSchoolId])
+
   if (loadingMeta) return <FullPageSpinner />
   if (!tahunAktif) {
     return <EmptyState icon={ClipboardCheck} title="Belum ada tahun ajaran aktif" description="Atur tahun ajaran aktif terlebih dahulu di menu Kelas & Tahun Ajaran." />
@@ -69,10 +76,12 @@ function ManagerView({ employeeId }) {
     <div>
       <Card className="mb-4" padded={false}>
         <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-          <Select containerClassName="sm:w-56" value={schoolFilter} onChange={(e) => { setSchoolFilter(e.target.value); setRombelId('') }}>
-            <option value="">Semua Unit</option>
-            {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
-          </Select>
+          {!lockedSchoolId && (
+            <Select containerClassName="sm:w-56" value={schoolFilter} onChange={(e) => { setSchoolFilter(e.target.value); setRombelId('') }}>
+              <option value="">Semua Unit</option>
+              {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
+            </Select>
+          )}
           <Select containerClassName="sm:w-56" value={rombelId} onChange={(e) => setRombelId(e.target.value)}>
             <option value="">— Pilih Rombel —</option>
             {filteredRombel.map((r) => <option key={r.id} value={r.id}>{r.tingkat} {r.nama_rombel}</option>)}

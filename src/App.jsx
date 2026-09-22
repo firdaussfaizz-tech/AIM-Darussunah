@@ -25,6 +25,7 @@ import StudentDetail from './pages/students/StudentDetail'
 import AcademicSettings from './pages/academic/AcademicSettings'
 import SppList from './pages/spp/SppList'
 import NilaiRapor from './pages/nilai/NilaiRapor'
+import KesiswaanDashboard from './pages/kesiswaan/KesiswaanDashboard'
 
 export default function App() {
   return (
@@ -56,6 +57,7 @@ export default function App() {
             <Route path="pengguna" element={<RequireFullAccess><UserRoles /></RequireFullAccess>} />
             <Route path="log-aktivitas" element={<RequireFullAccess><ActivityLog /></RequireFullAccess>} />
             <Route path="notifikasi-email" element={<RequireFullAccess><NotificationSettings /></RequireFullAccess>} />
+            <Route path="kesiswaan" element={<KesiswaanDashboard />} />
             <Route path="siswa" element={<StudentList />} />
             <Route path="siswa/:id" element={<StudentDetail />} />
             <Route path="akademik" element={<AcademicSettings />} />

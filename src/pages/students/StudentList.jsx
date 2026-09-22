@@ -8,13 +8,21 @@ import { STATUS_BADGE_COLOR, SISWA_STATUS_LABELS } from '../../lib/format'
 import StudentFormModal from './StudentFormModal'
 
 export default function StudentList() {
-  const { isManager, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, managedSchoolIds, loading: authLoading } = useAuth()
   const navigate = useNavigate()
+
+  // Admin Sekolah / Kepala Sekolah (isManager tapi bukan lintas-yayasan)
+  // dikunci ke satuan pendidikannya sendiri. Admin Yayasan/HR (hasFullAccess)
+  // tetap bisa melihat & memilih seluruh unit. Dihitung sebelum useState di
+  // bawah supaya schoolFilter bisa langsung diinisialisasi terkunci (tidak
+  // sempat "berkedip" menampilkan data seluruh unit sesaat sebelum effect).
+  const lockedSchoolId = !hasFullAccess && managedSchoolIds.length > 0 ? managedSchoolIds[0] : null
+
   const [loading, setLoading] = useState(true)
   const [siswa, setSiswa] = useState([])
   const [schools, setSchools] = useState([])
   const [search, setSearch] = useState('')
-  const [schoolFilter, setSchoolFilter] = useState('')
+  const [schoolFilter, setSchoolFilter] = useState(lockedSchoolId || '')
   const [statusFilter, setStatusFilter] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -38,6 +46,10 @@ export default function StudentList() {
   useEffect(() => {
     if (!authLoading) load()
   }, [authLoading, load])
+
+  useEffect(() => {
+    if (lockedSchoolId) setSchoolFilter(lockedSchoolId)
+  }, [lockedSchoolId])
 
   if (authLoading || loading) return <FullPageSpinner />
 
@@ -71,7 +83,7 @@ export default function StudentList() {
     <div>
       <PageHeader
         title="Data Siswa"
-        description={`${siswa.length} siswa tercatat di seluruh unit yayasan`}
+        description={lockedSchoolId ? `${siswa.length} siswa tercatat di unit Anda` : `${siswa.length} siswa tercatat di seluruh unit yayasan`}
         actions={
           <Button onClick={() => setFormOpen(true)}>
             <Plus className="h-4 w-4" /> Tambah Siswa
@@ -96,12 +108,14 @@ export default function StudentList() {
               className="w-full rounded-md border border-[var(--color-border)] bg-white py-2 pl-9 pr-3 text-sm focus:border-[var(--color-navy)] focus:outline-none focus:ring-1 focus:ring-[var(--color-navy)]"
             />
           </div>
-          <Select containerClassName="sm:w-48" value={schoolFilter} onChange={(e) => setSchoolFilter(e.target.value)}>
-            <option value="">Semua Unit</option>
-            {schools.map((s) => (
-              <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>
-            ))}
-          </Select>
+          {!lockedSchoolId && (
+            <Select containerClassName="sm:w-48" value={schoolFilter} onChange={(e) => setSchoolFilter(e.target.value)}>
+              <option value="">Semua Unit</option>
+              {schools.map((s) => (
+                <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>
+              ))}
+            </Select>
+          )}
           <Select containerClassName="sm:w-44" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="">Semua Status</option>
             {Object.entries(SISWA_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -138,7 +152,7 @@ export default function StudentList() {
         open={formOpen}
         onClose={() => setFormOpen(false)}
         onSaved={() => { setFormOpen(false); load() }}
-        schools={schools}
+        schools={lockedSchoolId ? schools.filter((s) => s.id === lockedSchoolId) : schools}
       />
     </div>
   )
