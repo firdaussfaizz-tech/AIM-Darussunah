@@ -65,7 +65,8 @@ export function OkrPanel() {
         performance_periods(nama, tahun, semester),
         diajukan_nama:okr_objectives_diajukan_nama,
         diputuskan_nama:okr_objectives_diputuskan_nama,
-        okr_key_results(id, deskripsi, target, capaian, satuan, urutan)
+        okr_key_results(id, deskripsi, target, capaian, satuan, urutan),
+        kpi_lembaga_indikator(id, indikator, status)
       `)
       .order('created_at', { ascending: false })
     if (periodFilter) q = q.eq('period_id', periodFilter)
@@ -283,6 +284,15 @@ function ObjectiveList({ rows, showSekolah, emptyTitle, emptyDescription, render
                     </div>
                     <span className="text-xs font-medium text-[var(--color-ink-soft)]">{progress}%</span>
                   </div>
+                </div>
+              )}
+
+              {row.kpi_lembaga_indikator?.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="text-[var(--color-ink-soft)]">KPI turunan:</span>
+                  {row.kpi_lembaga_indikator.map((k) => (
+                    <span key={k.id} className="rounded-full bg-[var(--color-navy-50)] px-2 py-0.5 text-[var(--color-navy)]">{k.indikator}</span>
+                  ))}
                 </div>
               )}
 

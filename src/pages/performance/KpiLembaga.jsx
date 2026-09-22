@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Gauge, Plus, Pencil, Trash2, Send, Check, Undo2, Info, LineChart, AlertTriangle } from 'lucide-react'
+import { Gauge, Plus, Pencil, Trash2, Send, Check, Undo2, Info, LineChart, AlertTriangle, Target } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { Card, Select, Button, Badge, EmptyState, FullPageSpinner, Modal, Input, Textarea } from '../../components/ui'
@@ -9,7 +9,9 @@ import { Card, Select, Button, Badge, EmptyState, FullPageSpinner, Modal, Input,
 // diusulkan sekolah -> diverifikasi & divalidasi Yayasan; realisasi diisi
 // berkala (pembilang÷pembagi) lalu dihitung capaian & status di sisi
 // client (konvensi kode yang sudah ada), dan diringkas jadi dashboard.
-// Skema: migrasi 0032_kpi_lembaga.sql.
+// Periode memakai acuan kanonik `tahun_ajaran` (R1). OKR = tujuan besar,
+// KPI = indikator turunannya (tautan objective_id opsional).
+// Skema: 0032_kpi_lembaga.sql + 0033_periode_selaras.sql.
 // =====================================================================
 
 export const PERSPEKTIF_OPTIONS = [
@@ -30,12 +32,6 @@ const STATUS_META = {
   perlu_perhatian: { label: 'Perlu Perhatian', color: 'gold' },
   tidak_tercapai: { label: 'Tidak Tercapai', color: 'danger' },
   belum_diukur: { label: 'Belum Diukur', color: 'neutral' },
-}
-
-// Tahun ajaran berjalan: Jul–Des -> "YYYY/YYYY+1", Jan–Jun -> "YYYY-1/YYYY".
-export function tahunAjaranBerjalan(d = new Date()) {
-  const y = d.getFullYear()
-  return d.getMonth() >= 6 ? `${y}/${y + 1}` : `${y - 1}/${y}`
 }
 
 // realisasi dari pembilang/pembagi. Pembagi boleh kosong untuk angka
@@ -88,7 +84,6 @@ function realisasiAgregat(indikator) {
   if (vals.length === 0) return null
   if (indikator.metode_agregasi === 'akumulasi') return vals.reduce((a, b) => a + b, 0)
   if (indikator.metode_agregasi === 'nilai_terakhir') {
-    // "terakhir" = termin dengan urutan tertinggi
     const rows = (indikator.kpi_lembaga_pengukuran || [])
       .filter((p) => p.realisasi !== null && p.realisasi !== undefined)
       .sort((a, b) => (a.termin_urut || 0) - (b.termin_urut || 0))
@@ -108,6 +103,12 @@ export function skorIndikator(indikator) {
 
 const pct = (frac) => (frac === null || frac === undefined ? '—' : `${Math.round(frac * 100)}%`)
 const numFmt = (v) => (v === null || v === undefined || v === '' ? '—' : Number(v).toLocaleString('id-ID', { maximumFractionDigits: 2 }))
+
+// Pilih Tahun Ajaran default: yang berstatus aktif, atau paling atas.
+function defaultTaId(list) {
+  if (!list || list.length === 0) return ''
+  return (list.find((t) => t.status === 'aktif') || list[0]).id
+}
 
 // ---------------------------------------------------------------------
 // Panel utama KPI Lembaga (dipakai sebagai TAB di KinerjaLembaga.jsx).
@@ -130,7 +131,9 @@ export function KpiLembagaPanel() {
   const TABS = ['Indikator & Realisasi', 'Persetujuan Yayasan', 'Rekap & Histori']
   const [tab, setTab] = useState('Indikator & Realisasi')
   const [schools, setSchools] = useState([])
-  const [taFilter, setTaFilter] = useState(tahunAjaranBerjalan())
+  const [tahunAjaranList, setTahunAjaranList] = useState([])
+  const [objectives, setObjectives] = useState([])
+  const [taFilter, setTaFilter] = useState('') // tahun_ajaran_id
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -148,21 +151,29 @@ export function KpiLembagaPanel() {
       .select(`
         *,
         schools!school_id(nama, jenjang),
+        tahun_ajaran(nama),
+        okr_objectives(judul),
         diajukan_nama:kpi_lembaga_indikator_diajukan_nama,
         diputuskan_nama:kpi_lembaga_indikator_diputuskan_nama,
         kpi_lembaga_pengukuran(*)
       `)
       .order('urutan')
       .order('created_at', { ascending: false })
-    if (taFilter) q = q.eq('tahun_ajaran', taFilter)
-    const [{ data: s }, { data: r, error: rErr }] = await Promise.all([
+    if (taFilter) q = q.eq('tahun_ajaran_id', taFilter)
+    const [{ data: s }, { data: taList }, { data: obj }, { data: r, error: rErr }] = await Promise.all([
       supabase.from('schools').select('id, nama, jenjang').order('jenjang'),
+      supabase.from('tahun_ajaran').select('id, nama, status, tanggal_mulai').order('tanggal_mulai', { ascending: false, nullsFirst: false }),
+      supabase.from('okr_objectives').select('id, judul, school_id, status').order('created_at', { ascending: false }),
       q,
     ])
     if (rErr) setLoadError(rErr.message)
     setSchools(s || [])
+    setTahunAjaranList(taList || [])
+    setObjectives(obj || [])
     setRows(r || [])
     setLoading(false)
+    // Setel default Tahun Ajaran sekali (memicu satu reload dengan filter).
+    if (!taFilter && (taList || []).length > 0) setTaFilter(defaultTaId(taList))
   }, [taFilter])
 
   useEffect(() => { if (!authLoading) load() }, [authLoading, load])
@@ -191,13 +202,14 @@ export function KpiLembagaPanel() {
   if (authLoading || loading) return <FullPageSpinner />
 
   const formSchools = hasFullAccess ? schools : mySchools
+  const noTa = tahunAjaranList.length === 0
 
   return (
     <div>
       <Card className="mb-4 border-[var(--color-navy)]/20 bg-[var(--color-navy-50)]">
         <p className="flex items-start gap-2 text-xs text-[var(--color-ink-soft)]">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          KPI Lembaga adalah scorecard tingkat satuan pendidikan (bukan penilaian pegawai perorangan). Sekolah menyusun indikator + target lalu mengajukan; Yayasan memverifikasi & memvalidasi (menetapkan bobot final). Setelah disetujui, realisasi diisi berkala — capaian & status terhitung otomatis.
+          KPI Lembaga adalah scorecard tingkat satuan pendidikan (bukan penilaian pegawai perorangan). Sekolah menyusun indikator + target lalu mengajukan; Yayasan memverifikasi & memvalidasi (menetapkan bobot final). Setelah disetujui, realisasi diisi berkala — capaian & status terhitung otomatis. Tiap indikator boleh ditautkan ke satu Objective OKR sebagai ukuran keberhasilannya.
         </p>
       </Card>
 
@@ -207,13 +219,18 @@ export function KpiLembagaPanel() {
         </Card>
       )}
 
+      {noTa && (
+        <Card className="mb-4 border-[var(--color-gold)] bg-[var(--color-gold-soft)]">
+          <p className="text-sm text-[var(--color-ink)]">Belum ada Tahun Ajaran. Tambahkan Tahun Ajaran lebih dulu di menu Kesiswaan → Kelas & Tahun Ajaran sebelum menyusun KPI.</p>
+        </Card>
+      )}
+
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Select containerClassName="w-40" value={taFilter} onChange={(e) => setTaFilter(e.target.value)}>
-            {taOptions(rows, taFilter).map((t) => <option key={t} value={t}>TA {t}</option>)}
-          </Select>
-        </div>
-        {canAuthor && (
+        <Select containerClassName="w-56" value={taFilter} onChange={(e) => setTaFilter(e.target.value)}>
+          {noTa && <option value="">— Belum ada Tahun Ajaran —</option>}
+          {tahunAjaranList.map((t) => <option key={t.id} value={t.id}>TA {t.nama}{t.status === 'aktif' ? ' (aktif)' : ''}</option>)}
+        </Select>
+        {canAuthor && !noTa && (
           <Button onClick={() => { setEditingRow(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tambah Indikator</Button>
         )}
       </div>
@@ -280,6 +297,8 @@ export function KpiLembagaPanel() {
         open={formOpen}
         editingRow={editingRow}
         schools={formSchools}
+        tahunAjaranList={tahunAjaranList}
+        objectives={objectives}
         taDefault={taFilter}
         hasFullAccess={hasFullAccess}
         onClose={() => { setFormOpen(false); setEditingRow(null) }}
@@ -291,12 +310,6 @@ export function KpiLembagaPanel() {
       <DecideKpiModal state={decideState} onClose={() => setDecideState(null)} onDone={() => { setDecideState(null); load() }} />
     </div>
   )
-}
-
-function taOptions(rows, current) {
-  const set = new Set([tahunAjaranBerjalan(), current].filter(Boolean))
-  for (const r of rows) if (r.tahun_ajaran) set.add(r.tahun_ajaran)
-  return Array.from(set).sort().reverse()
 }
 
 // ---------------------------------------------------------------------
@@ -328,6 +341,9 @@ function IndikatorList({ rows, showSekolah, readOnly, emptyTitle, emptyDescripti
                     <span className="text-xs text-[var(--color-ink-soft)]">{row.perspektif}</span>
                   </div>
                   <p className="mt-1 font-medium text-[var(--color-ink)]">{row.indikator}</p>
+                  {row.okr_objectives?.judul && (
+                    <p className="mt-0.5 flex items-center gap-1 text-xs text-[var(--color-navy)]"><Target className="h-3 w-3" /> Turunan OKR: {row.okr_objectives.judul}</p>
+                  )}
                   {row.sasaran_mutu && <p className="text-[13px] text-[var(--color-ink-soft)]">Sasaran: {row.sasaran_mutu}</p>}
                   {row.formula && <p className="mt-0.5 text-xs text-[var(--color-ink-soft)]">Formula: {row.formula}</p>}
                 </div>
@@ -416,13 +432,12 @@ function STATUS_BADGE(status) {
 // ---------------------------------------------------------------------
 // Form buat/ubah indikator.
 // ---------------------------------------------------------------------
-function IndikatorFormModal({ open, editingRow, schools, taDefault, hasFullAccess, onClose, onSaved }) {
+function IndikatorFormModal({ open, editingRow, schools, tahunAjaranList, objectives, taDefault, hasFullAccess, onClose, onSaved }) {
   const [f, setF] = useState({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const isEdit = !!editingRow
   const locked = isEdit && !['draft', 'perlu_revisi'].includes(editingRow.status)
-  const statusOptions = hasFullAccess ? ['draft', 'diajukan', 'disetujui'] : ['draft', 'diajukan']
 
   useEffect(() => {
     if (!open) return
@@ -430,7 +445,8 @@ function IndikatorFormModal({ open, editingRow, schools, taDefault, hasFullAcces
     if (editingRow) {
       setF({
         school_id: editingRow.school_id,
-        tahun_ajaran: editingRow.tahun_ajaran || taDefault,
+        tahun_ajaran_id: editingRow.tahun_ajaran_id || taDefault || '',
+        objective_id: editingRow.objective_id || '',
         kode: editingRow.kode || '',
         perspektif: editingRow.perspektif || PERSPEKTIF_OPTIONS[0],
         sasaran_mutu: editingRow.sasaran_mutu || '',
@@ -446,12 +462,13 @@ function IndikatorFormModal({ open, editingRow, schools, taDefault, hasFullAcces
         bobotPersen: String(Math.round(Number(editingRow.bobot || 0) * 100 * 100) / 100),
         baseline: editingRow.baseline ?? '',
         target: editingRow.target ?? '',
-        status: statusOptions.includes(editingRow.status) ? editingRow.status : 'draft',
+        status: ['draft', 'diajukan'].includes(editingRow.status) || (hasFullAccess && editingRow.status === 'disetujui') ? editingRow.status : 'draft',
       })
     } else {
       setF({
         school_id: schools.length === 1 ? schools[0].id : '',
-        tahun_ajaran: taDefault || tahunAjaranBerjalan(),
+        tahun_ajaran_id: taDefault || '',
+        objective_id: '',
         kode: '', perspektif: PERSPEKTIF_OPTIONS[0], sasaran_mutu: '', indikator: '', formula: '',
         satuan: '%', polaritas: 'maksimasi', metode_agregasi: 'rata_rata', frekuensi: 'semesteran',
         sumber_data: '', penanggung_jawab: '', acuan_sop: '', bobotPersen: '', baseline: '', target: '', status: 'draft',
@@ -462,17 +479,26 @@ function IndikatorFormModal({ open, editingRow, schools, taDefault, hasFullAcces
 
   const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }))
 
+  // Objective yang bisa ditautkan: milik sekolah yang dipilih (OKR & KPI
+  // sama-sama per satuan pendidikan). Kosong bila sekolah belum dipilih.
+  const linkableObjectives = useMemo(
+    () => (objectives || []).filter((o) => o.school_id === f.school_id),
+    [objectives, f.school_id],
+  )
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     if (locked) { onClose(); return }
     if (!f.school_id) { setError('Pilih satuan pendidikan.'); return }
+    if (!f.tahun_ajaran_id) { setError('Pilih tahun ajaran.'); return }
     if (!f.indikator?.trim()) { setError('Isi nama indikator.'); return }
     if (f.target === '' || f.target === null) { setError('Isi target indikator.'); return }
     setSaving(true)
     const payload = {
       school_id: f.school_id,
-      tahun_ajaran: f.tahun_ajaran.trim(),
+      tahun_ajaran_id: f.tahun_ajaran_id,
+      objective_id: f.objective_id || null,
       kode: f.kode?.trim() || null,
       perspektif: f.perspektif,
       sasaran_mutu: f.sasaran_mutu?.trim() || null,
@@ -512,8 +538,18 @@ function IndikatorFormModal({ open, editingRow, schools, taDefault, hasFullAcces
             <option value="">— Pilih —</option>
             {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
           </Select>
-          <Input label="Tahun Ajaran" required disabled={locked} value={f.tahun_ajaran || ''} onChange={(e) => set('tahun_ajaran', e.target.value)} placeholder="2026/2027" />
+          <Select label="Tahun Ajaran" required disabled={locked} value={f.tahun_ajaran_id || ''} onChange={(e) => set('tahun_ajaran_id', e.target.value)}>
+            <option value="">— Pilih —</option>
+            {(tahunAjaranList || []).map((t) => <option key={t.id} value={t.id}>{t.nama}{t.status === 'aktif' ? ' (aktif)' : ''}</option>)}
+          </Select>
         </div>
+        <Select label="Objective OKR terkait (opsional)" disabled={locked} value={f.objective_id || ''} onChange={(e) => set('objective_id', e.target.value)}>
+          <option value="">— Tidak ditautkan (KPI berdiri sendiri) —</option>
+          {linkableObjectives.map((o) => <option key={o.id} value={o.id}>{o.judul}</option>)}
+        </Select>
+        {!locked && f.school_id && linkableObjectives.length === 0 && (
+          <p className="-mt-1 text-xs text-[var(--color-ink-soft)]">Belum ada Objective OKR untuk sekolah ini — tautan bisa diisi nanti setelah OKR dibuat.</p>
+        )}
         <div className="grid grid-cols-3 gap-3">
           <Input label="Kode (opsional)" disabled={locked} value={f.kode || ''} onChange={(e) => set('kode', e.target.value)} placeholder="AKD-01" />
           <Select label="Perspektif" containerClassName="col-span-2" required disabled={locked} value={f.perspektif || ''} onChange={(e) => set('perspektif', e.target.value)}>
@@ -732,7 +768,7 @@ function DecideKpiModal({ state, onClose, onDone }) {
     <Modal open={!!state} onClose={onClose} title={mode === 'setujui' ? 'Setujui Indikator' : 'Minta Revisi'}>
       <div className="flex flex-col gap-4">
         <p className="text-sm text-[var(--color-ink-soft)]">
-          <span className="font-medium text-[var(--color-ink)]">{row.schools?.nama}</span> — "{row.indikator}" (TA {row.tahun_ajaran})
+          <span className="font-medium text-[var(--color-ink)]">{row.schools?.nama}</span> — "{row.indikator}" (TA {row.tahun_ajaran?.nama || '—'})
         </p>
         {mode === 'setujui' && (
           <>
@@ -769,7 +805,8 @@ export function LembagaDashboard() {
     return Array.from(seen.values())
   }, [roles])
 
-  const [taFilter, setTaFilter] = useState(tahunAjaranBerjalan())
+  const [tahunAjaranList, setTahunAjaranList] = useState([])
+  const [taFilter, setTaFilter] = useState('')
   const [schoolFilter, setSchoolFilter] = useState('')
   const [schools, setSchools] = useState([])
   const [rows, setRows] = useState([])
@@ -784,15 +821,18 @@ export function LembagaDashboard() {
       .select('*, schools!school_id(nama, jenjang), kpi_lembaga_pengukuran(realisasi, termin_urut)')
       .eq('status', 'disetujui')
       .eq('status_aktif', true)
-    if (taFilter) q = q.eq('tahun_ajaran', taFilter)
-    const [{ data: s }, { data: r, error: rErr }] = await Promise.all([
+    if (taFilter) q = q.eq('tahun_ajaran_id', taFilter)
+    const [{ data: s }, { data: taList }, { data: r, error: rErr }] = await Promise.all([
       supabase.from('schools').select('id, nama, jenjang').order('jenjang'),
+      supabase.from('tahun_ajaran').select('id, nama, status, tanggal_mulai').order('tanggal_mulai', { ascending: false, nullsFirst: false }),
       q,
     ])
     if (rErr) setLoadError(rErr.message)
     setSchools(s || [])
+    setTahunAjaranList(taList || [])
     setRows(r || [])
     setLoading(false)
+    if (!taFilter && (taList || []).length > 0) setTaFilter(defaultTaId(taList))
   }, [taFilter])
 
   useEffect(() => { if (!authLoading) load() }, [authLoading, load])
@@ -831,8 +871,9 @@ export function LembagaDashboard() {
       )}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Select containerClassName="w-40" value={taFilter} onChange={(e) => setTaFilter(e.target.value)}>
-          {taOptions(rows, taFilter).map((t) => <option key={t} value={t}>TA {t}</option>)}
+        <Select containerClassName="w-56" value={taFilter} onChange={(e) => setTaFilter(e.target.value)}>
+          {tahunAjaranList.length === 0 && <option value="">— Belum ada Tahun Ajaran —</option>}
+          {tahunAjaranList.map((t) => <option key={t.id} value={t.id}>TA {t.nama}{t.status === 'aktif' ? ' (aktif)' : ''}</option>)}
         </Select>
         <Select containerClassName="w-56" value={schoolFilter} onChange={(e) => setSchoolFilter(e.target.value)}>
           <option value="">{hasFullAccess ? 'Semua Unit' : 'Semua Unit Saya'}</option>
