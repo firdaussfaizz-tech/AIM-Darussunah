@@ -3,6 +3,7 @@ import { Gauge, Plus, Pencil, Trash2, Send, Check, Undo2, Info, LineChart, Alert
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { Card, Select, Button, Badge, EmptyState, FullPageSpinner, Modal, Input, Textarea } from '../../components/ui'
+import { hitungKpiOtomatis, butuhRentangTanggal, SUMBER_OTOMATIS_LABEL } from '../../lib/kpiAuto'
 
 // =====================================================================
 // KPI LEMBAGA — scorecard KPI tingkat SATUAN PENDIDIKAN. Indikator
@@ -344,6 +345,9 @@ function IndikatorList({ rows, showSekolah, readOnly, emptyTitle, emptyDescripti
                   {row.okr_objectives?.judul && (
                     <p className="mt-0.5 flex items-center gap-1 text-xs text-[var(--color-navy)]"><Target className="h-3 w-3" /> Turunan OKR: {row.okr_objectives.judul}</p>
                   )}
+                  {row.sumber_otomatis && row.sumber_otomatis !== 'manual' && (
+                    <p className="mt-0.5 text-xs text-[var(--color-ink-soft)]">⚙ Realisasi otomatis: {SUMBER_OTOMATIS_LABEL[row.sumber_otomatis]}</p>
+                  )}
                   {row.sasaran_mutu && <p className="text-[13px] text-[var(--color-ink-soft)]">Sasaran: {row.sasaran_mutu}</p>}
                   {row.formula && <p className="mt-0.5 text-xs text-[var(--color-ink-soft)]">Formula: {row.formula}</p>}
                 </div>
@@ -447,6 +451,7 @@ function IndikatorFormModal({ open, editingRow, schools, tahunAjaranList, object
         school_id: editingRow.school_id,
         tahun_ajaran_id: editingRow.tahun_ajaran_id || taDefault || '',
         objective_id: editingRow.objective_id || '',
+        sumber_otomatis: editingRow.sumber_otomatis || 'manual',
         kode: editingRow.kode || '',
         perspektif: editingRow.perspektif || PERSPEKTIF_OPTIONS[0],
         sasaran_mutu: editingRow.sasaran_mutu || '',
@@ -469,6 +474,7 @@ function IndikatorFormModal({ open, editingRow, schools, tahunAjaranList, object
         school_id: schools.length === 1 ? schools[0].id : '',
         tahun_ajaran_id: taDefault || '',
         objective_id: '',
+        sumber_otomatis: 'manual',
         kode: '', perspektif: PERSPEKTIF_OPTIONS[0], sasaran_mutu: '', indikator: '', formula: '',
         satuan: '%', polaritas: 'maksimasi', metode_agregasi: 'rata_rata', frekuensi: 'semesteran',
         sumber_data: '', penanggung_jawab: '', acuan_sop: '', bobotPersen: '', baseline: '', target: '', status: 'draft',
@@ -504,6 +510,7 @@ function IndikatorFormModal({ open, editingRow, schools, tahunAjaranList, object
       sasaran_mutu: f.sasaran_mutu?.trim() || null,
       indikator: f.indikator.trim(),
       formula: f.formula?.trim() || null,
+      sumber_otomatis: f.sumber_otomatis || 'manual',
       satuan: f.satuan,
       polaritas: f.polaritas,
       metode_agregasi: f.metode_agregasi,
@@ -549,6 +556,12 @@ function IndikatorFormModal({ open, editingRow, schools, tahunAjaranList, object
         </Select>
         {!locked && f.school_id && linkableObjectives.length === 0 && (
           <p className="-mt-1 text-xs text-[var(--color-ink-soft)]">Belum ada Objective OKR untuk sekolah ini — tautan bisa diisi nanti setelah OKR dibuat.</p>
+        )}
+        <Select label="Sumber realisasi otomatis (opsional)" disabled={locked} value={f.sumber_otomatis || 'manual'} onChange={(e) => set('sumber_otomatis', e.target.value)}>
+          {Object.entries(SUMBER_OTOMATIS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </Select>
+        {!locked && f.sumber_otomatis && f.sumber_otomatis !== 'manual' && (
+          <p className="-mt-1 text-xs text-[var(--color-ink-soft)]">Saat mengisi realisasi nanti, tombol "Hitung otomatis" akan mengambil angka dari sumber ini. Anda tetap bisa mengoreksi sebelum menyimpan.</p>
         )}
         <div className="grid grid-cols-3 gap-3">
           <Input label="Kode (opsional)" disabled={locked} value={f.kode || ''} onChange={(e) => set('kode', e.target.value)} placeholder="AKD-01" />
@@ -615,10 +628,19 @@ function RealisasiModal({ state, onClose, onSaved }) {
   const [f, setF] = useState({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [autoLoading, setAutoLoading] = useState(false)
+  const [autoInfo, setAutoInfo] = useState('')
 
   useEffect(() => {
     if (!state) return
     setError('')
+    setAutoInfo('')
+    // Default rentang = semester berjalan (aturan bulan kalender, sama
+    // dengan R1): Jul–Des = Ganjil, Jan–Jun = Genap.
+    const now = new Date()
+    const y = now.getFullYear()
+    const d1def = now.getMonth() >= 6 ? `${y}-07-01` : `${y}-01-01`
+    const d2def = now.toISOString().slice(0, 10)
     const p = state.pengukuran
     const existing = (state.indikator.kpi_lembaga_pengukuran || [])
     const nextUrut = existing.length ? Math.max(...existing.map((x) => x.termin_urut || 0)) + 1 : 1
@@ -626,9 +648,11 @@ function RealisasiModal({ state, onClose, onSaved }) {
       termin_label: p.termin_label || '', termin_urut: String(p.termin_urut ?? nextUrut),
       pembilang: p.pembilang ?? '', pembagi: p.pembagi ?? '',
       analisis: p.analisis || '', tindak_lanjut: p.tindak_lanjut || '', pic_tindak_lanjut: p.pic_tindak_lanjut || '', batas_waktu: p.batas_waktu || '',
+      auto_d1: d1def, auto_d2: d2def,
     } : {
       termin_label: '', termin_urut: String(nextUrut), pembilang: '', pembagi: '',
       analisis: '', tindak_lanjut: '', pic_tindak_lanjut: '', batas_waktu: '',
+      auto_d1: d1def, auto_d2: d2def,
     })
   }, [state])
 
@@ -681,6 +705,28 @@ function RealisasiModal({ state, onClose, onSaved }) {
     onSaved()
   }
 
+  const auto = indikator.sumber_otomatis && indikator.sumber_otomatis !== 'manual'
+  const pakaiRentang = auto && butuhRentangTanggal(indikator.sumber_otomatis)
+
+  const handleHitungOtomatis = async () => {
+    setError('')
+    setAutoInfo('')
+    setAutoLoading(true)
+    try {
+      const hasil = await hitungKpiOtomatis({ indikator, d1: f.auto_d1, d2: f.auto_d2 })
+      setF((prev) => ({
+        ...prev,
+        pembilang: hasil.pembilang ?? '',
+        pembagi: hasil.pembagi ?? '',
+      }))
+      setAutoInfo(hasil.catatan ? `Terisi otomatis — ${hasil.catatan} Periksa lalu simpan.` : 'Terisi otomatis. Periksa lalu simpan.')
+    } catch (err) {
+      setError('Gagal menghitung otomatis: ' + err.message)
+    } finally {
+      setAutoLoading(false)
+    }
+  }
+
   return (
     <Modal open={!!state} onClose={onClose} title={pengukuran ? 'Ubah Realisasi' : 'Input Realisasi'} width="max-w-xl">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
@@ -695,6 +741,27 @@ function RealisasiModal({ state, onClose, onSaved }) {
           <Input label="Realisasi (Pembilang)" type="number" required value={f.pembilang ?? ''} onChange={(e) => set('pembilang', e.target.value)} />
           <Input label="Pembagi (opsional)" type="number" value={f.pembagi ?? ''} onChange={(e) => set('pembagi', e.target.value)} placeholder="kosongkan utk angka mutlak" />
         </div>
+
+        {auto && (
+          <div className="flex flex-col gap-2 rounded-[10px] border border-dashed border-[var(--color-navy)]/30 bg-[var(--color-navy-50)] p-3">
+            <p className="text-xs font-medium text-[var(--color-navy)]">Sumber otomatis: {SUMBER_OTOMATIS_LABEL[indikator.sumber_otomatis]}</p>
+            {pakaiRentang && (
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="Dari tanggal" type="date" value={f.auto_d1 || ''} onChange={(e) => set('auto_d1', e.target.value)} />
+                <Input label="Sampai tanggal" type="date" value={f.auto_d2 || ''} onChange={(e) => set('auto_d2', e.target.value)} />
+              </div>
+            )}
+            {!pakaiRentang && (
+              <p className="text-xs text-[var(--color-ink-soft)]">Dihitung untuk Tahun Ajaran indikator ini (tidak perlu rentang tanggal).</p>
+            )}
+            <div>
+              <Button type="button" variant="outline" size="sm" onClick={handleHitungOtomatis} disabled={autoLoading}>
+                {autoLoading ? 'Menghitung…' : 'Hitung otomatis'}
+              </Button>
+            </div>
+            {autoInfo && <p className="text-xs text-[var(--color-success)]">{autoInfo}</p>}
+          </div>
+        )}
 
         <div className="flex flex-wrap items-center gap-4 rounded-[10px] bg-black/[0.02] px-3 py-2 text-[13px]">
           <span className="text-[var(--color-ink-soft)]">Realisasi: <span className="font-medium text-[var(--color-ink)]">{numFmt(realisasi)} {indikator.satuan}</span></span>
