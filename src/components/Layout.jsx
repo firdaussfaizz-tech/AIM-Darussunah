@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, CalendarCheck, CalendarClock, Wallet, Star,
   GraduationCap, Building2, UserCog, LogOut, Menu, X, Activity, CalendarOff,
   History, Mail, ChevronRight, BookOpen, Contact, CalendarRange, ClipboardCheck,
-  ReceiptText, NotebookText,
+  ReceiptText, NotebookText, Target,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/format'
@@ -22,6 +22,10 @@ function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara }) {
   kepegawaian.push({ to: '/cuti', label: isManager ? 'Cuti' : 'Cuti Saya', icon: CalendarClock })
   kepegawaian.push({ to: '/penggajian', label: isManager ? 'Penggajian' : 'Slip Gaji', icon: Wallet })
   kepegawaian.push({ to: '/kinerja', label: isManager ? 'Kinerja' : 'Kinerja Saya', icon: Star })
+  // OKR sekarang milik satuan pendidikan (sekolah), bukan pegawai
+  // perorangan — pegawai biasa tidak lagi berinteraksi dengan OKR sama
+  // sekali, jadi menu ini disembunyikan untuk mereka (lihat OkrList.jsx).
+  if (isManager) kepegawaian.push({ to: '/okr', label: 'OKR', icon: Target })
   kepegawaian.push({ to: '/beban-kerja', label: isManager ? 'Beban Kerja' : 'Beban Kerja Saya', icon: Activity })
   kepegawaian.push({ to: '/pelatihan', label: isManager ? 'Pelatihan' : 'Pelatihan Saya', icon: GraduationCap })
   if (isManager) kepegawaian.push({ to: '/kalender-libur', label: 'Kalender Libur', icon: CalendarOff })

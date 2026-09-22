@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Building2, Plus, Pencil, Trash2, CalendarClock, Clock, ClipboardList } from 'lucide-react'
+import { Building2, Plus, Pencil, Trash2, CalendarClock, Clock, ClipboardList, Star, Check, X } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, SectionCard, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
 import { formatRupiah } from '../../lib/format'
 
-const TABS = ['Unit Sekolah', 'Unit Kerja', 'Jabatan', 'Tugas Tambahan', 'Jenis Cuti & Izin', 'Jam Kerja']
+const TABS = ['Unit Sekolah', 'Unit Kerja', 'Jabatan', 'Tugas Tambahan', 'Jenis Cuti & Izin', 'Jam Kerja', 'KPI']
 
 export default function OrgStructure() {
   const [tab, setTab] = useState('Unit Sekolah')
@@ -14,17 +14,24 @@ export default function OrgStructure() {
   const [tugasTambahan, setTugasTambahan] = useState([])
   const [leaveTypes, setLeaveTypes] = useState([])
   const [workSchedules, setWorkSchedules] = useState([])
+  const [kpiIndicators, setKpiIndicators] = useState([])
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: s }, { data: d }, { data: p }, { data: tt }, { data: lt }, { data: ws }] = await Promise.all([
+    const [{ data: s }, { data: d }, { data: p }, { data: tt }, { data: lt }, { data: ws }, { data: kpi }] = await Promise.all([
       supabase.from('schools').select('*').order('jenjang'),
       supabase.from('departments').select('*, schools(nama, jenjang)').order('nama'),
       supabase.from('positions').select('*, departments(nama)').order('nama'),
       supabase.from('tugas_tambahan').select('*').order('nama'),
       supabase.from('leave_types').select('*').order('kategori').order('nama'),
       supabase.from('work_schedules').select('*').order('urutan'),
+      supabase.from('kpi_indicators').select(`
+        *,
+        schools!diajukan_oleh_school_id(nama, jenjang),
+        diajukan_nama:kpi_indicators_diajukan_nama,
+        diputuskan_nama:kpi_indicators_diputuskan_nama
+      `).order('urutan').order('nama'),
     ])
     setSchools(s || [])
     setDepartments(d || [])
@@ -32,6 +39,7 @@ export default function OrgStructure() {
     setTugasTambahan(tt || [])
     setLeaveTypes(lt || [])
     setWorkSchedules(ws || [])
+    setKpiIndicators(kpi || [])
     setLoading(false)
   }, [])
 
@@ -62,6 +70,7 @@ export default function OrgStructure() {
           {tab === 'Tugas Tambahan' && <TugasTambahanTab tugasTambahan={tugasTambahan} reload={load} />}
           {tab === 'Jenis Cuti & Izin' && <LeavePolicyTab leaveTypes={leaveTypes} reload={load} />}
           {tab === 'Jam Kerja' && <WorkScheduleTab schedules={workSchedules} reload={load} />}
+          {tab === 'KPI' && <KpiIndicatorsTab kpiIndicators={kpiIndicators} reload={load} />}
         </>
       )}
     </div>
@@ -685,5 +694,215 @@ function WorkScheduleTab({ schedules, reload }) {
         </form>
       </Modal>
     </div>
+  )
+}
+
+const emptyKpiForm = { nama: '', deskripsi: '', bobot: '', status_aktif: true, urutan: '' }
+
+function KpiIndicatorsTab({ kpiIndicators, reload }) {
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [form, setForm] = useState(emptyKpiForm)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [decideState, setDecideState] = useState(null) // { row, mode: 'setujui' | 'tolak' }
+
+  // Indikator buatan Yayasan langsung berstatus 'disetujui'; usulan
+  // sekolah masuk sebagai 'diajukan' menunggu keputusan, atau 'ditolak'
+  // kalau tidak disetujui — lihat migrasi 0031.
+  const usulanRows = kpiIndicators.filter((k) => k.status === 'diajukan')
+  const aktifRows = kpiIndicators.filter((k) => k.status === 'disetujui')
+  const ditolakRows = kpiIndicators.filter((k) => k.status === 'ditolak')
+  const totalBobotAktif = aktifRows.filter((k) => k.status_aktif).reduce((sum, k) => sum + Number(k.bobot || 0), 0)
+
+  const openAdd = () => {
+    setEditingId(null)
+    setForm({ ...emptyKpiForm, urutan: aktifRows.length + 1 })
+    setError('')
+    setModalOpen(true)
+  }
+  const openEdit = (k) => {
+    setEditingId(k.id)
+    setForm({ nama: k.nama || '', deskripsi: k.deskripsi || '', bobot: k.bobot ?? '', status_aktif: k.status_aktif, urutan: k.urutan ?? '' })
+    setError('')
+    setModalOpen(true)
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!form.bobot || Number(form.bobot) <= 0) { setError('Isi bobot lebih dari 0.'); return }
+    setSaving(true)
+    setError('')
+    const payload = {
+      nama: form.nama, deskripsi: form.deskripsi || null, bobot: Number(form.bobot),
+      status_aktif: form.status_aktif, urutan: Number(form.urutan) || 0,
+    }
+    const query = editingId ? supabase.from('kpi_indicators').update(payload).eq('id', editingId) : supabase.from('kpi_indicators').insert(payload)
+    const { error: err } = await query
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    setModalOpen(false)
+    reload()
+  }
+
+  const handleDelete = async (id) => {
+    if (!confirm('Hapus indikator KPI ini? Skor penilaian yang sudah memakai indikator ini akan gagal ditampilkan — nonaktifkan saja jika sudah pernah dipakai menilai.')) return
+    const { error } = await supabase.from('kpi_indicators').delete().eq('id', id)
+    if (error) alert('Gagal menghapus (kemungkinan sudah dipakai di penilaian yang tersimpan): ' + error.message)
+    reload()
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      {usulanRows.length > 0 && (
+        <SectionCard
+          title="Usulan Indikator dari Sekolah"
+          description="Diajukan Kepala Sekolah/Admin Sekolah — belum aktif dipakai menilai sampai diputuskan di sini."
+        >
+          <div className="flex flex-col divide-y divide-[var(--color-border)]">
+            {usulanRows.map((k) => (
+              <div key={k.id} className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-xs font-medium text-[var(--color-ink-soft)]">{k.schools?.nama} ({k.schools?.jenjang}) — diajukan oleh {k.diajukan_nama || '—'}</p>
+                  <p className="font-medium text-[var(--color-ink)]">{k.nama} <span className="font-normal text-[var(--color-ink-soft)]">— usulan bobot {k.bobot}%</span></p>
+                  {k.deskripsi && <p className="mt-0.5 text-[13px] text-[var(--color-ink-soft)]">{k.deskripsi}</p>}
+                </div>
+                <div className="flex gap-1.5">
+                  <button onClick={() => setDecideState({ row: k, mode: 'setujui' })} className="rounded bg-[var(--color-success-soft)] p-1.5 text-[var(--color-success)] hover:brightness-95" aria-label="Setujui"><Check className="h-4 w-4" /></button>
+                  <button onClick={() => setDecideState({ row: k, mode: 'tolak' })} className="rounded bg-[var(--color-danger-soft)] p-1.5 text-[var(--color-danger)] hover:brightness-95" aria-label="Tolak"><X className="h-4 w-4" /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
+      <SectionCard
+        title="Indikator KPI (Key Performance Indicator)"
+        description="Daftar indikator yang sudah disetujui — dipakai sebagai dasar Nilai Akhir pada menu Kinerja. Total bobot indikator AKTIF idealnya 100%."
+        actions={<Button size="sm" variant="outline" onClick={openAdd}><Plus className="h-4 w-4" /> Tambah</Button>}
+      >
+        {aktifRows.length === 0 ? <EmptyState icon={Star} title="Belum ada indikator KPI" description="Tambahkan indikator penilaian kinerja terlebih dahulu sebelum menilai pegawai di menu Kinerja." /> : (
+          <>
+            <Table columns={['Urutan', 'Indikator', 'Bobot', 'Status', 'Asal', '']}>
+              {aktifRows.map((k) => (
+                <Tr key={k.id}>
+                  <Td className="text-[var(--color-ink-soft)]">{k.urutan}</Td>
+                  <Td>
+                    <p className="font-medium text-[var(--color-ink)]">{k.nama}</p>
+                    {k.deskripsi && <p className="mt-0.5 text-[13px] text-[var(--color-ink-soft)]">{k.deskripsi}</p>}
+                  </Td>
+                  <Td className="font-medium">{k.bobot}%</Td>
+                  <Td>{k.status_aktif ? <Badge color="success">Aktif</Badge> : <Badge color="neutral">Nonaktif</Badge>}</Td>
+                  <Td className="text-xs text-[var(--color-ink-soft)]">{k.schools ? `Usulan ${k.schools.nama}` : 'Yayasan'}</Td>
+                  <Td className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => openEdit(k)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
+                      <button onClick={() => handleDelete(k.id)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                  </Td>
+                </Tr>
+              ))}
+            </Table>
+            <p className={`mt-4 text-sm font-medium ${totalBobotAktif === 100 ? 'text-[var(--color-success)]' : 'text-[var(--color-gold)]'}`}>
+              Total Bobot Indikator Aktif: {totalBobotAktif}% {totalBobotAktif !== 100 && '— sebaiknya disesuaikan menjadi tepat 100%'}
+            </p>
+          </>
+        )}
+        <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'Ubah Indikator KPI' : 'Tambah Indikator KPI'}>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <Input label="Nama Indikator" required value={form.nama} onChange={(e) => setForm((s) => ({ ...s, nama: e.target.value }))} placeholder="Kedisiplinan, Kualitas Mengajar, dll." />
+            <Textarea label="Deskripsi (opsional)" rows={3} value={form.deskripsi} onChange={(e) => setForm((s) => ({ ...s, deskripsi: e.target.value }))} />
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Bobot (%)" type="number" min="0.01" max="100" step="0.01" required value={form.bobot} onChange={(e) => setForm((s) => ({ ...s, bobot: e.target.value }))} />
+              <Input label="Urutan Tampil" type="number" min="1" value={form.urutan} onChange={(e) => setForm((s) => ({ ...s, urutan: e.target.value }))} />
+            </div>
+            <Select label="Status" value={form.status_aktif ? 'aktif' : 'nonaktif'} onChange={(e) => setForm((s) => ({ ...s, status_aktif: e.target.value === 'aktif' }))}>
+              <option value="aktif">Aktif — dipakai saat menilai</option>
+              <option value="nonaktif">Nonaktif — disembunyikan dari form penilaian baru</option>
+            </Select>
+            {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>Batal</Button>
+              <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+            </div>
+          </form>
+        </Modal>
+      </SectionCard>
+
+      {ditolakRows.length > 0 && (
+        <SectionCard title="Usulan Ditolak" description="Riwayat usulan indikator dari sekolah yang tidak disetujui Yayasan.">
+          <div className="flex flex-col divide-y divide-[var(--color-border)]">
+            {ditolakRows.map((k) => (
+              <div key={k.id} className="py-3 first:pt-0 last:pb-0">
+                <p className="text-sm text-[var(--color-ink)]">{k.nama} <span className="text-xs text-[var(--color-ink-soft)]">— {k.schools?.nama}</span></p>
+                {k.catatan_yayasan && <p className="mt-0.5 text-xs text-[var(--color-ink-soft)]">Catatan: {k.catatan_yayasan}</p>}
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
+      <DecideKpiModal state={decideState} onClose={() => setDecideState(null)} onDone={() => { setDecideState(null); reload() }} />
+    </div>
+  )
+}
+
+function DecideKpiModal({ state, onClose, onDone }) {
+  const [bobot, setBobot] = useState('')
+  const [statusAktif, setStatusAktif] = useState(true)
+  const [catatan, setCatatan] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (state) {
+      setBobot(String(state.row.bobot))
+      setStatusAktif(true)
+      setCatatan('')
+      setError('')
+    }
+  }, [state])
+
+  if (!state) return null
+  const { row, mode } = state
+
+  const handleConfirm = async () => {
+    if (mode === 'setujui' && (!bobot || Number(bobot) <= 0)) { setError('Isi bobot final lebih dari 0.'); return }
+    if (mode === 'tolak' && !catatan.trim()) { setError('Isi catatan alasan penolakan.'); return }
+    setSaving(true)
+    setError('')
+    const payload = mode === 'setujui'
+      ? { status: 'disetujui', bobot: Number(bobot), status_aktif: statusAktif, catatan_yayasan: catatan || null }
+      : { status: 'ditolak', catatan_yayasan: catatan }
+    const { error: err } = await supabase.from('kpi_indicators').update(payload).eq('id', row.id)
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onDone()
+  }
+
+  return (
+    <Modal open={!!state} onClose={onClose} title={mode === 'setujui' ? 'Setujui Usulan Indikator KPI' : 'Tolak Usulan Indikator KPI'}>
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-[var(--color-ink-soft)]">
+          <span className="font-medium text-[var(--color-ink)]">{row.nama}</span> — diusulkan oleh {row.schools?.nama} ({row.diajukan_nama || '—'})
+        </p>
+        {mode === 'setujui' && (
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Bobot Final (%)" type="number" min="0.01" max="100" step="0.01" value={bobot} onChange={(e) => setBobot(e.target.value)} />
+            <Select label="Status" value={statusAktif ? 'aktif' : 'nonaktif'} onChange={(e) => setStatusAktif(e.target.value === 'aktif')}>
+              <option value="aktif">Aktif — langsung dipakai menilai</option>
+              <option value="nonaktif">Simpan dulu, belum aktif</option>
+            </Select>
+          </div>
+        )}
+        <Textarea label={mode === 'setujui' ? 'Catatan (opsional)' : 'Catatan / Alasan Penolakan'} rows={3} value={catatan} onChange={(e) => setCatatan(e.target.value)} />
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
+          <Button type="button" onClick={handleConfirm} disabled={saving}>{saving ? 'Menyimpan…' : mode === 'setujui' ? 'Setujui' : 'Tolak'}</Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
