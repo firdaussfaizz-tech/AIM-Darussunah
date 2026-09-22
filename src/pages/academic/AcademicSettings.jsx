@@ -20,7 +20,15 @@ export default function AcademicSettings() {
     const [{ data: ta }, { data: s }, { data: emp }, { data: r }, { data: enrollments }] = await Promise.all([
       supabase.from('tahun_ajaran').select('*').order('nama', { ascending: false }),
       supabase.from('schools').select('id, nama, jenjang').order('jenjang'),
-      supabase.from('employees').select('id, nama').eq('status', 'aktif').order('nama'),
+      // positions!position_id(jenis) & employee_tugas_tambahan(tugas_tambahan(nama))
+      // dipakai untuk menyaring dropdown Wali Kelas di tab Rombel/Kelas —
+      // hanya pegawai berjabatan Guru YANG SUDAH ditetapkan tugas tambahan
+      // "Wali Kelas" di data Kepegawaian (menu Detail Pegawai > Tugas
+      // Tambahan) yang boleh dipilih, sesuai data Kepegawaian yang sebenarnya.
+      supabase
+        .from('employees')
+        .select('id, nama, positions!position_id(jenis), employee_tugas_tambahan(tugas_tambahan(nama))')
+        .eq('status', 'aktif').order('nama'),
       supabase
         .from('rombel')
         .select('*, schools!school_id(nama, jenjang), tahun_ajaran(nama), employees!wali_kelas_employee_id(nama)')
@@ -227,6 +235,23 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedScho
     if (r.wali_kelas_employee_id) (waliKelasAssignments[r.wali_kelas_employee_id] ||= []).push(r)
   }
 
+  // Dropdown Wali Kelas diintegrasikan dengan modul Kepegawaian: hanya
+  // pegawai berjabatan Guru (positions.jenis = 'guru') YANG SUDAH ditetapkan
+  // tugas tambahan "Wali Kelas" di Detail Pegawai > Tugas Tambahan yang
+  // boleh dipilih — bukan lagi bebas dari seluruh pegawai aktif.
+  const isEligibleWaliKelas = (e) =>
+    e.positions?.jenis === 'guru' &&
+    (e.employee_tugas_tambahan || []).some((t) => (t.tugas_tambahan?.nama || '').toLowerCase().includes('wali kelas'))
+  const eligibleWaliKelas = employees.filter(isEligibleWaliKelas)
+  // Kalau Wali Kelas yang SUDAH tersimpan di rombel ini ternyata tidak lagi
+  // memenuhi syarat (mis. tugas tambahannya sudah dicabut di Kepegawaian,
+  // atau jabatannya diubah), tetap ditampilkan di dropdown (ditandai)
+  // supaya datanya tidak diam-diam hilang/berubah saat form cuma dibuka.
+  const currentWaliKelas = employees.find((e) => e.id === form.wali_kelas_employee_id)
+  const waliKelasOptions = currentWaliKelas && !isEligibleWaliKelas(currentWaliKelas)
+    ? [...eligibleWaliKelas, currentWaliKelas]
+    : eligibleWaliKelas
+
   const openAdd = () => {
     setEditingId(null)
     setForm({ ...emptyRombelForm, tahun_ajaran_id: tahunAktif?.id || '', school_id: lockedSchoolId || '' })
@@ -313,19 +338,25 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedScho
           </div>
           <Select label="Wali Kelas" value={form.wali_kelas_employee_id} onChange={(e) => setForm((s) => ({ ...s, wali_kelas_employee_id: e.target.value }))}>
             <option value="">— Belum ditentukan —</option>
-            {employees.map((e) => {
+            {waliKelasOptions.map((e) => {
               // Rombel LAIN (bukan yang sedang diedit) pada tahun ajaran yang
               // sama tempat guru ini sudah jadi Wali Kelas — supaya admin
               // tahu kalau guru tsb sebenarnya sudah punya tugas tambahan ini.
               const sudahWaliKelas = (waliKelasAssignments[e.id] || []).filter(
                 (r) => r.tahun_ajaran_id === form.tahun_ajaran_id && r.id !== editingId
               )
-              const keterangan = sudahWaliKelas.length > 0
-                ? ` — sudah Wali Kelas ${sudahWaliKelas.map((r) => `${r.tingkat} ${r.nama_rombel}`).join(', ')}`
-                : ''
-              return <option key={e.id} value={e.id}>{e.nama}{keterangan}</option>
+              const tidakEligibleLagi = !isEligibleWaliKelas(e)
+              const keterangan = [
+                sudahWaliKelas.length > 0 ? `sudah Wali Kelas ${sudahWaliKelas.map((r) => `${r.tingkat} ${r.nama_rombel}`).join(', ')}` : '',
+                tidakEligibleLagi ? 'tidak lagi berjabatan Guru + tugas tambahan Wali Kelas di Kepegawaian' : '',
+              ].filter(Boolean).join(' · ')
+              return <option key={e.id} value={e.id}>{e.nama}{keterangan ? ` — ${keterangan}` : ''}</option>
             })}
           </Select>
+          <p className="-mt-2 text-xs text-[var(--color-ink-soft)]">
+            Daftar diambil dari data Kepegawaian: pegawai berjabatan Guru yang sudah ditetapkan tugas tambahan "Wali Kelas" (menu Pegawai &gt; Detail Pegawai &gt; Tugas Tambahan).
+            {waliKelasOptions.length === 0 && ' Belum ada guru yang memenuhi syarat ini — tetapkan dulu tugas tambahan "Wali Kelas" ke pegawai yang bersangkutan.'}
+          </p>
           {form.wali_kelas_employee_id && (waliKelasAssignments[form.wali_kelas_employee_id] || []).some((r) => r.tahun_ajaran_id === form.tahun_ajaran_id && r.id !== editingId) && (
             <p className="-mt-2 text-xs text-[var(--color-gold)]">
               ⚠️ Guru ini sudah menjadi Wali Kelas di rombel lain pada tahun ajaran yang sama. Pastikan ini memang disengaja (satu guru rangkap Wali Kelas) sebelum menyimpan.
