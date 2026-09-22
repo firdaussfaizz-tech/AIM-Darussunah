@@ -7,7 +7,10 @@ import { PageHeader, Card, Button, Input, FullPageSpinner, EmptyState } from '..
 // Halaman pengaturan notifikasi email (Roadmap B Otomasi #4 — keputusan
 // pengguna: "Pakai email dulu saja"). Pengiriman sesungguhnya dilakukan
 // langsung dari database trigger (lihat migrasi
-// 0015_email_notifications.sql) lewat Resend API — halaman ini hanya
+// 0015_email_notifications.sql, lalu berpindah penyedia beberapa kali —
+// 0018 ke Brevo, 0019 balik ke Resend, 0020 balik lagi ke Brevo — karena
+// pengguna ingin alamat pengirim boleh email biasa seperti Gmail tanpa
+// perlu domain sendiri, yang hanya didukung Brevo). Halaman ini hanya
 // tempat mengisi API Key & alamat pengirim, karena keduanya tersimpan di
 // tabel app_settings yang dibatasi RLS khusus Admin Yayasan/HR.
 export default function NotificationSettings() {
@@ -57,7 +60,7 @@ export default function NotificationSettings() {
     // field dibiarkan kosong secara default (tidak menampilkan key yang
     // sudah tersimpan) supaya key lama tidak sengaja tertimpa nilai kosong
     // saat admin cuma mau mengubah alamat pengirim.
-    if (apiKeyInput.trim() !== '') payload.resend_api_key = apiKeyInput.trim()
+    if (apiKeyInput.trim() !== '') payload.brevo_api_key = apiKeyInput.trim()
     const { error: err } = await supabase.from('app_settings').upsert(payload, { onConflict: 'id' })
     setSaving(false)
     if (err) { setError(err.message); return }
@@ -75,47 +78,47 @@ export default function NotificationSettings() {
     setTestResult(err ? `Gagal: ${err.message}` : 'Permintaan kirim email uji coba terkirim — cek kotak masuk (dan folder spam) dalam beberapa menit.')
   }
 
-  const sudahDiatur = !!(row?.resend_api_key && row?.notif_from_email)
+  const sudahDiatur = !!(row?.brevo_api_key && row?.notif_from_email)
 
   return (
     <div>
       <PageHeader
         title="Notifikasi Email"
-        description="Kirim email otomatis saat cuti/izin diajukan, disetujui/ditolak, dan saat slip gaji terbit — lewat Resend."
+        description="Kirim email otomatis saat cuti/izin diajukan, disetujui/ditolak, dan saat slip gaji terbit — lewat Brevo."
       />
 
       {!sudahDiatur && (
         <Card className="mb-4 border-[var(--color-gold)] bg-[var(--color-gold-soft)]">
-          <p className="text-sm font-medium text-[var(--color-gold)]">Notifikasi email belum aktif — isi API Key Resend dan alamat pengirim di bawah untuk mengaktifkan.</p>
+          <p className="text-sm font-medium text-[var(--color-gold)]">Notifikasi email belum aktif — isi API Key Brevo dan alamat pengirim di bawah untuk mengaktifkan.</p>
         </Card>
       )}
 
       <Card className="mb-4">
         <form onSubmit={handleSave} className="flex flex-col gap-4">
           <div>
-            <p className="text-[15px] font-semibold text-[var(--color-ink)]">Pengaturan Resend</p>
+            <p className="text-[15px] font-semibold text-[var(--color-ink)]">Pengaturan Brevo</p>
             <p className="mt-1 flex items-center gap-1 text-xs text-[var(--color-ink-soft)]">
               Buat akun &amp; API Key gratis di{' '}
-              <a href="https://resend.com" target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-medium text-[var(--color-navy)] hover:underline">
-                resend.com <ExternalLink className="h-3 w-3" />
+              <a href="https://www.brevo.com" target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-medium text-[var(--color-navy)] hover:underline">
+                brevo.com <ExternalLink className="h-3 w-3" />
               </a>
-              , lalu verifikasi domain pengirim Anda di sana sebelum mengisi alamat pengirim di bawah.
+              , lalu verifikasi alamat email pengirim Anda di menu Senders (cukup satu alamat email biasa seperti Gmail — tidak perlu domain sendiri) sebelum mengisi alamat pengirim di bawah.
             </p>
           </div>
 
           <Input
-            label="Resend API Key"
+            label="Brevo API Key"
             type="password"
-            placeholder={row?.resend_api_key ? 'Sudah diatur — kosongkan bila tidak ingin mengubah' : 're_xxxxxxxxxxxxxxxxxxxx'}
+            placeholder={row?.brevo_api_key ? 'Sudah diatur — kosongkan bila tidak ingin mengubah' : 'xkeysib-xxxxxxxxxxxxxxxxxxxx'}
             value={apiKeyInput}
             onChange={(e) => setApiKeyInput(e.target.value)}
             autoComplete="off"
           />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Input label="Nama Pengirim" placeholder="SIMPEG Yayasan" value={fromName} onChange={(e) => setFromName(e.target.value)} />
-            <Input label="Email Pengirim" type="email" placeholder="noreply@yayasananda.org" required value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} />
+            <Input label="Email Pengirim" type="email" placeholder="notifikasi@gmail.com" required value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} />
           </div>
-          <p className="-mt-2 text-xs text-[var(--color-ink-soft)]">Email pengirim harus dari domain yang sudah diverifikasi di akun Resend Anda, atau Resend akan menolak pengiriman.</p>
+          <p className="-mt-2 text-xs text-[var(--color-ink-soft)]">Email pengirim harus alamat yang sudah diverifikasi di akun Brevo Anda (menu Senders), atau Brevo akan menolak pengiriman.</p>
 
           {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
           {saved && <p className="rounded-md bg-[var(--color-success-soft)] px-3 py-2 text-sm text-[var(--color-success)]">Pengaturan tersimpan.</p>}
@@ -144,8 +147,10 @@ export default function NotificationSettings() {
           <li>Cuti/izin diajukan — ke Admin Yayasan/HR &amp; Kepala Sekolah/Admin Sekolah unit pegawai</li>
           <li>Cuti/izin disetujui atau ditolak — ke pegawai pengaju</li>
           <li>Slip gaji periode difinalisasi — ke setiap pegawai pada periode tersebut</li>
+          <li>Siswa tercatat Izin/Sakit/Alpa — ke email orang tua/wali siswa tersebut</li>
+          <li>Tagihan SPP siswa lunas — ke email orang tua/wali siswa tersebut</li>
         </ul>
-        <p className="mt-2 text-xs text-[var(--color-ink-soft)]">Pegawai hanya menerima email bila akun login mereka sudah ditautkan ke data kepegawaian dan memiliki alamat email.</p>
+        <p className="mt-2 text-xs text-[var(--color-ink-soft)]">Pegawai hanya menerima email bila akun login mereka sudah ditautkan ke data kepegawaian dan memiliki alamat email. Orang tua hanya menerima email bila kolom "Email Orang Tua" pada data siswa sudah diisi.</p>
       </Card>
     </div>
   )

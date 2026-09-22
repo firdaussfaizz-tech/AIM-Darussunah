@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Pencil, Trash2, School } from 'lucide-react'
+import { ArrowLeft, Pencil, Trash2, School, Shuffle } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
-import { PageHeader, Card, Badge, Button, FullPageSpinner, EmptyState, Table, Tr, Td } from '../../components/ui'
-import { STATUS_BADGE_COLOR, SISWA_STATUS_LABELS, formatDate } from '../../lib/format'
+import { PageHeader, Card, Badge, Button, FullPageSpinner, EmptyState, Table, Tr, Td, Modal, Select, Input, Textarea } from '../../components/ui'
+import { STATUS_BADGE_COLOR, SISWA_STATUS_LABELS, RIWAYAT_STATUS_LABELS, formatDate } from '../../lib/format'
 import StudentFormModal from './StudentFormModal'
 import StudentDocumentsSection from '../../components/StudentDocumentsSection'
 
@@ -20,6 +20,7 @@ export default function StudentDetail() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('Biodata')
   const [editOpen, setEditOpen] = useState(false)
+  const [mutasiOpen, setMutasiOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -66,6 +67,11 @@ export default function StudentDetail() {
             <Button variant="outline" onClick={() => setEditOpen(true)}>
               <Pencil className="h-4 w-4" /> Ubah Biodata
             </Button>
+            {siswa.status === 'aktif' && (
+              <Button variant="outline" onClick={() => setMutasiOpen(true)}>
+                <Shuffle className="h-4 w-4" /> Mutasi / Ubah Status
+              </Button>
+            )}
             <Button variant="outline" onClick={handleDelete} className="text-[var(--color-danger)]">
               <Trash2 className="h-4 w-4" /> Hapus
             </Button>
@@ -178,7 +184,7 @@ export default function StudentDetail() {
                     <Td className="font-medium text-[var(--color-ink)]">{r.tahun_ajaran?.nama || '—'}</Td>
                     <Td>{r.rombel ? `${r.rombel.tingkat} — ${r.rombel.nama_rombel}` : '—'}</Td>
                     <Td className="text-[var(--color-ink-soft)]">{r.rombel?.employees?.nama || '—'}</Td>
-                    <Td><Badge color={STATUS_BADGE_COLOR[r.status] || 'neutral'}>{r.status}</Badge></Td>
+                    <Td><Badge color={STATUS_BADGE_COLOR[r.status] || 'neutral'}>{RIWAYAT_STATUS_LABELS[r.status] || r.status}</Badge></Td>
                     <Td>{formatDate(r.tanggal_masuk)}</Td>
                     <Td>{formatDate(r.tanggal_keluar)}</Td>
                   </Tr>
@@ -192,6 +198,74 @@ export default function StudentDetail() {
       {tab === 'Dokumen' && <StudentDocumentsSection siswaId={siswa.id} canManage={canManage} />}
 
       <StudentFormModal open={editOpen} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); load() }} schools={schools} initialData={siswa} />
+      <MutasiModal
+        open={mutasiOpen}
+        onClose={() => setMutasiOpen(false)}
+        onSaved={() => { setMutasiOpen(false); load() }}
+        siswa={siswa}
+        riwayatAktif={riwayat.find((r) => r.status === 'aktif')}
+      />
     </div>
+  )
+}
+
+// Modal "Mutasi / Ubah Status" — menutup riwayat aktif siswa (kalau ada)
+// dan mengubah status induk siswa sekaligus, dipakai untuk kasus keluar/
+// pindah/lulus di LUAR proses Kenaikan Kelas massal (mis. siswa pindah
+// sekolah di tengah tahun ajaran).
+const MUTASI_OPTIONS = [
+  { value: 'lulus', label: 'Lulus' },
+  { value: 'pindah', label: 'Pindah ke Sekolah Lain' },
+  { value: 'keluar', label: 'Keluar' },
+]
+
+function MutasiModal({ open, onClose, onSaved, siswa, riwayatAktif }) {
+  const [statusBaru, setStatusBaru] = useState('pindah')
+  const [tanggal, setTanggal] = useState(new Date().toISOString().slice(0, 10))
+  const [keterangan, setKeterangan] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (open) { setStatusBaru('pindah'); setTanggal(new Date().toISOString().slice(0, 10)); setKeterangan(''); setError('') }
+  }, [open])
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    const { error: err1 } = await supabase.from('siswa').update({ status: statusBaru }).eq('id', siswa.id)
+    if (err1) { setSaving(false); setError(err1.message); return }
+    if (riwayatAktif) {
+      const { error: err2 } = await supabase.from('riwayat_siswa')
+        .update({ status: statusBaru, tanggal_keluar: tanggal, keterangan: keterangan || null })
+        .eq('id', riwayatAktif.id)
+      if (err2) { setSaving(false); setError(err2.message); return }
+    }
+    setSaving(false)
+    onSaved()
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Mutasi / Ubah Status — ${siswa.nama_lengkap}`}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <p className="text-xs text-[var(--color-ink-soft)]">
+          Gunakan ini untuk siswa yang keluar/pindah/lulus di luar proses Kenaikan Kelas tahunan (mis. pindah sekolah di tengah tahun ajaran). Status siswa dan riwayat kelas aktifnya akan ditutup.
+        </p>
+        <Select label="Status Baru" value={statusBaru} onChange={(e) => setStatusBaru(e.target.value)}>
+          {MUTASI_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </Select>
+        <Input label="Tanggal" type="date" value={tanggal} onChange={(e) => setTanggal(e.target.value)} />
+        <Textarea label="Keterangan (opsional)" rows={3} value={keterangan} onChange={(e) => setKeterangan(e.target.value)} placeholder="Contoh: pindah mengikuti orang tua tugas ke Surabaya" />
+        {!riwayatAktif && (
+          <p className="rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-xs text-[var(--color-gold)]">Siswa ini belum punya riwayat kelas aktif pada tahun ajaran manapun — hanya status induk siswa yang akan diubah.</p>
+        )}
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+        </div>
+      </form>
+    </Modal>
   )
 }

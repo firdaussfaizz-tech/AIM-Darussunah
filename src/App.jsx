@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard'
 import EmployeeList from './pages/employees/EmployeeList'
 import EmployeeDetail from './pages/employees/EmployeeDetail'
 import AttendanceList from './pages/attendance/AttendanceList'
+import StudentAttendanceList from './pages/attendance/StudentAttendanceList'
 import LeaveList from './pages/leave/LeaveList'
 import PayrollList from './pages/payroll/PayrollList'
 import PayrollRunDetail from './pages/payroll/PayrollRunDetail'
@@ -22,6 +23,8 @@ import NotificationSettings from './pages/settings/NotificationSettings'
 import StudentList from './pages/students/StudentList'
 import StudentDetail from './pages/students/StudentDetail'
 import AcademicSettings from './pages/academic/AcademicSettings'
+import SppList from './pages/spp/SppList'
+import NilaiRapor from './pages/nilai/NilaiRapor'
 
 export default function App() {
   return (
@@ -56,6 +59,9 @@ export default function App() {
             <Route path="siswa" element={<StudentList />} />
             <Route path="siswa/:id" element={<StudentDetail />} />
             <Route path="akademik" element={<AcademicSettings />} />
+            <Route path="presensi-siswa" element={<StudentAttendanceList />} />
+            <Route path="spp" element={<SppList />} />
+            <Route path="nilai-rapor" element={<NilaiRapor />} />
           </Route>
         </Routes>
       </BrowserRouter>

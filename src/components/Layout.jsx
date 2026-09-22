@@ -3,7 +3,8 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CalendarCheck, CalendarClock, Wallet, Star,
   GraduationCap, Building2, UserCog, LogOut, Menu, X, Activity, CalendarOff,
-  History, Mail, ChevronRight, BookOpen, Contact, CalendarRange,
+  History, Mail, ChevronRight, BookOpen, Contact, CalendarRange, ClipboardCheck,
+  ReceiptText, NotebookText,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/format'
@@ -14,7 +15,7 @@ import { ROLE_LABELS } from '../lib/format'
 // di masa depan tanpa membuat Sidebar penuh sesak. Item "lintas modul"
 // (Pengguna & Peran, Log Aktivitas, Notifikasi Email) sengaja TIDAK ikut
 // masuk grup ini karena berlaku untuk seluruh aplikasi, bukan cuma SDM.
-function navGroupsFor({ isManager, hasFullAccess }) {
+function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara }) {
   const kepegawaian = [{ to: '/', label: 'Dasbor', icon: LayoutDashboard, end: true }]
   kepegawaian.push({ to: '/pegawai', label: isManager ? 'Data Pegawai' : 'Profil Saya', icon: Users })
   kepegawaian.push({ to: '/presensi', label: isManager ? 'Presensi' : 'Presensi Saya', icon: CalendarCheck })
@@ -27,12 +28,27 @@ function navGroupsFor({ isManager, hasFullAccess }) {
   if (hasFullAccess) kepegawaian.push({ to: '/struktur', label: 'Struktur Organisasi', icon: Building2 })
 
   // Modul Kesiswaan (Student Information Management) — dikelompokkan
-  // terpisah dari Kepegawaian, hanya untuk manajemen (Admin Yayasan/HR/
-  // Admin Sekolah/Kepala Sekolah); siswa sendiri tidak login ke sistem ini.
+  // terpisah dari Kepegawaian. Data Siswa & Kelas/Tahun Ajaran hanya untuk
+  // manajemen (Admin Yayasan/HR/Admin Sekolah/Kepala Sekolah); Presensi
+  // Siswa JUGA dibuka untuk Wali Kelas biasa (guru) — akses ke rombel
+  // yang diampunya sendiri, sesuai keputusan "Wali Kelas login sendiri".
+  // Siswa sendiri tidak login ke sistem ini (notifikasi lewat email saja).
   const kesiswaan = []
   if (isManager) {
     kesiswaan.push({ to: '/siswa', label: 'Data Siswa', icon: Contact })
     kesiswaan.push({ to: '/akademik', label: 'Kelas & Tahun Ajaran', icon: CalendarRange })
+  }
+  if (isManager || isWaliKelas) {
+    kesiswaan.push({ to: '/presensi-siswa', label: 'Presensi Siswa', icon: ClipboardCheck })
+  }
+  // SPP dibuka untuk manajemen ATAU Bendahara (role finansial terpisah,
+  // TIDAK termasuk isManager — lihat keputusan scoping "Perlu role
+  // Bendahara terpisah" & RLS di migrasi 0024_kesiswaan_tahap4_spp.sql).
+  if (isManager || isBendahara) {
+    kesiswaan.push({ to: '/spp', label: 'SPP', icon: ReceiptText })
+  }
+  if (isManager || isWaliKelas) {
+    kesiswaan.push({ to: '/nilai-rapor', label: 'Nilai & Rapor', icon: NotebookText })
   }
 
   const lainnya = []
@@ -106,8 +122,8 @@ function NavGroup({ storageKey, label, icon: Icon, defaultOpen = true, children 
 }
 
 function Sidebar({ open, onClose }) {
-  const { isManager, hasFullAccess } = useAuth()
-  const { kepegawaian, kesiswaan, lainnya } = navGroupsFor({ isManager, hasFullAccess })
+  const { isManager, hasFullAccess, isWaliKelas, isBendahara } = useAuth()
+  const { kepegawaian, kesiswaan, lainnya } = navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara })
 
   return (
     <aside

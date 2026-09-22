@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
-import { CalendarRange, Plus, Pencil, Trash2, Users2, CheckCircle2, School } from 'lucide-react'
+import { CalendarRange, Plus, Pencil, Trash2, Users2, CheckCircle2, School, ArrowUpCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, SectionCard, Button, Badge, Table, Tr, Td, Modal, Input, Select, EmptyState, FullPageSpinner } from '../../components/ui'
 
-const TABS = ['Tahun Ajaran', 'Rombel / Kelas']
+const TABS = ['Tahun Ajaran', 'Rombel / Kelas', 'Kenaikan Kelas']
 
 export default function AcademicSettings() {
   const { isManager, hasFullAccess, loading: authLoading } = useAuth()
@@ -76,6 +76,7 @@ export default function AcademicSettings() {
       {tab === 'Rombel / Kelas' && (
         <RombelTab rombel={rombel} schools={schools} employees={employees} tahunAjaran={tahunAjaran} reload={load} />
       )}
+      {tab === 'Kenaikan Kelas' && <KenaikanKelasTab rombel={rombel} schools={schools} tahunAjaran={tahunAjaran} />}
     </div>
   )
 }
@@ -413,5 +414,197 @@ function RosterModal({ rombel, onClose, onSaved }) {
         </div>
       </div>
     </Modal>
+  )
+}
+
+// =========================================================================
+// TAB: KENAIKAN KELAS — wizard kenaikan kelas massal per rombel. Untuk
+// setiap siswa aktif di rombel asal, admin memilih rombel tujuan (di tahun
+// ajaran tujuan) atau menandai Lulus/Pindah/Keluar. Ditulis lewat beberapa
+// panggilan Supabase berurutan per siswa (pola yang sama dipakai di
+// RosterModal & "Proses Pegawai Aktif" penggajian) — bukan lewat RPC/
+// stored procedure, konsisten dengan konvensi kode yang sudah ada.
+// =========================================================================
+const AKSI_LULUS = '__LULUS__'
+const AKSI_KELUAR = '__KELUAR__'
+
+function KenaikanKelasTab({ rombel, schools, tahunAjaran }) {
+  const [schoolFilter, setSchoolFilter] = useState('')
+  const [asalTahunId, setAsalTahunId] = useState(tahunAjaran.find((t) => t.status === 'aktif')?.id || '')
+  const [tujuanTahunId, setTujuanTahunId] = useState('')
+  const [asalRombelId, setAsalRombelId] = useState('')
+
+  const [siswaList, setSiswaList] = useState([])
+  const [loadingSiswa, setLoadingSiswa] = useState(false)
+  const [defaultTujuan, setDefaultTujuan] = useState('')
+  const [targetMap, setTargetMap] = useState({}) // siswa_id -> { aksi, tinggalKelas }
+  const [processing, setProcessing] = useState(false)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState(null)
+
+  const rombelAsalOptions = rombel.filter((r) => r.tahun_ajaran_id === asalTahunId && (!schoolFilter || r.school_id === schoolFilter))
+  const rombelAsal = rombel.find((r) => r.id === asalRombelId)
+  const rombelTujuanOptions = rombel.filter((r) => r.tahun_ajaran_id === tujuanTahunId && r.school_id === rombelAsal?.school_id)
+
+  const loadSiswa = useCallback(async () => {
+    if (!asalRombelId || !asalTahunId) { setSiswaList([]); return }
+    setLoadingSiswa(true)
+    setResult(null)
+    const { data } = await supabase
+      .from('riwayat_siswa')
+      .select('id, siswa_id, siswa!siswa_id(id, nama_lengkap, nis)')
+      .eq('rombel_id', asalRombelId).eq('tahun_ajaran_id', asalTahunId).eq('status', 'aktif')
+    setSiswaList((data || []).sort((a, b) => (a.siswa?.nama_lengkap || '').localeCompare(b.siswa?.nama_lengkap || '')))
+    setTargetMap({})
+    setLoadingSiswa(false)
+  }, [asalRombelId, asalTahunId])
+
+  useEffect(() => { loadSiswa() }, [loadSiswa])
+
+  const applyDefaultToAll = () => {
+    if (!defaultTujuan) return
+    const next = {}
+    for (const item of siswaList) next[item.siswa_id] = { aksi: defaultTujuan, tinggalKelas: false }
+    setTargetMap(next)
+  }
+
+  const setAksi = (siswaId, aksi) => setTargetMap((m) => ({ ...m, [siswaId]: { aksi, tinggalKelas: m[siswaId]?.tinggalKelas || false } }))
+  const setTinggalKelas = (siswaId, val) => setTargetMap((m) => ({ ...m, [siswaId]: { ...m[siswaId], tinggalKelas: val } }))
+
+  const handleProses = async () => {
+    const items = siswaList.filter((s) => targetMap[s.siswa_id]?.aksi)
+    if (items.length === 0) { setError('Pilih aksi untuk minimal satu siswa terlebih dahulu.'); return }
+    if (!confirm(`Proses kenaikan kelas untuk ${items.length} siswa? Tindakan ini akan mengubah riwayat kelas siswa dan tidak dapat dibatalkan otomatis.`)) return
+
+    setProcessing(true)
+    setError('')
+    const today = new Date().toISOString().slice(0, 10)
+    const gagal = []
+
+    for (const item of items) {
+      const { aksi, tinggalKelas } = targetMap[item.siswa_id]
+      try {
+        if (aksi === AKSI_LULUS || aksi === AKSI_KELUAR) {
+          const statusBaru = aksi === AKSI_LULUS ? 'lulus' : 'keluar'
+          const { error: e1 } = await supabase.from('siswa').update({ status: statusBaru }).eq('id', item.siswa_id)
+          if (e1) throw e1
+          const { error: e2 } = await supabase.from('riwayat_siswa').update({ status: statusBaru, tanggal_keluar: today }).eq('id', item.id)
+          if (e2) throw e2
+        } else {
+          // aksi berisi id rombel tujuan
+          const { error: e1 } = await supabase.from('riwayat_siswa')
+            .update({ status: tinggalKelas ? 'tinggal_kelas' : 'naik_kelas', tanggal_keluar: today })
+            .eq('id', item.id)
+          if (e1) throw e1
+          const { error: e2 } = await supabase.from('riwayat_siswa').insert({
+            siswa_id: item.siswa_id, rombel_id: aksi, tahun_ajaran_id: tujuanTahunId, status: 'aktif', tanggal_masuk: today,
+          })
+          if (e2) throw e2
+        }
+      } catch (err) {
+        gagal.push(`${item.siswa?.nama_lengkap || item.siswa_id}: ${err.message.includes('duplicate') ? 'sudah punya riwayat di tahun ajaran tujuan' : err.message}`)
+      }
+    }
+
+    setProcessing(false)
+    setResult({ total: items.length, gagal })
+    loadSiswa()
+  }
+
+  return (
+    <SectionCard
+      title="Kenaikan Kelas"
+      description="Pindahkan siswa aktif dari satu rombel ke rombel tujuan di tahun ajaran berikutnya, atau tandai Lulus/Keluar. Lakukan per rombel."
+    >
+      <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Select label="Tahun Ajaran Asal" value={asalTahunId} onChange={(e) => { setAsalTahunId(e.target.value); setAsalRombelId('') }}>
+          <option value="">— Pilih —</option>
+          {tahunAjaran.map((t) => <option key={t.id} value={t.id}>{t.nama}{t.status === 'aktif' ? ' (Aktif)' : ''}</option>)}
+        </Select>
+        <Select label="Tahun Ajaran Tujuan" value={tujuanTahunId} onChange={(e) => setTujuanTahunId(e.target.value)}>
+          <option value="">— Pilih —</option>
+          {tahunAjaran.filter((t) => t.id !== asalTahunId).map((t) => <option key={t.id} value={t.id}>{t.nama}{t.status === 'aktif' ? ' (Aktif)' : ''}</option>)}
+        </Select>
+        <Select label="Unit Sekolah (filter)" value={schoolFilter} onChange={(e) => { setSchoolFilter(e.target.value); setAsalRombelId('') }}>
+          <option value="">Semua Unit</option>
+          {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
+        </Select>
+        <Select label="Rombel Asal" value={asalRombelId} onChange={(e) => setAsalRombelId(e.target.value)} disabled={!asalTahunId}>
+          <option value="">— Pilih —</option>
+          {rombelAsalOptions.map((r) => <option key={r.id} value={r.id}>{r.schools ? `${r.schools.jenjang} — ` : ''}{r.tingkat} {r.nama_rombel}</option>)}
+        </Select>
+      </div>
+
+      {!asalRombelId ? (
+        <EmptyState icon={ArrowUpCircle} title="Pilih rombel asal" description="Pilih tahun ajaran asal, tujuan, dan rombel asal untuk mulai memproses kenaikan kelas." />
+      ) : loadingSiswa ? (
+        <FullPageSpinner />
+      ) : siswaList.length === 0 ? (
+        <EmptyState icon={School} title="Tidak ada siswa aktif" description="Rombel ini tidak memiliki siswa berstatus aktif pada tahun ajaran asal." />
+      ) : (
+        <>
+          {!tujuanTahunId ? (
+            <p className="mb-3 rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-sm text-[var(--color-gold)]">Pilih Tahun Ajaran Tujuan di atas untuk dapat memilih rombel tujuan per siswa.</p>
+          ) : (
+            <div className="mb-4 flex flex-col gap-2 rounded-md border border-[var(--color-border)] p-3 sm:flex-row sm:items-end">
+              <Select containerClassName="flex-1" label="Terapkan ke Semua Siswa" value={defaultTujuan} onChange={(e) => setDefaultTujuan(e.target.value)}>
+                <option value="">— Pilih aksi massal (opsional) —</option>
+                {rombelTujuanOptions.map((r) => <option key={r.id} value={r.id}>Naik → {r.tingkat} {r.nama_rombel}</option>)}
+                <option value={AKSI_LULUS}>Tandai semua Lulus</option>
+                <option value={AKSI_KELUAR}>Tandai semua Keluar</option>
+              </Select>
+              <Button type="button" variant="outline" onClick={applyDefaultToAll} disabled={!defaultTujuan}>Terapkan</Button>
+            </div>
+          )}
+
+          <Table columns={['Nama', 'NIS', 'Aksi', 'Tinggal Kelas']}>
+            {siswaList.map((item) => {
+              const current = targetMap[item.siswa_id] || {}
+              const isRombelTarget = current.aksi && current.aksi !== AKSI_LULUS && current.aksi !== AKSI_KELUAR
+              return (
+                <Tr key={item.id}>
+                  <Td className="font-medium text-[var(--color-ink)]">{item.siswa?.nama_lengkap}</Td>
+                  <Td className="text-[var(--color-ink-soft)]">{item.siswa?.nis || '—'}</Td>
+                  <Td>
+                    <Select value={current.aksi || ''} onChange={(e) => setAksi(item.siswa_id, e.target.value)} disabled={!tujuanTahunId}>
+                      <option value="">— Belum dipilih —</option>
+                      {rombelTujuanOptions.map((r) => <option key={r.id} value={r.id}>Naik → {r.tingkat} {r.nama_rombel}</option>)}
+                      <option value={AKSI_LULUS}>Lulus</option>
+                      <option value={AKSI_KELUAR}>Pindah / Keluar</option>
+                    </Select>
+                  </Td>
+                  <Td>
+                    {isRombelTarget && (
+                      <input
+                        type="checkbox"
+                        checked={!!current.tinggalKelas}
+                        onChange={(e) => setTinggalKelas(item.siswa_id, e.target.checked)}
+                        className="h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-navy)] focus:ring-[var(--color-navy)]"
+                        title="Centang bila siswa tinggal kelas (mengulang tingkat yang sama)"
+                      />
+                    )}
+                  </Td>
+                </Tr>
+              )
+            })}
+          </Table>
+
+          {error && <p className="mt-3 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+          {result && (
+            <div className={`mt-3 rounded-md px-3 py-2 text-sm ${result.gagal.length ? 'bg-[var(--color-danger-soft)] text-[var(--color-danger)]' : 'bg-[var(--color-success-soft)] text-[var(--color-success)]'}`}>
+              {result.gagal.length === 0
+                ? `Berhasil memproses ${result.total} siswa.`
+                : `Selesai dengan ${result.gagal.length} kegagalan dari ${result.total} siswa: ${result.gagal.join('; ')}`}
+            </div>
+          )}
+
+          <div className="mt-4 flex justify-end">
+            <Button type="button" onClick={handleProses} disabled={processing}>
+              <ArrowUpCircle className="h-4 w-4" /> {processing ? 'Memproses…' : 'Proses Kenaikan Kelas'}
+            </Button>
+          </div>
+        </>
+      )}
+    </SectionCard>
   )
 }

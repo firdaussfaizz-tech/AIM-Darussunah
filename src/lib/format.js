@@ -49,6 +49,30 @@ export const JENIS_DOKUMEN_SISWA_OPTIONS = [
   { value: 'lainnya', label: 'Lainnya' },
 ]
 
+// Status baris riwayat_siswa (riwayat penempatan siswa per tahun ajaran)
+export const RIWAYAT_STATUS_LABELS = {
+  aktif: 'Aktif',
+  naik_kelas: 'Naik Kelas',
+  tinggal_kelas: 'Tinggal Kelas',
+  lulus: 'Lulus',
+  pindah: 'Pindah',
+  keluar: 'Keluar',
+}
+
+// ---- Modul Kesiswaan — Presensi Siswa (Tahap 3) ----
+export const PRESENSI_SISWA_STATUS_OPTIONS = ['hadir', 'izin', 'sakit', 'alpa']
+export const PRESENSI_SISWA_STATUS_LABELS = { hadir: 'Hadir', izin: 'Izin', sakit: 'Sakit', alpa: 'Alpa' }
+
+// ---- Modul Kesiswaan — SPP (Tahap 4) ----
+export const SPP_TAGIHAN_STATUS_LABELS = { belum_bayar: 'Belum Bayar', sebagian: 'Bayar Sebagian', lunas: 'Lunas' }
+
+// ---- Modul Kesiswaan — Nilai & Rapor (Tahap 5) ----
+export const SEMESTER_OPTIONS = [
+  { value: 'ganjil', label: 'Semester Ganjil' },
+  { value: 'genap', label: 'Semester Genap' },
+]
+export const NILAI_SIKAP_OPTIONS = ['A', 'B', 'C', 'D']
+
 export const STATUS_BADGE_COLOR = {
   aktif: 'success',
   hadir: 'success',
@@ -72,4 +96,9 @@ export const STATUS_BADGE_COLOR = {
   lulus: 'navy',
   pindah: 'gold',
   keluar: 'danger',
+  naik_kelas: 'success',
+  tinggal_kelas: 'gold',
+  belum_bayar: 'danger',
+  sebagian: 'gold',
+  lunas: 'success',
 }

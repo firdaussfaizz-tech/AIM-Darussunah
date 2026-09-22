@@ -8,6 +8,7 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null)
   const [roles, setRoles] = useState([])
   const [employee, setEmployee] = useState(null)
+  const [waliKelasRombel, setWaliKelasRombel] = useState([])
   const [loadingContext, setLoadingContext] = useState(true)
 
   const loadContext = useCallback(async (userId) => {
@@ -15,6 +16,7 @@ export function AuthProvider({ children }) {
       setProfile(null)
       setRoles([])
       setEmployee(null)
+      setWaliKelasRombel([])
       setLoadingContext(false)
       return
     }
@@ -27,6 +29,23 @@ export function AuthProvider({ children }) {
     setProfile(profileData || null)
     setRoles(roleData || [])
     setEmployee(employeeData || null)
+
+    // Rombel yang Wali Kelas-nya adalah pegawai ini — dipakai untuk
+    // menampilkan menu Kesiswaan (Presensi Siswa, Nilai & Rapor) ke Wali
+    // Kelas biasa (bukan Admin Sekolah/Kepala Sekolah), sesuai keputusan
+    // "Wali Kelas login sendiri". RLS rombel_select (migrasi 0022) sudah
+    // mengizinkan pegawai melihat rombel yang wali_kelas_employee_id-nya
+    // dirinya sendiri, terlepas dari has_school_access.
+    if (employeeData?.id) {
+      const { data: wkRombel } = await supabase
+        .from('rombel')
+        .select('id, nama_rombel, tingkat, school_id, tahun_ajaran_id, schools!school_id(nama, jenjang), tahun_ajaran(nama, status)')
+        .eq('wali_kelas_employee_id', employeeData.id)
+      setWaliKelasRombel(wkRombel || [])
+    } else {
+      setWaliKelasRombel([])
+    }
+
     setLoadingContext(false)
   }, [])
 
@@ -49,7 +68,9 @@ export function AuthProvider({ children }) {
   const isHr = roleNames.includes('hr')
   const isManager = isAdminYayasan || isHr || roleNames.includes('admin_sekolah') || roleNames.includes('kepala_sekolah')
   const hasFullAccess = isAdminYayasan || isHr
+  const isBendahara = roleNames.includes('bendahara')
   const managedSchoolIds = roles.filter((r) => r.school_id).map((r) => r.school_id)
+  const isWaliKelas = waliKelasRombel.length > 0
 
   const value = {
     session,
@@ -62,7 +83,10 @@ export function AuthProvider({ children }) {
     isHr,
     isManager,
     hasFullAccess,
+    isBendahara,
     managedSchoolIds,
+    waliKelasRombel,
+    isWaliKelas,
     loading: session === undefined || loadingContext,
     refreshContext: () => loadContext(session?.user?.id),
     signOut: () => supabase.auth.signOut(),
