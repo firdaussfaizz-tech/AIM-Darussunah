@@ -43,7 +43,7 @@ export default function IndeksKehadiranSection({ employee, canManage }) {
       supabase.from('salary_scale').select('*'),
       supabase
         .from('attendance')
-        .select('*, leave_requests(dokumen_terlampir, durasi_jam, leave_types(kode, nama, nilai_hari_hadir, hitung_hari_kerja_wajib, batas_kejadian_per_bulan, pengurangan_ih_setelah_batas))')
+        .select('*, leave_requests(dokumen_terlampir, durasi_jam, leave_types(kode, nama, nilai_hari_hadir, hitung_hari_kerja_wajib, jatah_per_bulan, batas_kejadian_per_bulan, pengurangan_ih_setelah_batas))')
         .eq('employee_id', employee.id)
         .gte('tanggal', start)
         .lt('tanggal', endDate),
@@ -215,6 +215,7 @@ export default function IndeksKehadiranSection({ employee, canManage }) {
                 <span className="text-[var(--color-ink)]">{formatDate(d.tanggal)}</span>
                 <span className="text-[var(--color-ink-soft)]">
                   {d.jenis === 'alpa' ? 'Alpa' : d.jenis === 'leave' ? d.nama : d.jenis}
+                  {d.catatan && ` · ${d.catatan}`}
                   {d.terlambat && ' · Terlambat'}
                   {d.pulangAwal && ' · Pulang awal'}
                   {d.belumTertaut && ' · belum tertaut pengajuan'}

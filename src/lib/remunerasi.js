@@ -23,7 +23,7 @@
 //     diubah admin di halaman Jenis Cuti & Izin), default disamakan
 //     dengan izin pribadi (2 hari/bulan).
 //
-// Keputusan tambahan (2026-09-22): hari kerja efektif yang BELUM ada
+// Keputusan tambahan (2026-09-22, #1): hari kerja efektif yang BELUM ada
 // baris `attendance` sama sekali (presensi belum sempat dicatat/di-
 // impor Tata Usaha untuk tanggal tsb) dianggap HADIR PENUH secara
 // default, BUKAN Alpa. Presensi di halaman Presensi Pegawai memang baru
@@ -35,6 +35,25 @@
 // dihitung dari status 'alpa' yang secara eksplisit dicatat/dipilih oleh
 // Tata Usaha/Admin — sesuai maksud Pasal 24 (Alpa = tidak hadir tanpa
 // keterangan, bukan sekadar data belum diinput).
+//
+// Keputusan tambahan (2026-09-22, #2) — MEREVISI aturan Izin Sakit dari
+// keputusan 2026-09-18 di atas: Izin Sakit TIDAK LAGI memakai mekanisme
+// batas_kejadian_per_bulan/pengurangan_ih_setelah_batas (yang juga tidak
+// pernah bisa diisi admin — tidak ada field-nya di form "Jenis Cuti &
+// Izin"). Aturan barunya, murni lewat nilaiHadir per hari:
+//   - Izin Sakit TANPA SKD -> nilaiHadir 0 (mengurangi Kehadiran Efektif).
+//   - Izin Sakit DENGAN SKD -> nilaiHadir 1 (hadir penuh), dibatasi
+//     maksimal `jatah_per_bulan` hari BER-SKD per bulan (field yang sama
+//     dengan yang sudah ada & bisa diisi admin di form Jenis Cuti & Izin,
+//     default 4 hari/bulan bila kosong). Kejadian ber-SKD ke-(jatah+1)
+//     dst dalam bulan yang sama ikut nilaiHadir 0, sama seperti tanpa SKD.
+//   - Tidak ada potongan Indeks Kehadiran (IH) tambahan akibat Izin
+//     Sakit — satu-satunya dampaknya adalah lewat persentase Kehadiran
+//     Efektif, yang kemudian menentukan IH Dasar dari IH_BASE_TABLE.
+// Mekanisme batas_kejadian_per_bulan/pengurangan_ih_setelah_batas lama
+// TETAP berlaku untuk kode lain (mis. ITMK/Izin Meninggalkan Tugas
+// Sementara) yang datanya mengisi kedua kolom tsb — hanya kode 'IS' yang
+// sekarang sengaja dilewati dari mekanisme itu.
 // =====================================================================
 
 /** Batas waktu terlambat datang, Pasal 8 ayat (1) Draft SK. */
@@ -172,6 +191,7 @@ export function hitungIH({
   let pulangAwalCount = 0
   let alpaCount = 0
   let hariLiburKalenderCount = 0
+  let isDenganSkdCount = 0 // penghitung berjalan Izin Sakit BER-SKD bulan ini, lihat catatan 2026-09-22
   const byKodeCount = {}
   const byKodeMeta = {}
   const detail = []
@@ -191,19 +211,51 @@ export function hitungIH({
     if (att?.leave_request_id && lt) {
       const kode = lt.kode
       let nilaiHadir = lt.nilai_hari_hadir
+      let catatanNilai = null
+
       // Kasus khusus per kode (dibedakan dari data pengajuan, bukan hardcode nilai):
-      if (kode === 'IMTS' && lr.durasi_jam != null && Number(lr.durasi_jam) > 2) nilaiHadir = 0
-      if (kode === 'IS' && !lr.dokumen_terlampir) nilaiHadir = 0
+      if (kode === 'IMTS' && lr.durasi_jam != null && Number(lr.durasi_jam) > 2) {
+        nilaiHadir = 0
+        catatanNilai = 'meninggalkan tugas > 2 jam'
+      }
+
+      // Izin Sakit (kode 'IS'), aturan direvisi 2026-09-22:
+      //   - Tanpa SKD -> langsung mengurangi 1 Hari Hadir Efektif (nilaiHadir 0).
+      //   - Dengan SKD -> dihitung hadir penuh, TAPI dibatasi maksimal
+      //     `jatah_per_bulan` hari dengan SKD per bulan (nilai yang sama
+      //     dipakai di form "Jenis Cuti & Izin", default 4 bila kosong).
+      //     Kejadian ke-(jatah+1) dst dalam bulan yang sama, walau ada
+      //     SKD, tetap diperlakukan seperti tanpa SKD (nilaiHadir 0).
+      //   - TIDAK ADA potongan Indeks Kehadiran terpisah untuk Izin Sakit
+      //     (mekanisme batas_kejadian_per_bulan/pengurangan_ih_setelah_batas
+      //     di bawah sengaja DILEWATI untuk kode 'IS') — satu-satunya efek
+      //     Izin Sakit adalah lewat persentase Kehadiran Efektif, yang lalu
+      //     menentukan IH Dasar (IH_BASE_TABLE).
+      if (kode === 'IS') {
+        if (!lr.dokumen_terlampir) {
+          nilaiHadir = 0
+          catatanNilai = 'tanpa Surat Keterangan Dokter'
+        } else {
+          isDenganSkdCount += 1
+          const kuotaSkd = lt.jatah_per_bulan ?? 4
+          if (isDenganSkdCount > kuotaSkd) {
+            nilaiHadir = 0
+            catatanNilai = `dengan SKD, melebihi kuota ${kuotaSkd} hari/bulan`
+          } else {
+            nilaiHadir = 1
+          }
+        }
+      }
 
       if (lt.hitung_hari_kerja_wajib) hariKerjaWajib++
       if (nilaiHadir != null) hariHadirPenuh += Number(nilaiHadir)
-      if (lt.batas_kejadian_per_bulan != null) {
+      if (lt.batas_kejadian_per_bulan != null && kode !== 'IS') {
         byKodeCount[kode] = (byKodeCount[kode] || 0) + 1
         byKodeMeta[kode] = lt
       }
       detail.push({
         tanggal: iso, jenis: 'leave', kode, nama: lt.nama,
-        nilaiHadir, hitungWajib: lt.hitung_hari_kerja_wajib,
+        nilaiHadir, hitungWajib: lt.hitung_hari_kerja_wajib, catatan: catatanNilai,
       })
       continue
     }

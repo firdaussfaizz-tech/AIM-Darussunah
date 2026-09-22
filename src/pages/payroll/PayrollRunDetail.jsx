@@ -48,7 +48,7 @@ export default function PayrollRunDetail() {
     const [{ data: att }, { data: perf }, { data: salaryRow }, { data: tugas }, { data: holidays }] = await Promise.all([
       supabase
         .from('attendance')
-        .select('*, leave_requests(dokumen_terlampir, durasi_jam, leave_types(kode, nama, nilai_hari_hadir, hitung_hari_kerja_wajib, batas_kejadian_per_bulan, pengurangan_ih_setelah_batas))')
+        .select('*, leave_requests(dokumen_terlampir, durasi_jam, leave_types(kode, nama, nilai_hari_hadir, hitung_hari_kerja_wajib, jatah_per_bulan, batas_kejadian_per_bulan, pengurangan_ih_setelah_batas))')
         .eq('employee_id', emp.id).gte('tanggal', start).lt('tanggal', endDate),
       supabase.from('performance_index').select('*').eq('employee_id', emp.id)
         .lte('periode_mulai', endDate).gte('periode_selesai', start)
