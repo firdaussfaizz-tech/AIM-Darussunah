@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Target, Plus, Pencil, Trash2, Send, Check, Undo2, Info } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
-import { PageHeader, Card, Select, Button, Badge, EmptyState, FullPageSpinner, Modal, Input, Textarea } from '../../components/ui'
+import { Card, Select, Button, Badge, EmptyState, FullPageSpinner, Modal, Input, Textarea } from '../../components/ui'
 import { STATUS_BADGE_COLOR } from '../../lib/format'
 
 const TABS = ['Pengajuan Sekolah', 'Persetujuan Yayasan', 'Rekap & Histori']
@@ -17,7 +17,11 @@ function progressPercent(keyResults) {
   return Math.round((ratios.reduce((a, b) => a + b, 0) / ratios.length) * 100)
 }
 
-export default function OkrList() {
+// Dulu halaman /okr tersendiri; kini dirender sebagai salah satu TAB di
+// dalam halaman gabungan "OKR & KPI Lembaga" (KinerjaLembaga.jsx), sesuai
+// keputusan pengguna menyatukan OKR & KPI dalam satu menu. Karena itu
+// komponen ini di-export sebagai panel (tanpa mengubah logikanya).
+export function OkrPanel() {
   const { hasFullAccess, roles, loading: authLoading } = useAuth()
 
   // OKR di sini MILIK SATUAN PENDIDIKAN (sekolah), bukan pegawai
@@ -112,13 +116,11 @@ export default function OkrList() {
 
   return (
     <div>
-      <PageHeader
-        title="OKR — Objective & Key Results"
-        description="Tujuan & ukuran keberhasilan tingkat satuan pendidikan — disusun Kepala Sekolah/Admin Sekolah berdasarkan hasil rapat internal, lalu diajukan untuk disetujui Yayasan."
-        actions={canAuthor && (
+      {canAuthor && (
+        <div className="mb-4 flex justify-end">
           <Button onClick={() => { setEditingRow(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tambah Objective</Button>
-        )}
-      />
+        </div>
+      )}
 
       <Card className="mb-4 border-[var(--color-navy)]/20 bg-[var(--color-navy-50)]">
         <p className="flex items-start gap-2 text-xs text-[var(--color-ink-soft)]">
