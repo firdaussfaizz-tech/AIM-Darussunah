@@ -89,10 +89,10 @@ export default function LeaveList() {
           *,
           employees!employee_id(nama, school_id, schools!school_id(nama, jenjang)),
           leave_types(nama, kode, kategori),
-          approver:approved_by(nama),
-          pertimbang:pertimbangan_by(nama),
           target_is_manager:leave_requests_target_is_manager,
-          is_clty:leave_requests_is_clty
+          is_clty:leave_requests_is_clty,
+          approver_nama:leave_requests_approver_nama,
+          pertimbangan_nama:leave_requests_pertimbangan_nama
         `)
         .order('created_at', { ascending: false }),
     ])
@@ -286,13 +286,13 @@ export default function LeaveList() {
                       <Td className="text-xs text-[var(--color-ink-soft)]">
                         {r.status === 'pending' ? (
                           '—'
-                        ) : r.pertimbang?.nama ? (
+                        ) : r.pertimbangan_nama ? (
                           <div className="flex flex-col gap-0.5">
-                            <span>Pertimbangan: {r.pertimbang.nama} ({formatDate(r.pertimbangan_at)})</span>
-                            {r.status !== 'menunggu_yayasan' && <span>Final: {r.approver?.nama || '—'} ({formatDate(r.approved_at)})</span>}
+                            <span>Pertimbangan: {r.pertimbangan_nama} ({formatDate(r.pertimbangan_at)})</span>
+                            {r.status !== 'menunggu_yayasan' && <span>Final: {r.approver_nama || '—'} ({formatDate(r.approved_at)})</span>}
                           </div>
                         ) : (
-                          <span>{r.approver?.nama || '—'} {r.approved_at ? `(${formatDate(r.approved_at)})` : ''}</span>
+                          <span>{r.approver_nama || '—'} {r.approved_at ? `(${formatDate(r.approved_at)})` : ''}</span>
                         )}
                       </Td>
                     </Tr>
