@@ -218,6 +218,15 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedScho
 
   const tahunAktif = tahunAjaran.find((t) => t.status === 'aktif')
 
+  // Peta pegawai -> daftar rombel yang sudah diampunya sebagai Wali Kelas,
+  // dipakai untuk menambahkan keterangan di dropdown Wali Kelas (supaya
+  // admin tidak tidak sengaja menugaskan satu guru jadi Wali Kelas di lebih
+  // dari satu rombel pada tahun ajaran yang sama).
+  const waliKelasAssignments = {}
+  for (const r of rombel) {
+    if (r.wali_kelas_employee_id) (waliKelasAssignments[r.wali_kelas_employee_id] ||= []).push(r)
+  }
+
   const openAdd = () => {
     setEditingId(null)
     setForm({ ...emptyRombelForm, tahun_ajaran_id: tahunAktif?.id || '', school_id: lockedSchoolId || '' })
@@ -304,8 +313,24 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedScho
           </div>
           <Select label="Wali Kelas" value={form.wali_kelas_employee_id} onChange={(e) => setForm((s) => ({ ...s, wali_kelas_employee_id: e.target.value }))}>
             <option value="">— Belum ditentukan —</option>
-            {employees.map((e) => <option key={e.id} value={e.id}>{e.nama}</option>)}
+            {employees.map((e) => {
+              // Rombel LAIN (bukan yang sedang diedit) pada tahun ajaran yang
+              // sama tempat guru ini sudah jadi Wali Kelas — supaya admin
+              // tahu kalau guru tsb sebenarnya sudah punya tugas tambahan ini.
+              const sudahWaliKelas = (waliKelasAssignments[e.id] || []).filter(
+                (r) => r.tahun_ajaran_id === form.tahun_ajaran_id && r.id !== editingId
+              )
+              const keterangan = sudahWaliKelas.length > 0
+                ? ` — sudah Wali Kelas ${sudahWaliKelas.map((r) => `${r.tingkat} ${r.nama_rombel}`).join(', ')}`
+                : ''
+              return <option key={e.id} value={e.id}>{e.nama}{keterangan}</option>
+            })}
           </Select>
+          {form.wali_kelas_employee_id && (waliKelasAssignments[form.wali_kelas_employee_id] || []).some((r) => r.tahun_ajaran_id === form.tahun_ajaran_id && r.id !== editingId) && (
+            <p className="-mt-2 text-xs text-[var(--color-gold)]">
+              ⚠️ Guru ini sudah menjadi Wali Kelas di rombel lain pada tahun ajaran yang sama. Pastikan ini memang disengaja (satu guru rangkap Wali Kelas) sebelum menyimpan.
+            </p>
+          )}
           <Input label="Kapasitas (opsional)" type="number" min="1" value={form.kapasitas} onChange={(e) => setForm((s) => ({ ...s, kapasitas: e.target.value }))} />
           {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
           <div className="flex justify-end gap-2">
