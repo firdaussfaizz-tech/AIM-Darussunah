@@ -1,10 +1,10 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
-import { Users, CalendarCheck, CalendarClock, GraduationCap, FileWarning } from 'lucide-react'
+import { Users, CalendarCheck, CalendarClock, FileWarning } from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../context/AuthContext'
-import { PageHeader, Card, SectionCard, StatCard, FullPageSpinner, Badge, EmptyState } from '../components/ui'
+import { PageHeader, Card, SectionCard, StatCard, FullPageSpinner, Badge, EmptyState, Select, Table, Tr, Td } from '../components/ui'
 import { formatDate, formatRupiah, STATUS_BADGE_COLOR, BULAN } from '../lib/format'
 import { hitungBebanKerja, DEFAULT_BEBAN_KERJA_SETTINGS } from '../lib/workload'
 
@@ -37,7 +37,10 @@ function ManagerDashboard({ hasFullAccess }) {
   // Admin Yayasan/HR, karena mencakup data lintas unit sekolah yang di luar
   // wewenang Kepala Sekolah/Admin Sekolah per school_id masing-masing.
   const [yayasanLoading, setYayasanLoading] = useState(true)
-  const [latestPayrollDetails, setLatestPayrollDetails] = useState([])
+  const [payrollRuns, setPayrollRuns] = useState([])
+  const [selectedRunId, setSelectedRunId] = useState('')
+  const [payrollDetails, setPayrollDetails] = useState([])
+  const [payrollDetailsLoading, setPayrollDetailsLoading] = useState(false)
   const [attendanceTrendRows, setAttendanceTrendRows] = useState([])
   const [bebanEmployees, setBebanEmployees] = useState([])
   const [bebanRows, setBebanRows] = useState([])
@@ -105,8 +108,8 @@ function ManagerDashboard({ hasFullAccess }) {
       enamBulanLalu.setDate(1)
       const enamBulanLaluStr = enamBulanLalu.toISOString().slice(0, 10)
 
-      const [{ data: latestRun }, { data: att }, { data: emp }, { data: beban }, { data: tugas }, { data: bebanSet }] = await Promise.all([
-        supabase.from('payroll_runs').select('id, periode_bulan, periode_tahun').order('periode_tahun', { ascending: false }).order('periode_bulan', { ascending: false }).limit(1).maybeSingle(),
+      const [{ data: runs }, { data: att }, { data: emp }, { data: beban }, { data: tugas }, { data: bebanSet }] = await Promise.all([
+        supabase.from('payroll_runs').select('id, periode_bulan, periode_tahun, status').order('periode_tahun', { ascending: false }).order('periode_bulan', { ascending: false }),
         supabase.from('attendance').select('tanggal, status').gte('tanggal', enamBulanLaluStr),
         supabase.from('employees').select('id, schools!school_id(jenjang), positions(nama, tunjangan_jenis, jp_ekuivalensi)').eq('status', 'aktif'),
         supabase.from('employee_beban_kerja').select('*'),
@@ -118,31 +121,58 @@ function ManagerDashboard({ hasFullAccess }) {
       setBebanRows(beban || [])
       setTugasRows(tugas || [])
       setBebanSettings(bebanSet || DEFAULT_BEBAN_KERJA_SETTINGS)
-
-      if (latestRun) {
-        const { data: details } = await supabase
-          .from('payroll_details')
-          .select('gaji_bersih, employees(schools!school_id(nama, jenjang))')
-          .eq('payroll_run_id', latestRun.id)
-        setLatestPayrollDetails((details || []).map((d) => ({ ...d, periode: latestRun })))
-      } else {
-        setLatestPayrollDetails([])
-      }
+      setPayrollRuns(runs || [])
+      setSelectedRunId((runs && runs.length > 0) ? runs[0].id : '')
       setYayasanLoading(false)
     }
     loadYayasan()
   }, [hasFullAccess])
 
-  // Total biaya gaji (Gaji Bersih) periode penggajian terbaru, dikelompokkan
-  // per unit sekolah.
+  // Ambil rincian slip untuk periode yang DIPILIH (bukan hanya terbaru),
+  // supaya biaya gaji per unit bisa ditinjau lintas periode.
+  useEffect(() => {
+    if (!hasFullAccess || !selectedRunId) { setPayrollDetails([]); return }
+    let batal = false
+    const loadDetails = async () => {
+      setPayrollDetailsLoading(true)
+      const { data } = await supabase
+        .from('payroll_details')
+        .select('gaji_pokok, total_tunjangan, total_potongan, gaji_bersih, employees(schools!school_id(nama, jenjang))')
+        .eq('payroll_run_id', selectedRunId)
+      if (batal) return
+      setPayrollDetails(data || [])
+      setPayrollDetailsLoading(false)
+    }
+    loadDetails()
+    return () => { batal = true }
+  }, [hasFullAccess, selectedRunId])
+
+  const JENJANG_ORDER = { SD: 0, SMP: 1, SMA: 2, Pesantren: 3 }
+
+  // Biaya gaji per UNIT untuk periode terpilih — rincian penuh (Bruto =
+  // Gaji Pokok + Tunjangan, Potongan, Bersih). Dikelompokkan per satuan
+  // pendidikan (bukan hanya jenjang) sehingga semua unit — termasuk
+  // Pesantren & Kantor Yayasan — ikut tampil.
   const biayaPerUnit = useMemo(() => {
     const map = {}
-    for (const d of latestPayrollDetails) {
-      const jenjang = d.employees?.schools?.jenjang || 'Kantor Yayasan'
-      map[jenjang] = (map[jenjang] || 0) + Number(d.gaji_bersih || 0)
+    for (const d of payrollDetails) {
+      const sch = d.employees?.schools
+      const key = sch ? `${sch.jenjang} — ${sch.nama}` : 'Kantor Yayasan'
+      if (!map[key]) map[key] = { unit: key, jenjang: sch?.jenjang || 'zzz', jumlah: 0, bruto: 0, potongan: 0, bersih: 0 }
+      const m = map[key]
+      m.jumlah += 1
+      m.bruto += Number(d.gaji_pokok || 0) + Number(d.total_tunjangan || 0)
+      m.potongan += Number(d.total_potongan || 0)
+      m.bersih += Number(d.gaji_bersih || 0)
     }
-    return Object.entries(map).map(([jenjang, total]) => ({ jenjang, total }))
-  }, [latestPayrollDetails])
+    return Object.values(map).sort((a, b) => (JENJANG_ORDER[a.jenjang] ?? 9) - (JENJANG_ORDER[b.jenjang] ?? 9) || a.unit.localeCompare(b.unit))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payrollDetails])
+
+  const totalBiaya = useMemo(() => biayaPerUnit.reduce(
+    (acc, u) => ({ jumlah: acc.jumlah + u.jumlah, bruto: acc.bruto + u.bruto, potongan: acc.potongan + u.potongan, bersih: acc.bersih + u.bersih }),
+    { jumlah: 0, bruto: 0, potongan: 0, bersih: 0 },
+  ), [biayaPerUnit])
 
   // Tren kehadiran 6 bulan terakhir (persentase hadir dari seluruh baris
   // presensi tercatat bulan itu, seluruh yayasan).
@@ -202,10 +232,18 @@ function ManagerDashboard({ hasFullAccess }) {
   if (loading) return <FullPageSpinner />
 
   const totalAktif = employees.filter((e) => e.status === 'aktif').length
-  const byJenjang = ['SD', 'SMP', 'SMA'].map((j) => ({
-    jenjang: j,
-    jumlah: employees.filter((e) => e.schools?.jenjang === j).length,
-  }))
+  // Dinamis dari data — mencakup SEMUA jenjang yang ada (termasuk Pesantren)
+  // dan pegawai tanpa unit (Kantor Yayasan), bukan hanya SD/SMP/SMA.
+  const byJenjang = (() => {
+    const map = {}
+    for (const e of employees) {
+      const j = e.schools?.jenjang || 'Kantor Yayasan'
+      map[j] = (map[j] || 0) + 1
+    }
+    return Object.entries(map)
+      .map(([jenjang, jumlah]) => ({ jenjang, jumlah }))
+      .sort((a, b) => (JENJANG_ORDER[a.jenjang] ?? 9) - (JENJANG_ORDER[b.jenjang] ?? 9))
+  })()
   const hadirHariIni = todayAttendance.filter((a) => a.status === 'hadir').length
 
   return (
@@ -255,21 +293,41 @@ function ManagerDashboard({ hasFullAccess }) {
       {hasFullAccess && !yayasanLoading && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <SectionCard
-            title="Total Biaya Gaji per Unit Sekolah"
-            description={latestPayrollDetails[0]?.periode ? `Periode ${BULAN[latestPayrollDetails[0].periode.periode_bulan - 1]} ${latestPayrollDetails[0].periode.periode_tahun} (terbaru)` : undefined}
+            title="Total Biaya Gaji per Unit"
+            description="Bruto = Gaji Pokok + Tunjangan · Bersih = setelah potongan"
+            actions={payrollRuns.length > 0 && (
+              <Select containerClassName="w-44" value={selectedRunId} onChange={(e) => setSelectedRunId(e.target.value)}>
+                {payrollRuns.map((r) => (
+                  <option key={r.id} value={r.id}>{BULAN[r.periode_bulan - 1]} {r.periode_tahun}{r.status === 'final' ? '' : ' (draft)'}</option>
+                ))}
+              </Select>
+            )}
           >
-            {biayaPerUnit.length === 0 ? (
+            {payrollRuns.length === 0 ? (
               <p className="text-sm text-[var(--color-ink-soft)]">Belum ada periode penggajian yang diproses.</p>
+            ) : payrollDetailsLoading ? (
+              <p className="text-sm text-[var(--color-ink-soft)]">Memuat…</p>
+            ) : biayaPerUnit.length === 0 ? (
+              <p className="text-sm text-[var(--color-ink-soft)]">Belum ada slip diproses pada periode ini.</p>
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={biayaPerUnit}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-                  <XAxis dataKey="jenjang" tick={{ fontSize: 13, fill: 'var(--color-ink-soft)' }} axisLine={{ stroke: 'var(--color-border)' }} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: 'var(--color-ink-soft)' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${Math.round(v / 1000000)}jt`} />
-                  <Tooltip cursor={{ fill: 'var(--color-navy-50)' }} contentStyle={{ borderRadius: 8, borderColor: 'var(--color-border)', fontSize: 13 }} formatter={(v) => formatRupiah(v)} />
-                  <Bar dataKey="total" fill="var(--color-navy)" radius={[4, 4, 0, 0]} maxBarSize={64} />
-                </BarChart>
-              </ResponsiveContainer>
+              <Table columns={['Unit', 'Pegawai', 'Bruto', 'Potongan', 'Bersih']}>
+                {biayaPerUnit.map((u) => (
+                  <Tr key={u.unit}>
+                    <Td>{u.unit}</Td>
+                    <Td>{u.jumlah}</Td>
+                    <Td>{formatRupiah(u.bruto)}</Td>
+                    <Td className="text-[var(--color-danger)]">-{formatRupiah(u.potongan)}</Td>
+                    <Td className="font-medium">{formatRupiah(u.bersih)}</Td>
+                  </Tr>
+                ))}
+                <Tr>
+                  <Td className="font-semibold">Total</Td>
+                  <Td className="font-semibold">{totalBiaya.jumlah}</Td>
+                  <Td className="font-semibold">{formatRupiah(totalBiaya.bruto)}</Td>
+                  <Td className="font-semibold text-[var(--color-danger)]">-{formatRupiah(totalBiaya.potongan)}</Td>
+                  <Td className="font-semibold">{formatRupiah(totalBiaya.bersih)}</Td>
+                </Tr>
+              </Table>
             )}
           </SectionCard>
 
