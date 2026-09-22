@@ -22,6 +22,19 @@
 //     kedua SK, sehingga nilainya mengikuti kolom leave_types (dapat
 //     diubah admin di halaman Jenis Cuti & Izin), default disamakan
 //     dengan izin pribadi (2 hari/bulan).
+//
+// Keputusan tambahan (2026-09-22): hari kerja efektif yang BELUM ada
+// baris `attendance` sama sekali (presensi belum sempat dicatat/di-
+// impor Tata Usaha untuk tanggal tsb) dianggap HADIR PENUH secara
+// default, BUKAN Alpa. Presensi di halaman Presensi Pegawai memang baru
+// tercatat kalau ada yang menekan tombol status (atau via impor
+// fingerprint) untuk tanggal tsb — sebelumnya hari yang belum sempat
+// diisi ikut dihitung Alpa (potongan 0,10/hari), sehingga IH pegawai
+// baru/di awal bulan sering tampak 0% dan Tunjangan Remunerasi tampak
+// Rp 0 padahal belum tentu benar-benar tidak hadir. Sekarang Alpa HANYA
+// dihitung dari status 'alpa' yang secara eksplisit dicatat/dipilih oleh
+// Tata Usaha/Admin — sesuai maksud Pasal 24 (Alpa = tidak hadir tanpa
+// keterangan, bukan sekadar data belum diinput).
 // =====================================================================
 
 /** Batas waktu terlambat datang, Pasal 8 ayat (1) Draft SK. */
@@ -197,19 +210,25 @@ export function hitungIH({
 
     hariKerjaWajib++
 
-    if (!att || att.status === 'alpa') {
+    // Alpa HANYA dari status 'alpa' yang eksplisit dicatat — bukan lagi
+    // dari ketiadaan baris attendance (lihat catatan keputusan 2026-09-22
+    // di atas).
+    if (att?.status === 'alpa') {
       alpaCount++
       detail.push({ tanggal: iso, jenis: 'alpa', nilaiHadir: 0 })
       continue
     }
 
-    if (att.status === 'hadir') {
+    // Default: hadir penuh — baik karena eksplisit dicatat 'hadir',
+    // maupun karena belum ada baris attendance sama sekali untuk
+    // tanggal ini (dianggap hadir sampai ada yang mencatat sebaliknya).
+    if (!att || att.status === 'hadir') {
       hariHadirPenuh += 1
       let terlambat = false
       let pulangAwal = false
-      if (att.jam_masuk && att.jam_masuk > lateThreshold) { terlambat = true; terlambatCount++ }
-      if (jadwalHari?.jam_pulang && att.jam_pulang && att.jam_pulang < jadwalHari.jam_pulang) { pulangAwal = true; pulangAwalCount++ }
-      detail.push({ tanggal: iso, jenis: 'hadir', nilaiHadir: 1, terlambat, pulangAwal })
+      if (att?.jam_masuk && att.jam_masuk > lateThreshold) { terlambat = true; terlambatCount++ }
+      if (jadwalHari?.jam_pulang && att?.jam_pulang && att.jam_pulang < jadwalHari.jam_pulang) { pulangAwal = true; pulangAwalCount++ }
+      detail.push({ tanggal: iso, jenis: att ? 'hadir' : 'belum_tercatat', nilaiHadir: 1, terlambat, pulangAwal, belumTercatat: !att })
       continue
     }
 
