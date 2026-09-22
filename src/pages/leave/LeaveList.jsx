@@ -1,9 +1,11 @@
-import { useEffect, useState, useCallback } from 'react'
-import { CalendarClock, Plus, Check, X } from 'lucide-react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
+import { CalendarClock, Plus, Check, X, History } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Select, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner, Modal, Input, Textarea } from '../../components/ui'
 import { STATUS_BADGE_COLOR, formatDate } from '../../lib/format'
+
+const TABS = ['Pengajuan', 'Approval / Persetujuan', 'Rekap & Histori']
 
 // Kode jenis cuti/izin -> status presensi (enum attendance_status_enum),
 // dipakai saat menautkan presensi ke pengajuan yang disetujui.
@@ -42,12 +44,36 @@ async function syncAttendanceForApproval(row) {
   if (error) alert('Pengajuan berhasil diproses, tetapi gagal menautkan ke data presensi: ' + error.message + '. Silakan periksa/tautkan manual di halaman Presensi.')
 }
 
+// Apakah pengajuan ini masih butuh tahap "pertimbangan" sekolah sebelum
+// bisa disetujui final (khusus Cuti di Luar Tanggungan Yayasan untuk
+// pegawai biasa — Pasal 16-21 & Formulir F-K2, lihat migrasi 0029)?
+function needsPertimbangan(row) {
+  return row.status === 'pending' && row.is_clty && !row.target_is_manager
+}
+
+function approveTargetStatus(row) {
+  return needsPertimbangan(row) ? 'menunggu_yayasan' : 'disetujui'
+}
+
+// Label singkat yang menjelaskan kewenangan/tahap pengajuan ini, dipakai
+// di tab Approval supaya jelas kenapa suatu baris muncul/tidak muncul.
+function authorityLabel(row) {
+  if (row.target_is_manager) return 'Wewenang: Ketua Yayasan / Admin Yayasan-HR (Pasal 10)'
+  if (row.is_clty) {
+    if (row.status === 'pending') return 'Tahap 1: Pertimbangan Kepala Sekolah/Mudir'
+    if (row.status === 'menunggu_yayasan') return 'Tahap 2: Persetujuan Admin Yayasan/HR'
+  }
+  return null
+}
+
 export default function LeaveList() {
-  const { isManager, employee, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, employee, loading: authLoading } = useAuth()
+  const [tab, setTab] = useState(isManager ? 'Approval / Persetujuan' : 'Pengajuan')
   const [leaveTypes, setLeaveTypes] = useState([])
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState(isManager ? 'pending' : '')
+  const [rekapStatusFilter, setRekapStatusFilter] = useState('')
+  const [approvalJenisFilter, setApprovalJenisFilter] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [decideRow, setDecideRow] = useState(null)
   const [loadError, setLoadError] = useState('')
@@ -55,27 +81,33 @@ export default function LeaveList() {
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError('')
-    let q = supabase
-      .from('leave_requests')
-      .select('*, employees!employee_id(nama, schools!school_id(nama, jenjang)), leave_types(nama, kode), approver:approved_by(nama)')
-      .order('created_at', { ascending: false })
-    if (statusFilter) q = q.eq('status', statusFilter)
     const [{ data: lt }, { data: leave, error: leaveErr }] = await Promise.all([
       supabase.from('leave_types').select('*').order('kategori').order('nama'),
-      q,
+      supabase
+        .from('leave_requests')
+        .select(`
+          *,
+          employees!employee_id(nama, school_id, schools!school_id(nama, jenjang)),
+          leave_types(nama, kode, kategori),
+          approver:approved_by(nama),
+          pertimbang:pertimbangan_by(nama),
+          target_is_manager:leave_requests_target_is_manager,
+          is_clty:leave_requests_is_clty
+        `)
+        .order('created_at', { ascending: false }),
     ])
     if (leaveErr) setLoadError(leaveErr.message)
     setLeaveTypes(lt || [])
     setRows(leave || [])
     setLoading(false)
-  }, [statusFilter])
+  }, [])
 
   useEffect(() => { if (!authLoading) load() }, [authLoading, load])
 
   const decide = async (row, status, extra = {}) => {
     const { data: updated, error } = await supabase
       .from('leave_requests')
-      .update({ status, approved_at: new Date().toISOString(), ...extra })
+      .update({ status, ...extra })
       .eq('id', row.id)
       .select('*, leave_types(nama, kode)')
       .single()
@@ -87,23 +119,47 @@ export default function LeaveList() {
   }
 
   const handleApproveClick = (row) => {
-    // Untuk kode "IS" (Izin Sakit), tanyakan dulu apakah Surat Keterangan
-    // Dokter sudah dilampirkan — ini menentukan apakah dihitung hadir
-    // penuh atau "sakit tanpa SKD" (Pasal 24) saat perhitungan IH.
-    if (row.leave_types?.kode === 'IS') {
+    const target = approveTargetStatus(row)
+    // Untuk kode "IS" (Izin Sakit) yang langsung disetujui final, tanyakan
+    // dulu apakah Surat Keterangan Dokter sudah dilampirkan — ini menentukan
+    // apakah dihitung hadir penuh atau "sakit tanpa SKD" (Pasal 24) saat
+    // perhitungan IH. (Izin Sakit tidak pernah berupa Cuti Luar Tanggungan,
+    // jadi target selalu 'disetujui' kecuali baris ini milik Kepala
+    // Sekolah/Admin Sekolah sendiri — tetap 'disetujui' juga.)
+    if (target === 'disetujui' && row.leave_types?.kode === 'IS') {
       setDecideRow(row)
       return
     }
-    decide(row, 'disetujui')
+    decide(row, target)
   }
+
+  const myRows = useMemo(() => rows.filter((r) => r.employee_id === employee?.id), [rows, employee])
+
+  const approvalRows = useMemo(() => {
+    if (!isManager) return []
+    let list = rows.filter((r) => {
+      if (r.status === 'pending') return true
+      if (r.status === 'menunggu_yayasan') return hasFullAccess // hanya Admin Yayasan/HR yang bisa bertindak di tahap ini
+      return false
+    })
+    if (!hasFullAccess) list = list.filter((r) => !r.target_is_manager)
+    if (approvalJenisFilter) list = list.filter((r) => r.leave_types?.kategori === approvalJenisFilter)
+    return list
+  }, [rows, isManager, hasFullAccess, approvalJenisFilter])
+
+  const rekapRows = useMemo(() => {
+    let list = rows
+    if (rekapStatusFilter) list = list.filter((r) => r.status === rekapStatusFilter)
+    return list
+  }, [rows, rekapStatusFilter])
 
   if (authLoading || loading) return <FullPageSpinner />
 
   return (
     <div>
       <PageHeader
-        title={isManager ? 'Pengajuan Cuti & Izin' : 'Cuti & Izin Saya'}
-        description={isManager ? 'Tinjau dan proses pengajuan cuti seluruh pegawai.' : 'Ajukan cuti/izin dan pantau statusnya.'}
+        title="Cuti & Izin"
+        description={isManager ? 'Ajukan, tinjau, dan proses pengajuan cuti/izin sesuai kewenangan.' : 'Ajukan cuti/izin dan pantau statusnya.'}
         actions={
           <Button onClick={() => setFormOpen(true)}>
             <Plus className="h-4 w-4" /> Ajukan Cuti
@@ -111,16 +167,24 @@ export default function LeaveList() {
         }
       />
 
-      <Card className="mb-4" padded={false}>
-        <div className="p-4">
-          <Select containerClassName="sm:w-56" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="">Semua Status</option>
-            <option value="pending">Menunggu</option>
-            <option value="disetujui">Disetujui</option>
-            <option value="ditolak">Ditolak</option>
-          </Select>
-        </div>
-      </Card>
+      <div className="mb-6 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
+        {TABS.filter((t) => t !== 'Approval / Persetujuan' || isManager).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+              tab === t ? 'border-[var(--color-navy)] text-[var(--color-navy)]' : 'border-transparent text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]'
+            }`}
+          >
+            {t}
+            {t === 'Approval / Persetujuan' && approvalRows.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-[var(--color-danger-soft)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--color-danger)]">
+                {approvalRows.length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
 
       {loadError && (
         <Card className="mb-4 border-[var(--color-danger)] bg-[var(--color-danger-soft)]">
@@ -128,22 +192,53 @@ export default function LeaveList() {
         </Card>
       )}
 
-      <Card padded={false}>
-        <div className="p-5">
-          {rows.length === 0 ? (
-            <EmptyState icon={CalendarClock} title="Tidak ada pengajuan" description="Belum ada pengajuan cuti pada filter ini." />
-          ) : (
-            <Table columns={isManager ? ['Pegawai', 'Jenis', 'Periode', 'Hari', 'Status', 'Aksi'] : ['Jenis', 'Periode', 'Hari', 'Status']}>
-              {rows.map((r) => (
-                <Tr key={r.id}>
-                  {isManager && <Td className="font-medium text-[var(--color-ink)]">{r.employees?.nama}</Td>}
-                  <Td>{r.leave_types?.nama}</Td>
-                  <Td className="text-[var(--color-ink-soft)]">{formatDate(r.tanggal_mulai)} – {formatDate(r.tanggal_selesai)}</Td>
-                  <Td>{r.jumlah_hari}</Td>
-                  <Td><Badge color={STATUS_BADGE_COLOR[r.status]}>{r.status}</Badge></Td>
-                  {isManager && (
-                    <Td>
-                      {r.status === 'pending' ? (
+      {tab === 'Pengajuan' && (
+        <Card padded={false}>
+          <div className="p-5">
+            {myRows.length === 0 ? (
+              <EmptyState icon={CalendarClock} title="Belum ada pengajuan" description="Anda belum pernah mengajukan cuti/izin." />
+            ) : (
+              <Table columns={['Jenis', 'Periode', 'Hari', 'Status', 'Keterangan']}>
+                {myRows.map((r) => (
+                  <Tr key={r.id}>
+                    <Td className="font-medium text-[var(--color-ink)]">{r.leave_types?.nama}</Td>
+                    <Td className="text-[var(--color-ink-soft)]">{formatDate(r.tanggal_mulai)} – {formatDate(r.tanggal_selesai)}</Td>
+                    <Td>{r.jumlah_hari}</Td>
+                    <Td><Badge color={STATUS_BADGE_COLOR[r.status]}>{r.status === 'menunggu_yayasan' ? 'menunggu yayasan' : r.status}</Badge></Td>
+                    <Td className="text-xs text-[var(--color-ink-soft)]">{authorityLabel(r) || '—'}</Td>
+                  </Tr>
+                ))}
+              </Table>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {tab === 'Approval / Persetujuan' && isManager && (
+        <>
+          <Card className="mb-4" padded={false}>
+            <div className="p-4">
+              <Select containerClassName="sm:w-56" value={approvalJenisFilter} onChange={(e) => setApprovalJenisFilter(e.target.value)}>
+                <option value="">Semua Jenis</option>
+                <option value="cuti">Cuti</option>
+                <option value="izin">Izin</option>
+              </Select>
+            </div>
+          </Card>
+          <Card padded={false}>
+            <div className="p-5">
+              {approvalRows.length === 0 ? (
+                <EmptyState icon={CalendarClock} title="Tidak ada pengajuan menunggu" description="Tidak ada pengajuan yang perlu diproses sesuai kewenangan Anda saat ini." />
+              ) : (
+                <Table columns={['Pegawai', 'Jenis', 'Periode', 'Hari', 'Wewenang', 'Aksi']}>
+                  {approvalRows.map((r) => (
+                    <Tr key={r.id}>
+                      <Td className="font-medium text-[var(--color-ink)]">{r.employees?.nama}</Td>
+                      <Td>{r.leave_types?.nama}</Td>
+                      <Td className="text-[var(--color-ink-soft)]">{formatDate(r.tanggal_mulai)} – {formatDate(r.tanggal_selesai)}</Td>
+                      <Td>{r.jumlah_hari}</Td>
+                      <Td className="text-xs text-[var(--color-ink-soft)]">{authorityLabel(r) || 'Kepala Sekolah/Mudir'}</Td>
+                      <Td>
                         <div className="flex gap-1.5">
                           <button onClick={() => handleApproveClick(r)} className="rounded bg-[var(--color-success-soft)] p-1.5 text-[var(--color-success)] hover:brightness-95" aria-label="Setujui">
                             <Check className="h-4 w-4" />
@@ -152,17 +247,62 @@ export default function LeaveList() {
                             <X className="h-4 w-4" />
                           </button>
                         </div>
-                      ) : (
-                        <span className="text-xs text-[var(--color-ink-soft)]">oleh {r.approver?.nama || '—'}</span>
-                      )}
-                    </Td>
-                  )}
-                </Tr>
-              ))}
-            </Table>
-          )}
-        </div>
-      </Card>
+                      </Td>
+                    </Tr>
+                  ))}
+                </Table>
+              )}
+            </div>
+          </Card>
+        </>
+      )}
+
+      {tab === 'Rekap & Histori' && (
+        <>
+          <Card className="mb-4" padded={false}>
+            <div className="p-4">
+              <Select containerClassName="sm:w-56" value={rekapStatusFilter} onChange={(e) => setRekapStatusFilter(e.target.value)}>
+                <option value="">Semua Status</option>
+                <option value="pending">Menunggu</option>
+                <option value="menunggu_yayasan">Menunggu Yayasan</option>
+                <option value="disetujui">Disetujui</option>
+                <option value="ditolak">Ditolak</option>
+              </Select>
+            </div>
+          </Card>
+          <Card padded={false}>
+            <div className="p-5">
+              {rekapRows.length === 0 ? (
+                <EmptyState icon={History} title="Tidak ada data" description="Belum ada riwayat cuti/izin pada filter ini." />
+              ) : (
+                <Table columns={isManager ? ['Pegawai', 'Jenis', 'Periode', 'Hari', 'Status', 'Pemberi Izin'] : ['Jenis', 'Periode', 'Hari', 'Status', 'Pemberi Izin']}>
+                  {rekapRows.map((r) => (
+                    <Tr key={r.id}>
+                      {isManager && <Td className="font-medium text-[var(--color-ink)]">{r.employees?.nama}</Td>}
+                      <Td>{r.leave_types?.nama}</Td>
+                      <Td className="text-[var(--color-ink-soft)]">{formatDate(r.tanggal_mulai)} – {formatDate(r.tanggal_selesai)}</Td>
+                      <Td>{r.jumlah_hari}</Td>
+                      <Td><Badge color={STATUS_BADGE_COLOR[r.status]}>{r.status === 'menunggu_yayasan' ? 'menunggu yayasan' : r.status}</Badge></Td>
+                      <Td className="text-xs text-[var(--color-ink-soft)]">
+                        {r.status === 'pending' ? (
+                          '—'
+                        ) : r.pertimbang?.nama ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span>Pertimbangan: {r.pertimbang.nama} ({formatDate(r.pertimbangan_at)})</span>
+                            {r.status !== 'menunggu_yayasan' && <span>Final: {r.approver?.nama || '—'} ({formatDate(r.approved_at)})</span>}
+                          </div>
+                        ) : (
+                          <span>{r.approver?.nama || '—'} {r.approved_at ? `(${formatDate(r.approved_at)})` : ''}</span>
+                        )}
+                      </Td>
+                    </Tr>
+                  ))}
+                </Table>
+              )}
+            </div>
+          </Card>
+        </>
+      )}
 
       <LeaveRequestModal
         open={formOpen}

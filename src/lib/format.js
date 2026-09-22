@@ -82,6 +82,7 @@ export const STATUS_BADGE_COLOR = {
   cuti: 'gold',
   izin: 'gold',
   pending: 'gold',
+  menunggu_yayasan: 'gold',
   draft: 'gold',
   terdaftar: 'gold',
   nonaktif: 'danger',

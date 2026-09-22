@@ -56,7 +56,7 @@ function ManagerDashboard({ hasFullAccess }) {
         supabase
           .from('leave_requests')
           .select('id, tanggal_mulai, tanggal_selesai, employees!employee_id(nama), leave_types(nama)')
-          .eq('status', 'pending')
+          .in('status', ['pending', 'menunggu_yayasan'])
           .order('created_at', { ascending: false })
           .limit(5),
         supabase.from('attendance').select('status').eq('tanggal', today),
