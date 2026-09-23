@@ -8,7 +8,7 @@ import { STATUS_BADGE_COLOR } from '../../lib/format'
 import EmployeeFormModal from './EmployeeFormModal'
 
 export default function EmployeeList() {
-  const { isManager, employee, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, employee, loading: authLoading } = useAuth()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [employees, setEmployees] = useState([])
@@ -135,9 +135,11 @@ export default function EmployeeList() {
                   <Td>{e.status_kepegawaian}</Td>
                   <Td><Badge color={STATUS_BADGE_COLOR[e.status]}>{e.status}</Badge></Td>
                   <Td className="text-right">
-                    <button onClick={(ev) => handleDelete(ev, e)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus pegawai">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    {hasFullAccess && e.id !== employee?.id && (
+                      <button onClick={(ev) => handleDelete(ev, e)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus pegawai">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </Td>
                 </Tr>
               ))}

@@ -42,7 +42,16 @@ export default function EmployeeDetail() {
   if (!employee) return <EmptyState title="Data pegawai tidak ditemukan" description="Data mungkin telah dihapus atau Anda tidak memiliki akses." />
 
   const isOwnProfile = myEmployee?.id === employee.id
-  const canManage = isManager
+  // Kepala Sekolah/Waka (isManager tapi bukan hasFullAccess) TIDAK boleh
+  // mengubah/menghapus biodatanya sendiri — perubahan biodata resmi harus
+  // lewat Admin Sekolah unit lain atau Admin Yayasan/HR, bukan diri sendiri
+  // tanpa konfirmasi pihak lain. Admin Yayasan/HR (hasFullAccess) tetap
+  // bisa, dan siapa pun tetap bisa mengelola biodata pegawai LAIN seperti biasa.
+  const canManage = hasFullAccess || (isManager && !isOwnProfile)
+  // Menghapus data pegawai bersifat permanen (ikut menghapus seluruh
+  // riwayat presensi/cuti/gaji/kinerja/pelatihan) — jangan pernah izinkan
+  // menghapus baris milik sendiri, bahkan untuk Admin Yayasan/HR.
+  const canDelete = hasFullAccess && !isOwnProfile
   const canViewSalary = hasFullAccess || isOwnProfile
   const visibleTabs = canViewSalary ? TABS : TABS.filter((t) => t !== 'Gaji' && t !== 'Indeks Kehadiran')
 
@@ -62,14 +71,18 @@ export default function EmployeeDetail() {
       <PageHeader
         title={employee.nama}
         description={`${employee.positions?.nama || 'Jabatan belum diisi'} · ${employee.schools ? `${employee.schools.jenjang} — ${employee.schools.nama}` : 'Kantor Yayasan Pusat'}`}
-        actions={canManage && (
+        actions={(canManage || canDelete) && (
           <>
-            <Button variant="outline" onClick={() => setEditOpen(true)}>
-              <Pencil className="h-4 w-4" /> Ubah Biodata
-            </Button>
-            <Button variant="outline" onClick={handleDelete} className="text-[var(--color-danger)]">
-              <Trash2 className="h-4 w-4" /> Hapus
-            </Button>
+            {canManage && (
+              <Button variant="outline" onClick={() => setEditOpen(true)}>
+                <Pencil className="h-4 w-4" /> Ubah Biodata
+              </Button>
+            )}
+            {canDelete && (
+              <Button variant="outline" onClick={handleDelete} className="text-[var(--color-danger)]">
+                <Trash2 className="h-4 w-4" /> Hapus
+              </Button>
+            )}
           </>
         )}
       />
@@ -79,6 +92,12 @@ export default function EmployeeDetail() {
         <Badge color="navy">{employee.status_kepegawaian}</Badge>
         {employee.nip && <Badge color="neutral">NIP {employee.nip}</Badge>}
       </div>
+
+      {isOwnProfile && isManager && !hasFullAccess && (
+        <p className="mb-5 rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-sm text-[var(--color-gold)]">
+          Biodata resmi Anda tidak dapat diubah sendiri. Untuk perubahan data, hubungi Admin Sekolah unit lain atau Admin Yayasan/HR.
+        </p>
+      )}
 
       <div className="mb-6 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
         {visibleTabs.map((t) => (
