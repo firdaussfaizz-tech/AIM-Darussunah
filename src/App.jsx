@@ -27,6 +27,7 @@ import AcademicSettings from './pages/academic/AcademicSettings'
 import SppList from './pages/spp/SppList'
 import NilaiRapor from './pages/nilai/NilaiRapor'
 import KesiswaanDashboard from './pages/kesiswaan/KesiswaanDashboard'
+import AsetList from './pages/aset/AsetList'
 
 export default function App() {
   return (
@@ -68,6 +69,7 @@ export default function App() {
             <Route path="presensi-siswa" element={<StudentAttendanceList />} />
             <Route path="spp" element={<SppList />} />
             <Route path="nilai-rapor" element={<NilaiRapor />} />
+            <Route path="aset" element={<AsetList />} />
           </Route>
         </Routes>
       </BrowserRouter>

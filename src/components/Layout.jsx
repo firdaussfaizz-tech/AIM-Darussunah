@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, CalendarCheck, CalendarClock, Wallet, Star,
   GraduationCap, Building2, UserCog, LogOut, Menu, X, Activity, CalendarOff,
   History, Mail, ChevronRight, BookOpen, Contact, CalendarRange, ClipboardCheck,
-  ReceiptText, NotebookText, Target,
+  ReceiptText, NotebookText, Target, Boxes,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/format'
@@ -57,6 +57,13 @@ function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara }) {
     kesiswaan.push({ to: '/nilai-rapor', label: 'Nilai & Rapor', icon: NotebookText })
   }
 
+  // Modul Sarana & Prasarana (Manajemen Aset) — untuk manajemen sekolah &
+  // Yayasan (per-unit lewat RLS). Kelompok tersendiri.
+  const sarpras = []
+  if (isManager) {
+    sarpras.push({ to: '/aset', label: 'Inventaris Aset', icon: Boxes })
+  }
+
   const lainnya = []
   if (hasFullAccess) {
     lainnya.push({ to: '/pengguna', label: 'Pengguna & Peran', icon: UserCog })
@@ -64,7 +71,7 @@ function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara }) {
     lainnya.push({ to: '/notifikasi-email', label: 'Notifikasi Email', icon: Mail })
   }
 
-  return { kepegawaian, kesiswaan, lainnya }
+  return { kepegawaian, kesiswaan, sarpras, lainnya }
 }
 
 function NavItem({ to, label, icon: Icon, end, onClick }) {
@@ -129,7 +136,7 @@ function NavGroup({ storageKey, label, icon: Icon, defaultOpen = true, children 
 
 function Sidebar({ open, onClose }) {
   const { isManager, hasFullAccess, isWaliKelas, isBendahara } = useAuth()
-  const { kepegawaian, kesiswaan, lainnya } = navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara })
+  const { kepegawaian, kesiswaan, sarpras, lainnya } = navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara })
 
   return (
     <aside
@@ -161,6 +168,14 @@ function Sidebar({ open, onClose }) {
         {kesiswaan.length > 0 && (
           <NavGroup storageKey="simpeg_nav_kesiswaan_open" label="Kesiswaan" icon={BookOpen} defaultOpen>
             {kesiswaan.map(({ to, label, icon, end }) => (
+              <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
+            ))}
+          </NavGroup>
+        )}
+
+        {sarpras.length > 0 && (
+          <NavGroup storageKey="simpeg_nav_sarpras_open" label="Sarana & Prasarana" icon={Boxes} defaultOpen>
+            {sarpras.map(({ to, label, icon, end }) => (
               <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
             ))}
           </NavGroup>
