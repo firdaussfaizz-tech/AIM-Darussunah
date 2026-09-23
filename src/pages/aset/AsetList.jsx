@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Boxes, Plus, Pencil, Trash2, DoorOpen, ShieldAlert, Search, ClipboardList, Send, CheckCircle2, RotateCcw, Download, Tag } from 'lucide-react'
+import { Boxes, Plus, Pencil, Trash2, DoorOpen, ShieldAlert, Search, ClipboardList, Send, CheckCircle2, RotateCcw, Download, Tag, BookOpen, Clock3, ShieldCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner, StatCard } from '../../components/ui'
@@ -9,12 +9,29 @@ import {
   DKA_STATUS_LABEL, DKA_STATUS_BADGE, ALASAN_KEBUTUHAN_OPTIONS, CARA_PENGADAAN_OPTIONS,
   SUMBER_ANGGARAN_OPTIONS, validasiHargaItem,
 } from '../../lib/dka'
+import { SOP_SARPRAS, PIC_SARPRAS } from '../../lib/sopSarpras'
 
-const TABS = ['Inventaris', 'Ruangan', 'Perencanaan (DKA)', 'Kodefikasi']
+// Navigasi modul mengikuti SIKLUS HIDUP ASET (juknis BAB III–XIII).
+// kind: live-* = fitur pencatatan sudah ada; menyusul = SOP dulu, fitur
+// pencatatan menyusul tahap berikutnya; kebijakan = kumpulan SOP.
+const AREA_TABS = [
+  { key: 'Perencanaan', sop: 'perencanaan', kind: 'live-dka' },
+  { key: 'Pengadaan', sop: 'pengadaan', kind: 'menyusul' },
+  { key: 'Penerimaan & Penyaluran', sop: 'penyaluran', kind: 'menyusul' },
+  { key: 'Penggunaan', sop: 'penggunaan', kind: 'menyusul' },
+  { key: 'Inventaris', sop: 'inventaris', kind: 'live-inventaris' },
+  { key: 'Ruangan', sop: 'inventaris', kind: 'live-ruangan' },
+  { key: 'Inventarisasi', sop: 'inventarisasi', kind: 'menyusul' },
+  { key: 'Pemeliharaan', sop: 'pemeliharaan', kind: 'menyusul' },
+  { key: 'Penghapusan', sop: 'penghapusan', kind: 'menyusul' },
+  { key: 'Kodefikasi', sop: 'kodefikasi', kind: 'live-kodefikasi', fullAccessOnly: true },
+  { key: 'Kebijakan & SOP', sop: null, kind: 'kebijakan' },
+]
 
 export default function AsetList() {
   const { isManager, hasFullAccess, roles, loading: authLoading } = useAuth()
   const [tab, setTab] = useState('Inventaris')
+  const [sopOpen, setSopOpen] = useState(false)
 
   const mySchools = useMemo(() => {
     const seen = new Map()
@@ -31,29 +48,141 @@ export default function AsetList() {
     return <EmptyState icon={ShieldAlert} title="Akses terbatas" description="Halaman Sarana & Prasarana hanya untuk manajemen (Admin Yayasan/HR, Admin Sekolah, Kepala Sekolah)." />
   }
 
-  const tabs = hasFullAccess ? TABS : ['Inventaris', 'Ruangan', 'Perencanaan (DKA)']
+  const tabs = AREA_TABS.filter((t) => hasFullAccess || !t.fullAccessOnly)
+  const active = tabs.find((t) => t.key === tab) || tabs[0]
+  const sop = active?.sop ? SOP_SARPRAS[active.sop] : null
 
   return (
     <div>
-      <PageHeader title="Sarana & Prasarana" description="Inventaris aset (Buku Inventaris/KIA), ruangan (KIR), kodefikasi otomatis, penyusutan & perencanaan pengadaan (DKA)." />
-      <div className="mb-6 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
+      <PageHeader title="Sarana & Prasarana" description="Pengelolaan aset satuan pendidikan sesuai Juknis Manajemen Aset YPI Darussunah — dari perencanaan hingga penghapusan. Setiap area memuat SOP-nya." />
+      <div className="mb-4 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
         {tabs.map((t) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={t.key}
+            onClick={() => setTab(t.key)}
             className={`whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
-              tab === t ? 'border-[var(--color-navy)] text-[var(--color-navy)]' : 'border-transparent text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]'
+              active.key === t.key ? 'border-[var(--color-navy)] text-[var(--color-navy)]' : 'border-transparent text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]'
             }`}
           >
-            {t}
+            {t.key}
+            {t.kind === 'menyusul' && <Clock3 className="ml-1 inline h-3 w-3 text-[var(--color-ink-soft)]" />}
           </button>
         ))}
       </div>
 
-      {tab === 'Inventaris' && <InventarisTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
-      {tab === 'Ruangan' && <RuanganTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
-      {tab === 'Perencanaan (DKA)' && <DkaTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
-      {tab === 'Kodefikasi' && hasFullAccess && <KodefikasiTab />}
+      {sop && (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--color-navy-50)] px-4 py-2.5">
+          <p className="text-sm text-[var(--color-ink)]"><span className="font-medium">{sop.bab} — {sop.label}.</span> <span className="text-[var(--color-ink-soft)]">{sop.ringkas}</span></p>
+          <Button size="sm" variant="outline" onClick={() => setSopOpen(true)}><BookOpen className="h-4 w-4" /> Baca SOP</Button>
+        </div>
+      )}
+
+      {active.kind === 'live-dka' && <DkaTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
+      {active.kind === 'live-inventaris' && <InventarisTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
+      {active.kind === 'live-ruangan' && <RuanganTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
+      {active.kind === 'live-kodefikasi' && <KodefikasiTab />}
+      {active.kind === 'menyusul' && <MenyusulArea sopId={active.sop} />}
+      {active.kind === 'kebijakan' && <KebijakanTab />}
+
+      {sop && <SopPanel open={sopOpen} sop={sop} onClose={() => setSopOpen(false)} />}
+    </div>
+  )
+}
+
+// --- Render SOP (isi & panel) --------------------------------------------
+function SopList({ title, items, icon: Icon }) {
+  if (!items || items.length === 0) return null
+  return (
+    <div>
+      <h4 className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-[var(--color-ink)]">{Icon && <Icon className="h-4 w-4 text-[var(--color-navy)]" />}{title}</h4>
+      <ul className="ml-1 flex flex-col gap-1.5 text-sm text-[var(--color-ink-soft)]">
+        {items.map((it, i) => (
+          <li key={i} className="flex gap-2"><span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[var(--color-ink-soft)]" />{it}</li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function SopContent({ sop, numberedProsedur = true }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <SopList title="Prinsip Umum" items={sop.prinsip} />
+      <SopList title="Tujuan" items={sop.tujuan} />
+      {sop.prosedur && sop.prosedur.length > 0 && (
+        <div>
+          <h4 className="mb-1.5 text-sm font-semibold text-[var(--color-ink)]">Prosedur / Alur Kerja</h4>
+          <ol className="ml-1 flex flex-col gap-1.5 text-sm text-[var(--color-ink-soft)]">
+            {sop.prosedur.map((it, i) => (
+              <li key={i} className="flex gap-2">
+                {numberedProsedur
+                  ? <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-navy-50)] text-[11px] font-semibold text-[var(--color-navy)]">{i + 1}</span>
+                  : <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[var(--color-ink-soft)]" />}
+                {it}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      <SopList title="Wewenang & Tanggung Jawab" items={sop.wewenang} />
+      <SopList title="Dokumen Kerja" items={sop.dokumen} />
+      {sop.kondisiKhusus && (
+        <p className="rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-sm text-[var(--color-ink)]"><b>Kondisi khusus:</b> {sop.kondisiKhusus}</p>
+      )}
+    </div>
+  )
+}
+
+function SopPanel({ open, sop, onClose }) {
+  return (
+    <Modal open={open} onClose={onClose} title={`SOP — ${sop.label} (${sop.bab})`} width="max-w-2xl">
+      <SopContent sop={sop} />
+    </Modal>
+  )
+}
+
+// Area yang fitur pencatatannya menyusul: tampilkan SOP sebagai acuan kerja.
+function MenyusulArea({ sopId }) {
+  const sop = SOP_SARPRAS[sopId]
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-start gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-paper)] px-4 py-3">
+        <Clock3 className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-gold)]" />
+        <div>
+          <p className="text-sm font-medium text-[var(--color-ink)]">Fitur pencatatan digital untuk area ini sedang disiapkan.</p>
+          <p className="text-sm text-[var(--color-ink-soft)]">Untuk sementara, jalankan area ini mengikuti SOP di bawah. Form & pencatatan akan menyusul di tahap pengembangan berikutnya.</p>
+        </div>
+      </div>
+      <SectionCard title={`SOP — ${sop.label}`} description={`${sop.bab} · ${sop.ringkas}`}>
+        <SopContent sop={sop} />
+      </SectionCard>
+    </div>
+  )
+}
+
+// Kumpulan SOP kebijakan (tanpa form): Pengamanan, Pembinaan, Ganti Rugi + PIC.
+function KebijakanTab() {
+  const [openId, setOpenId] = useState(null)
+  const items = ['pengamanan', 'pembinaan', 'ganti_rugi'].map((id) => SOP_SARPRAS[id])
+  return (
+    <div className="flex flex-col gap-5">
+      <SectionCard title="Susunan PIC & Wewenang Pengelolaan Aset" description="BAB II — penanggung jawab tata kelola aset se-yayasan.">
+        <Table columns={['Peran (PIC)', 'Wewenang & Tanggung Jawab']}>
+          {PIC_SARPRAS.map(([peran, ket]) => (
+            <Tr key={peran}><Td className="align-top font-medium whitespace-nowrap">{peran}</Td><Td className="text-sm text-[var(--color-ink-soft)]">{ket}</Td></Tr>
+          ))}
+        </Table>
+      </SectionCard>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {items.map((s) => (
+          <Card key={s.label} className="flex flex-col">
+            <div className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-[var(--color-navy)]" /><h3 className="font-semibold text-[var(--color-ink)]">{s.label}</h3></div>
+            <p className="mt-1 flex-1 text-sm text-[var(--color-ink-soft)]">{s.ringkas}</p>
+            <Button size="sm" variant="outline" className="mt-3 self-start" onClick={() => setOpenId(items.indexOf(s))}><BookOpen className="h-4 w-4" /> Baca SOP</Button>
+          </Card>
+        ))}
+      </div>
+      {openId !== null && <SopPanel open={openId !== null} sop={items[openId]} onClose={() => setOpenId(null)} />}
     </div>
   )
 }
