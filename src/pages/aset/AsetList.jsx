@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Boxes, Plus, Pencil, Trash2, DoorOpen, ShieldAlert, Search, ClipboardList, Send, CheckCircle2, RotateCcw, Download, Tag, BookOpen, Clock3, ShieldCheck } from 'lucide-react'
+import { Boxes, Plus, Pencil, Trash2, DoorOpen, ShieldAlert, Search, ClipboardList, Send, CheckCircle2, RotateCcw, Download, Tag, BookOpen, Clock3, ShieldCheck, Truck, ClipboardCheck, PackageCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner, StatCard } from '../../components/ui'
@@ -8,6 +8,7 @@ import { KONDISI_OPTIONS, KONDISI_LABEL, KONDISI_BADGE, hitungPenyusutan, umurLa
 import {
   DKA_STATUS_LABEL, DKA_STATUS_BADGE, ALASAN_KEBUTUHAN_OPTIONS, CARA_PENGADAAN_OPTIONS,
   SUMBER_ANGGARAN_OPTIONS, JENIS_PEMELIHARAAN_OPTIONS, validasiHargaItem,
+  PENGADAAN_STATUS_LABEL, PENGADAAN_STATUS_BADGE, METODE_REALISASI_OPTIONS,
 } from '../../lib/dka'
 import { useParams, Navigate } from 'react-router-dom'
 import { SOP_SARPRAS, PIC_SARPRAS } from '../../lib/sopSarpras'
@@ -54,6 +55,7 @@ export default function AsetList() {
       )}
 
       {active.kind === 'live-dka' && <DkaTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
+      {active.kind === 'live-pengadaan' && <PengadaanTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-inventaris' && <InventarisTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-ruangan' && <RuanganTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-kodefikasi' && <KodefikasiTab />}
@@ -1425,6 +1427,390 @@ function DkaItemModal({ open, usulan, schoolId, editingItem, klasifikasiList, ru
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
           <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+// =========================================================================
+// TAB: PENGADAAN — konsumsi DKA disahkan, sampai Berita Acara Serah Terima
+// (BAST otomatis menambah aset ke Inventaris via trigger dka_pengadaan_terima_trg).
+// =========================================================================
+function PengadaanTab({ hasFullAccess, mySchools }) {
+  const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
+  const nowY = new Date().getFullYear()
+  const [tahun, setTahun] = useState(nowY)
+  const years = [nowY - 1, nowY, nowY + 1, nowY + 2]
+  const managesUnit = useMemo(() => mySchools.some((s) => s.id === schoolId), [mySchools, schoolId])
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center gap-2">
+        {hasFullAccess && (
+          <Select containerClassName="w-52" value={schoolId} onChange={(e) => setSchoolId(e.target.value)}>
+            <option value="">Semua Unit (rekap)</option>
+            {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
+          </Select>
+        )}
+        <Select containerClassName="w-36" value={tahun} onChange={(e) => setTahun(Number(e.target.value))}>
+          {years.map((y) => <option key={y} value={y}>Tahun {y}</option>)}
+        </Select>
+      </div>
+
+      {hasFullAccess && !schoolId ? (
+        <PengadaanRekap tahun={tahun} onOpen={(sid) => setSchoolId(sid)} />
+      ) : schoolId ? (
+        <PengadaanDetail schoolId={schoolId} tahun={tahun} hasFullAccess={hasFullAccess} managesUnit={managesUnit} />
+      ) : (
+        <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
+      )}
+    </div>
+  )
+}
+
+function PengadaanRekap({ tahun, onOpen }) {
+  const [rows, setRows] = useState([])
+  const [counts, setCounts] = useState({})
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    ;(async () => {
+      const { data: usulan } = await supabase
+        .from('dka_usulan')
+        .select('*, schools!school_id(nama, jenjang)')
+        .eq('tahun', tahun)
+        .eq('status', 'disahkan')
+        .order('created_at', { ascending: false })
+      const ids = (usulan || []).map((u) => u.id)
+      let c = {}
+      if (ids.length) {
+        const { data: items } = await supabase.from('dka_usulan_item').select('id, usulan_id').in('usulan_id', ids)
+        const itemIds = (items || []).map((i) => i.id)
+        const itemToUsulan = Object.fromEntries((items || []).map((i) => [i.id, i.usulan_id]))
+        if (itemIds.length) {
+          const { data: proses } = await supabase.from('dka_pengadaan_proses').select('usulan_item_id, status').in('usulan_item_id', itemIds)
+          for (const p of (proses || [])) {
+            const uid = itemToUsulan[p.usulan_item_id]
+            if (!c[uid]) c[uid] = { total: 0, diterima: 0 }
+            c[uid].total++
+            if (p.status === 'diterima') c[uid].diterima++
+          }
+        }
+      }
+      if (!alive) return
+      setRows(usulan || [])
+      setCounts(c)
+      setLoading(false)
+    })()
+    return () => { alive = false }
+  }, [tahun])
+
+  if (loading) return <FullPageSpinner />
+
+  const totalItems = Object.values(counts).reduce((a, c) => a + c.total, 0)
+  const totalDiterima = Object.values(counts).reduce((a, c) => a + c.diterima, 0)
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <StatCard label="Unit dengan DKA Disahkan" value={rows.length} />
+        <StatCard label="Total Item Pengadaan" value={totalItems} />
+        <StatCard label="Sudah Diterima" value={totalDiterima} accent="gold" />
+      </div>
+      <SectionCard title={`Rekap Pengadaan — Tahun ${tahun}`} description="DKA yang sudah disahkan Yayasan. Klik untuk melaksanakan & memantau pengadaan per item.">
+        {rows.length === 0 ? (
+          <EmptyState icon={ClipboardList} title="Belum ada DKA disahkan" description="Belum ada DKA yang disahkan Yayasan untuk tahun ini." />
+        ) : (
+          <Table columns={['Unit', 'Judul', 'Item Pengadaan', 'Diterima', '']}>
+            {rows.map((r) => (
+              <Tr key={r.id}>
+                <Td>{r.schools?.jenjang} — {r.schools?.nama}</Td>
+                <Td>{r.judul || '—'}</Td>
+                <Td>{counts[r.id]?.total || 0}</Td>
+                <Td>{counts[r.id]?.diterima || 0}</Td>
+                <Td><button onClick={() => onOpen(r.school_id)} className="text-sm font-medium text-[var(--color-navy)] hover:underline">Buka →</button></Td>
+              </Tr>
+            ))}
+          </Table>
+        )}
+      </SectionCard>
+    </div>
+  )
+}
+
+function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
+  const [usulan, setUsulan] = useState(null)
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [pesanOpen, setPesanOpen] = useState(false)
+  const [periksaOpen, setPeriksaOpen] = useState(false)
+  const [bastOpen, setBastOpen] = useState(false)
+  const [activeItem, setActiveItem] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data: u } = await supabase.from('dka_usulan').select('*').eq('school_id', schoolId).eq('tahun', tahun).eq('status', 'disahkan').maybeSingle()
+    setUsulan(u || null)
+    if (u) {
+      const { data: it } = await supabase.from('dka_usulan_item').select('*, aset_klasifikasi(kode, uraian), ruangan(nama)').eq('usulan_id', u.id).order('urutan')
+      const itemIds = (it || []).map((x) => x.id)
+      let prosesMap = {}
+      if (itemIds.length) {
+        const { data: pr } = await supabase.from('dka_pengadaan_proses').select('*').in('usulan_item_id', itemIds)
+        for (const p of (pr || [])) prosesMap[p.usulan_item_id] = p
+      }
+      setItems((it || []).map((x) => ({ ...x, proses: prosesMap[x.id] || null })))
+    } else {
+      setItems([])
+    }
+    setLoading(false)
+  }, [schoolId, tahun])
+
+  useEffect(() => { load() }, [load])
+
+  const canAct = hasFullAccess || managesUnit
+
+  if (loading) return <FullPageSpinner />
+
+  if (!usulan) {
+    return (
+      <SectionCard title={`Pengadaan — Tahun ${tahun}`}>
+        <EmptyState icon={Truck} title="Belum ada DKA disahkan" description="Pengadaan baru bisa dilaksanakan setelah DKA unit ini disahkan Yayasan (lihat tab Perencanaan)." />
+      </SectionCard>
+    )
+  }
+
+  const byStatus = (s) => items.filter((i) => (i.proses?.status || 'menunggu') === s).length
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <StatCard label="Total Item" value={items.length} />
+        <StatCard label="Menunggu" value={byStatus('menunggu')} />
+        <StatCard label="Dipesan" value={byStatus('dipesan')} accent="gold" />
+        <StatCard label="Lolos Periksa" value={byStatus('pemeriksaan')} />
+        <StatCard label="Diterima" value={byStatus('diterima')} accent="gold" />
+      </div>
+
+      <SectionCard title="Daftar Hasil Pengadaan" description="Berdasarkan DKA disahkan. Ikuti tahap: Catat Pemesanan (SPK) → BA Pemeriksaan → BA Serah Terima (otomatis masuk Inventaris).">
+        {items.length === 0 ? (
+          <EmptyState icon={ClipboardList} title="Tidak ada item pengadaan" description="DKA unit ini tidak memiliki item rencana pengadaan." />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table columns={['Nama & Spesifikasi', 'Jumlah', 'Cara Rencana', 'Status', canAct ? 'Aksi' : null].filter(Boolean)}>
+              {items.map((r) => {
+                const st = r.proses?.status || 'menunggu'
+                return (
+                  <Tr key={r.id}>
+                    <Td>
+                      <span className="font-medium">{r.nama_aset}</span>
+                      {r.spesifikasi && <span className="block text-xs text-[var(--color-ink-soft)]">{r.spesifikasi}</span>}
+                      {r.proses?.nomor_spk && <span className="block text-[11px] text-[var(--color-ink-soft)]">SPK {r.proses.nomor_spk}</span>}
+                    </Td>
+                    <Td>{Number(r.jumlah_pengajuan)} <span className="text-[11px] text-[var(--color-ink-soft)]">{r.satuan}</span></Td>
+                    <Td className="text-xs">{r.cara_pengadaan || '—'}</Td>
+                    <Td>
+                      <Badge color={PENGADAAN_STATUS_BADGE[st]}>{PENGADAAN_STATUS_LABEL[st]}</Badge>
+                      {r.proses?.aset_id && <span className="block text-[11px] text-[var(--color-success)]">✓ masuk Inventaris</span>}
+                    </Td>
+                    {canAct && (
+                      <Td className="text-right">
+                        {(st === 'menunggu' || st === 'ditolak') && (
+                          <Button size="sm" variant="outline" onClick={() => { setActiveItem(r); setPesanOpen(true) }}><Truck className="h-3.5 w-3.5" /> {st === 'ditolak' ? 'Pesan Ulang' : 'Catat Pemesanan'}</Button>
+                        )}
+                        {st === 'dipesan' && (
+                          <Button size="sm" variant="outline" onClick={() => { setActiveItem(r); setPeriksaOpen(true) }}><ClipboardCheck className="h-3.5 w-3.5" /> BA Pemeriksaan</Button>
+                        )}
+                        {st === 'pemeriksaan' && (
+                          <Button size="sm" onClick={() => { setActiveItem(r); setBastOpen(true) }}><PackageCheck className="h-3.5 w-3.5" /> BA Serah Terima</Button>
+                        )}
+                        {st === 'diterima' && <span className="text-xs text-[var(--color-ink-soft)]">Selesai</span>}
+                      </Td>
+                    )}
+                  </Tr>
+                )
+              })}
+            </Table>
+          </div>
+        )}
+      </SectionCard>
+
+      <PengadaanPesanModal open={pesanOpen} item={activeItem} onClose={() => { setPesanOpen(false); setActiveItem(null) }} onSaved={() => { setPesanOpen(false); setActiveItem(null); load() }} />
+      <PengadaanPeriksaModal open={periksaOpen} item={activeItem} onClose={() => { setPeriksaOpen(false); setActiveItem(null) }} onSaved={() => { setPeriksaOpen(false); setActiveItem(null); load() }} />
+      <PengadaanBastModal open={bastOpen} item={activeItem} onClose={() => { setBastOpen(false); setActiveItem(null) }} onSaved={() => { setBastOpen(false); setActiveItem(null); load() }} />
+    </div>
+  )
+}
+
+function PengadaanPesanModal({ open, item, onClose, onSaved }) {
+  const [f, setF] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!open || !item) return
+    setError('')
+    const p = item.proses
+    setF({
+      metode_realisasi: p?.metode_realisasi || item.cara_pengadaan || '',
+      penyedia: p?.penyedia || '',
+      nomor_spk: p?.nomor_spk || '',
+      tanggal_spk: p?.tanggal_spk || '',
+      nomor_bukti: p?.nomor_bukti || '',
+      jumlah_realisasi: String(p?.jumlah_realisasi ?? item.jumlah_pengajuan ?? '1'),
+      harga_realisasi: String(p?.harga_realisasi ?? item.harga_satuan ?? '0'),
+    })
+  }, [open, item])
+
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    if (!f.metode_realisasi) { setError('Pilih metode realisasi pengadaan.'); return }
+    setSaving(true)
+    const payload = {
+      status: 'dipesan',
+      metode_realisasi: f.metode_realisasi,
+      penyedia: f.penyedia?.trim() || null,
+      nomor_spk: f.nomor_spk?.trim() || null,
+      tanggal_spk: f.tanggal_spk || null,
+      nomor_bukti: f.nomor_bukti?.trim() || null,
+      jumlah_realisasi: Number(f.jumlah_realisasi) || 0,
+      harga_realisasi: Number(f.harga_realisasi) || 0,
+    }
+    const query = item.proses
+      ? supabase.from('dka_pengadaan_proses').update(payload).eq('id', item.proses.id)
+      : supabase.from('dka_pengadaan_proses').insert({ ...payload, usulan_item_id: item.id })
+    const { error: err } = await query
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onSaved()
+  }
+
+  if (!item) return null
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Catat Pemesanan — ${item.nama_aset}`} width="max-w-lg">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <Select label="Metode Realisasi" required value={f.metode_realisasi || ''} onChange={(e) => set('metode_realisasi', e.target.value)}>
+          <option value="">—</option>
+          {METODE_REALISASI_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+        </Select>
+        <Input label="Penyedia / Toko / Rekanan" value={f.penyedia || ''} onChange={(e) => set('penyedia', e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Nomor SPK / Pesanan" value={f.nomor_spk || ''} onChange={(e) => set('nomor_spk', e.target.value)} placeholder="Wajib bila Rp50–200 juta" />
+          <Input label="Tanggal SPK" type="date" value={f.tanggal_spk || ''} onChange={(e) => set('tanggal_spk', e.target.value)} />
+        </div>
+        <Input label="Nomor Nota/Kuitansi/Invoice" value={f.nomor_bukti || ''} onChange={(e) => set('nomor_bukti', e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Jumlah Realisasi" type="number" value={f.jumlah_realisasi ?? ''} onChange={(e) => set('jumlah_realisasi', e.target.value)} />
+          <Input label="Harga Satuan Realisasi (Rp)" type="number" value={f.harga_realisasi ?? ''} onChange={(e) => set('harga_realisasi', e.target.value)} />
+        </div>
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function PengadaanPeriksaModal({ open, item, onClose, onSaved }) {
+  const [f, setF] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!open || !item) return
+    setError('')
+    setF({ ba_pemeriksaan_tanggal: new Date().toISOString().slice(0, 10), ba_pemeriksaan_hasil: 'sesuai', ba_pemeriksaan_catatan: '' })
+  }, [open, item])
+
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    if (f.ba_pemeriksaan_hasil === 'tidak_sesuai' && !f.ba_pemeriksaan_catatan?.trim()) { setError('Isi catatan ketidaksesuaian agar penyedia bisa menindaklanjuti.'); return }
+    setSaving(true)
+    const payload = {
+      status: f.ba_pemeriksaan_hasil === 'sesuai' ? 'pemeriksaan' : 'ditolak',
+      ba_pemeriksaan_tanggal: f.ba_pemeriksaan_tanggal || null,
+      ba_pemeriksaan_hasil: f.ba_pemeriksaan_hasil,
+      ba_pemeriksaan_catatan: f.ba_pemeriksaan_catatan?.trim() || null,
+    }
+    const { error: err } = await supabase.from('dka_pengadaan_proses').update(payload).eq('id', item.proses.id)
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onSaved()
+  }
+
+  if (!item) return null
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Berita Acara Pemeriksaan — ${item.nama_aset}`} width="max-w-lg">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <Input label="Tanggal Pemeriksaan" type="date" value={f.ba_pemeriksaan_tanggal || ''} onChange={(e) => set('ba_pemeriksaan_tanggal', e.target.value)} />
+        <Select label="Hasil Pemeriksaan" value={f.ba_pemeriksaan_hasil || 'sesuai'} onChange={(e) => set('ba_pemeriksaan_hasil', e.target.value)}>
+          <option value="sesuai">Sesuai — lanjut Serah Terima</option>
+          <option value="tidak_sesuai">Tidak Sesuai — minta penyedia menyesuaikan</option>
+        </Select>
+        <Textarea label="Catatan" rows={2} value={f.ba_pemeriksaan_catatan || ''} onChange={(e) => set('ba_pemeriksaan_catatan', e.target.value)} />
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function PengadaanBastModal({ open, item, onClose, onSaved }) {
+  const [f, setF] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!open || !item) return
+    setError('')
+    setF({ ba_serah_terima_tanggal: new Date().toISOString().slice(0, 10), ba_serah_terima_catatan: '' })
+  }, [open, item])
+
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSaving(true)
+    const payload = {
+      status: 'diterima',
+      ba_serah_terima_tanggal: f.ba_serah_terima_tanggal || null,
+      ba_serah_terima_catatan: f.ba_serah_terima_catatan?.trim() || null,
+    }
+    const { error: err } = await supabase.from('dka_pengadaan_proses').update(payload).eq('id', item.proses.id)
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onSaved()
+  }
+
+  if (!item) return null
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Berita Acara Serah Terima — ${item.nama_aset}`} width="max-w-lg">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <p className="rounded-md bg-[var(--color-navy-50)] px-3 py-2 text-xs text-[var(--color-ink)]">Menyimpan BAST akan langsung menambahkan aset ini ke Inventaris (kode aset & lokasi dibuat otomatis).</p>
+        <Input label="Tanggal Serah Terima" type="date" value={f.ba_serah_terima_tanggal || ''} onChange={(e) => set('ba_serah_terima_tanggal', e.target.value)} />
+        <Textarea label="Catatan" rows={2} value={f.ba_serah_terima_catatan || ''} onChange={(e) => set('ba_serah_terima_catatan', e.target.value)} />
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan & Masuk Inventaris'}</Button>
         </div>
       </form>
     </Modal>
