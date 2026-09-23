@@ -34,26 +34,28 @@ export function AuthProvider({ children }) {
     setProfile(profileData || null)
     setEmployee(employeeData || null)
 
-    // AKSES WAKIL KEPALA SEKOLAH: pegawai yang mengemban tugas tambahan
-    // ber-flag `beri_akses_manajer` (mis. Wakil Kepala Sekolah) diberi akses
-    // setara Kepala Sekolah di unit-nya. Kita suntikkan SATU peran sintetis
-    // kepala_sekolah untuk school pegawai bila belum punya peran manajer di
-    // sana — sehingga isManager, mySchools, dan menu ikut terbuka. RLS di DB
-    // (has_school_access/is_school_manager, migrasi 0039) menjamin sisi data.
+    // AKSES WAKIL KEPALA SEKOLAH: pegawai dengan JABATAN Waka / Wakil Kepala
+    // Sekolah (positions.beri_akses_manajer) diberi akses setara Kepala
+    // Sekolah di unit-nya. Kita suntikkan SATU peran sintetis kepala_sekolah
+    // untuk school pegawai bila belum punya peran manajer di sana — sehingga
+    // isManager, mySchools, dan menu ikut terbuka. RLS di DB
+    // (has_school_access/is_school_manager, migrasi 0040) menjamin sisi data.
+    // Query jabatan dipisah (bukan di select employees) agar aman bila kolom
+    // beri_akses_manajer belum ada saat migrasi belum dijalankan.
     let effectiveRoles = roleData || []
-    if (employeeData?.id && employeeData?.school_id) {
-      const { data: tt } = await supabase
-        .from('employee_tugas_tambahan')
-        .select('tugas_tambahan(beri_akses_manajer)')
-        .eq('employee_id', employeeData.id)
-      const grantsManager = (tt || []).some((r) => r.tugas_tambahan?.beri_akses_manajer)
+    if (employeeData?.school_id && employeeData?.position_id) {
+      const { data: pos } = await supabase
+        .from('positions')
+        .select('beri_akses_manajer')
+        .eq('id', employeeData.position_id)
+        .maybeSingle()
       const alreadyManager = effectiveRoles.some(
         (r) => r.school_id === employeeData.school_id && ['kepala_sekolah', 'admin_sekolah'].includes(r.role)
       )
-      if (grantsManager && !alreadyManager) {
+      if (pos?.beri_akses_manajer && !alreadyManager) {
         effectiveRoles = [
           ...effectiveRoles,
-          { role: 'kepala_sekolah', school_id: employeeData.school_id, schools: employeeData.schools, _via_tugas_tambahan: true },
+          { role: 'kepala_sekolah', school_id: employeeData.school_id, schools: employeeData.schools, _via_jabatan: true },
         ]
       }
     }
