@@ -1,12 +1,16 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Boxes, Plus, Pencil, Trash2, DoorOpen, Tags, ShieldAlert } from 'lucide-react'
+import { Boxes, Plus, Pencil, Trash2, DoorOpen, ShieldAlert, Search, ClipboardList, Send, CheckCircle2, RotateCcw, Download, Tag } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner, StatCard } from '../../components/ui'
 import { formatRupiah } from '../../lib/format'
 import { KONDISI_OPTIONS, KONDISI_LABEL, KONDISI_BADGE, hitungPenyusutan, umurLabel } from '../../lib/aset'
+import {
+  DKA_STATUS_LABEL, DKA_STATUS_BADGE, ALASAN_KEBUTUHAN_OPTIONS, CARA_PENGADAAN_OPTIONS,
+  SUMBER_ANGGARAN_OPTIONS, validasiHargaItem,
+} from '../../lib/dka'
 
-const TABS = ['Inventaris', 'Ruangan', 'Kategori & Kodefikasi']
+const TABS = ['Inventaris', 'Ruangan', 'Perencanaan (DKA)', 'Kodefikasi']
 
 export default function AsetList() {
   const { isManager, hasFullAccess, roles, loading: authLoading } = useAuth()
@@ -27,11 +31,11 @@ export default function AsetList() {
     return <EmptyState icon={ShieldAlert} title="Akses terbatas" description="Halaman Sarana & Prasarana hanya untuk manajemen (Admin Yayasan/HR, Admin Sekolah, Kepala Sekolah)." />
   }
 
-  const tabs = hasFullAccess ? TABS : ['Inventaris', 'Ruangan']
+  const tabs = hasFullAccess ? TABS : ['Inventaris', 'Ruangan', 'Perencanaan (DKA)']
 
   return (
     <div>
-      <PageHeader title="Sarana & Prasarana" description="Inventaris aset (Buku Inventaris/KIA), ruangan (KIR), dan penyusutan." />
+      <PageHeader title="Sarana & Prasarana" description="Inventaris aset (Buku Inventaris/KIA), ruangan (KIR), kodefikasi otomatis, penyusutan & perencanaan pengadaan (DKA)." />
       <div className="mb-6 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
         {tabs.map((t) => (
           <button
@@ -48,13 +52,12 @@ export default function AsetList() {
 
       {tab === 'Inventaris' && <InventarisTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {tab === 'Ruangan' && <RuanganTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
-      {tab === 'Kategori & Kodefikasi' && hasFullAccess && <KategoriTab />}
+      {tab === 'Perencanaan (DKA)' && <DkaTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
+      {tab === 'Kodefikasi' && hasFullAccess && <KodefikasiTab />}
     </div>
   )
 }
 
-// Pemilih unit: Yayasan bisa pilih semua; manajer sekolah terkunci ke
-// unitnya (auto-pilih bila satu).
 function useUnitFilter(hasFullAccess, mySchools) {
   const [schools, setSchools] = useState([])
   const [schoolId, setSchoolId] = useState(hasFullAccess ? '' : (mySchools[0]?.id || ''))
@@ -70,17 +73,72 @@ function useUnitFilter(hasFullAccess, mySchools) {
   return { schools, schoolId, setSchoolId }
 }
 
+// Pencari klasifikasi (Permendagri): ketik nama/kode → pilih. Menghindari
+// pegawai mengetik kode manual.
+function KlasifikasiPicker({ klasifikasiList, value, onChange, disabled }) {
+  const [q, setQ] = useState('')
+  const [open, setOpen] = useState(false)
+  const selected = useMemo(() => klasifikasiList.find((k) => k.id === value), [klasifikasiList, value])
+  const results = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    if (!s) return klasifikasiList.filter((k) => k.level >= 4).slice(0, 20)
+    return klasifikasiList.filter((k) => k.uraian.toLowerCase().includes(s) || k.kode.includes(s)).slice(0, 25)
+  }, [q, klasifikasiList])
+
+  return (
+    <div>
+      <label className="mb-1 block text-[13px] font-medium text-[var(--color-ink)]">Klasifikasi Aset (kodefikasi otomatis)</label>
+      {selected ? (
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-paper)] px-3 py-2">
+          <span className="text-sm text-[var(--color-ink)]"><span className="font-mono text-[var(--color-navy)]">{selected.kode}</span> — {selected.uraian}</span>
+          {!disabled && <button type="button" onClick={() => { onChange(''); setOpen(true) }} className="text-xs text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]">ganti</button>}
+        </div>
+      ) : (
+        <div className="relative">
+          <div className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-3">
+            <Search className="h-4 w-4 text-[var(--color-ink-soft)]" />
+            <input
+              disabled={disabled}
+              value={q}
+              onChange={(e) => { setQ(e.target.value); setOpen(true) }}
+              onFocus={() => setOpen(true)}
+              placeholder="Cari jenis aset, mis. 'lemari', 'laptop', 'meja'…"
+              className="w-full bg-transparent py-2 text-sm outline-none"
+            />
+          </div>
+          {open && results.length > 0 && (
+            <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-[var(--color-border)] bg-white shadow-lg">
+              {results.map((k) => (
+                <button
+                  key={k.id}
+                  type="button"
+                  onClick={() => { onChange(k.id); setOpen(false); setQ('') }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--color-navy-50)]"
+                >
+                  <span className="font-mono text-xs text-[var(--color-navy)]">{k.kode}</span>
+                  <span className="text-[var(--color-ink)]">{k.uraian}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // =========================================================================
 // TAB: INVENTARIS
 // =========================================================================
 function InventarisTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
-  const [kategoriList, setKategoriList] = useState([])
+  const [klasifikasiList, setKlasifikasiList] = useState([])
+  const [golonganMap, setGolonganMap] = useState({})
   const [ruanganList, setRuanganList] = useState([])
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [kategoriFilter, setKategoriFilter] = useState('')
+  const [golonganFilter, setGolonganFilter] = useState('')
   const [kondisiFilter, setKondisiFilter] = useState('')
   const [ruanganFilter, setRuanganFilter] = useState('')
   const [showDihapus, setShowDihapus] = useState(false)
@@ -90,15 +148,17 @@ function InventarisTab({ hasFullAccess, mySchools }) {
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError('')
-    const [{ data: kat }, { data: aset, error }] = await Promise.all([
-      supabase.from('aset_kategori').select('*').order('nama'),
+    const [{ data: klas }, { data: gol }, { data: aset, error }] = await Promise.all([
+      supabase.from('aset_klasifikasi').select('*').order('kode'),
+      supabase.from('aset_golongan').select('*'),
       (() => {
-        let q = supabase.from('aset').select('*, aset_kategori(nama, umur_ekonomis_bulan, nilai_residu_persen), ruangan(nama), schools!school_id(nama, jenjang)').order('created_at', { ascending: false })
+        let q = supabase.from('aset').select('*, aset_klasifikasi(kode, uraian, golongan), ruangan(nama), schools!school_id(nama, jenjang)').order('created_at', { ascending: false })
         if (schoolId) q = q.eq('school_id', schoolId)
         return q
       })(),
     ])
-    setKategoriList(kat || [])
+    setKlasifikasiList(klas || [])
+    setGolonganMap(Object.fromEntries((gol || []).map((g) => [g.kode, g])))
     if (error) setLoadError(error.message)
     setRows(aset || [])
     setLoading(false)
@@ -106,7 +166,6 @@ function InventarisTab({ hasFullAccess, mySchools }) {
 
   useEffect(() => { load() }, [load])
 
-  // Ruangan untuk filter & form (unit terpilih).
   useEffect(() => {
     if (!schoolId) { setRuanganList([]); return }
     supabase.from('ruangan').select('id, nama').eq('school_id', schoolId).order('nama').then(({ data }) => setRuanganList(data || []))
@@ -114,22 +173,19 @@ function InventarisTab({ hasFullAccess, mySchools }) {
 
   const filtered = useMemo(() => rows.filter((r) => {
     if (!showDihapus && r.status === 'dihapus') return false
-    if (kategoriFilter && r.kategori_id !== kategoriFilter) return false
+    if (golonganFilter && r.aset_klasifikasi?.golongan !== golonganFilter) return false
     if (kondisiFilter && r.kondisi !== kondisiFilter) return false
     if (ruanganFilter && r.ruangan_id !== ruanganFilter) return false
     return true
-  }), [rows, showDihapus, kategoriFilter, kondisiFilter, ruanganFilter])
+  }), [rows, showDihapus, golonganFilter, kondisiFilter, ruanganFilter])
 
-  const withPenyusutan = useMemo(() => filtered.map((r) => ({ r, p: hitungPenyusutan(r, r.aset_kategori) })), [filtered])
+  const withPenyusutan = useMemo(() => filtered.map((r) => ({ r, p: hitungPenyusutan(r, golonganMap[r.aset_klasifikasi?.golongan]) })), [filtered, golonganMap])
   const totals = useMemo(() => withPenyusutan.reduce((a, { r, p }) => ({
-    jumlah: a.jumlah + 1,
-    perolehan: a.perolehan + Number(r.nilai_perolehan || 0),
-    buku: a.buku + p.nilaiBuku,
+    jumlah: a.jumlah + 1, perolehan: a.perolehan + Number(r.nilai_perolehan || 0), buku: a.buku + p.nilaiBuku,
   }), { jumlah: 0, perolehan: 0, buku: 0 }), [withPenyusutan])
 
   const handleDelete = async (row) => {
-    // Penghapusan aset = soft delete (status 'dihapus') agar riwayat terjaga.
-    if (!confirm(`Tandai aset "${row.nama}" sebagai DIHAPUS? Data tetap tersimpan untuk riwayat, tapi tidak dihitung sebagai aset aktif.`)) return
+    if (!confirm(`Tandai aset "${row.nama}" sebagai DIHAPUS? Data tetap tersimpan untuk riwayat.`)) return
     const { error } = await supabase.from('aset').update({ status: 'dihapus' }).eq('id', row.id)
     if (error) { alert('Gagal: ' + error.message); return }
     load()
@@ -142,27 +198,27 @@ function InventarisTab({ hasFullAccess, mySchools }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           {hasFullAccess && (
-            <Select containerClassName="w-52" value={schoolId} onChange={(e) => setSchoolId(e.target.value)}>
+            <Select containerClassName="w-48" value={schoolId} onChange={(e) => setSchoolId(e.target.value)}>
               <option value="">Semua Unit</option>
               {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
             </Select>
           )}
-          <Select containerClassName="w-44" value={kategoriFilter} onChange={(e) => setKategoriFilter(e.target.value)}>
-            <option value="">Semua Kategori</option>
-            {kategoriList.map((k) => <option key={k.id} value={k.id}>{k.nama}</option>)}
+          <Select containerClassName="w-44" value={golonganFilter} onChange={(e) => setGolonganFilter(e.target.value)}>
+            <option value="">Semua Golongan</option>
+            {Object.values(golonganMap).sort((a, b) => a.kode.localeCompare(b.kode)).map((g) => <option key={g.kode} value={g.kode}>{g.kode} — {g.nama}</option>)}
           </Select>
-          <Select containerClassName="w-40" value={kondisiFilter} onChange={(e) => setKondisiFilter(e.target.value)}>
+          <Select containerClassName="w-36" value={kondisiFilter} onChange={(e) => setKondisiFilter(e.target.value)}>
             <option value="">Semua Kondisi</option>
             {KONDISI_OPTIONS.map((k) => <option key={k} value={k}>{KONDISI_LABEL[k]}</option>)}
           </Select>
           {schoolId && (
-            <Select containerClassName="w-40" value={ruanganFilter} onChange={(e) => setRuanganFilter(e.target.value)}>
+            <Select containerClassName="w-36" value={ruanganFilter} onChange={(e) => setRuanganFilter(e.target.value)}>
               <option value="">Semua Ruangan</option>
               {ruanganList.map((r) => <option key={r.id} value={r.id}>{r.nama}</option>)}
             </Select>
           )}
           <label className="flex items-center gap-1.5 text-xs text-[var(--color-ink-soft)]">
-            <input type="checkbox" checked={showDihapus} onChange={(e) => setShowDihapus(e.target.checked)} /> Tampilkan yang dihapus
+            <input type="checkbox" checked={showDihapus} onChange={(e) => setShowDihapus(e.target.checked)} /> Tampilkan dihapus
           </label>
         </div>
         <Button onClick={() => { setEditingRow(null); setFormOpen(true) }} disabled={!schoolId && !hasFullAccess}><Plus className="h-4 w-4" /> Tambah Aset</Button>
@@ -180,18 +236,18 @@ function InventarisTab({ hasFullAccess, mySchools }) {
         {withPenyusutan.length === 0 ? (
           <EmptyState icon={Boxes} title="Belum ada aset" description={schoolId ? 'Tambahkan aset untuk unit ini.' : 'Pilih unit atau tambahkan aset.'} />
         ) : (
-          <Table columns={['Kode', 'Nama', 'Kategori', 'Ruangan', 'Kondisi', 'Jml', 'Perolehan', 'Nilai Buku', '']}>
+          <Table columns={['Kode Aset', 'Kode Lokasi', 'Nama', 'Klasifikasi', 'Ruangan', 'Kondisi', 'Perolehan', 'Nilai Buku', '']}>
             {withPenyusutan.map(({ r, p }) => (
               <Tr key={r.id}>
-                <Td>{r.kode_aset || '—'}</Td>
+                <Td><span className="font-mono text-xs">{r.kode_aset || '—'}</span></Td>
+                <Td><span className="font-mono text-xs text-[var(--color-ink-soft)]">{r.kode_lokasi || '—'}</span></Td>
                 <Td>
                   <span className={r.status === 'dihapus' ? 'text-[var(--color-ink-soft)] line-through' : ''}>{r.nama}</span>
                   {hasFullAccess && <span className="block text-xs text-[var(--color-ink-soft)]">{r.schools?.jenjang} — {r.schools?.nama}</span>}
                 </Td>
-                <Td>{r.aset_kategori?.nama || '—'}</Td>
+                <Td className="text-xs">{r.aset_klasifikasi?.uraian || '—'}</Td>
                 <Td>{r.ruangan?.nama || '—'}</Td>
                 <Td><Badge color={KONDISI_BADGE[r.kondisi]}>{KONDISI_LABEL[r.kondisi]}</Badge></Td>
-                <Td>{r.jumlah}</Td>
                 <Td>{formatRupiah(r.nilai_perolehan)}</Td>
                 <Td className="font-medium">{formatRupiah(p.nilaiBuku)}{p.disusutkan && <span className="block text-[11px] font-normal text-[var(--color-ink-soft)]">susut {p.bulanBerjalan} bln</span>}</Td>
                 <Td>
@@ -213,7 +269,7 @@ function InventarisTab({ hasFullAccess, mySchools }) {
         editingRow={editingRow}
         schools={hasFullAccess ? schools : mySchools}
         defaultSchoolId={schoolId}
-        kategoriList={kategoriList}
+        klasifikasiList={klasifikasiList}
         onClose={() => { setFormOpen(false); setEditingRow(null) }}
         onSaved={() => { setFormOpen(false); setEditingRow(null); load() }}
       />
@@ -221,7 +277,7 @@ function InventarisTab({ hasFullAccess, mySchools }) {
   )
 }
 
-function AsetFormModal({ open, editingRow, schools, defaultSchoolId, kategoriList, onClose, onSaved }) {
+function AsetFormModal({ open, editingRow, schools, defaultSchoolId, klasifikasiList, onClose, onSaved }) {
   const [f, setF] = useState({})
   const [ruanganList, setRuanganList] = useState([])
   const [saving, setSaving] = useState(false)
@@ -233,17 +289,15 @@ function AsetFormModal({ open, editingRow, schools, defaultSchoolId, kategoriLis
     setError('')
     if (editingRow) {
       setF({
-        school_id: editingRow.school_id, kategori_id: editingRow.kategori_id || '', ruangan_id: editingRow.ruangan_id || '',
-        kode_aset: editingRow.kode_aset || '', nama: editingRow.nama || '', merk_tipe: editingRow.merk_tipe || '',
-        tanggal_perolehan: editingRow.tanggal_perolehan || '', jumlah: String(editingRow.jumlah ?? 1), satuan: editingRow.satuan || 'unit',
-        nilai_perolehan: editingRow.nilai_perolehan ?? '', sumber_dana: editingRow.sumber_dana || '',
-        kondisi: editingRow.kondisi || 'baik', keterangan: editingRow.keterangan || '',
+        school_id: editingRow.school_id, klasifikasi_id: editingRow.klasifikasi_id || '', ruangan_id: editingRow.ruangan_id || '',
+        nama: editingRow.nama || '', merk_tipe: editingRow.merk_tipe || '', tanggal_perolehan: editingRow.tanggal_perolehan || '',
+        jumlah: String(editingRow.jumlah ?? 1), satuan: editingRow.satuan || 'unit', nilai_perolehan: editingRow.nilai_perolehan ?? '',
+        sumber_dana: editingRow.sumber_dana || '', kondisi: editingRow.kondisi || 'baik', keterangan: editingRow.keterangan || '',
       })
     } else {
       setF({
-        school_id: defaultSchoolId || (schools.length === 1 ? schools[0].id : ''), kategori_id: '', ruangan_id: '',
-        kode_aset: '', nama: '', merk_tipe: '', tanggal_perolehan: '', jumlah: '1', satuan: 'unit',
-        nilai_perolehan: '', sumber_dana: '', kondisi: 'baik', keterangan: '',
+        school_id: defaultSchoolId || (schools.length === 1 ? schools[0].id : ''), klasifikasi_id: '', ruangan_id: '',
+        nama: '', merk_tipe: '', tanggal_perolehan: '', jumlah: '1', satuan: 'unit', nilai_perolehan: '', sumber_dana: '', kondisi: 'baik', keterangan: '',
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -260,13 +314,13 @@ function AsetFormModal({ open, editingRow, schools, defaultSchoolId, kategoriLis
     e.preventDefault()
     setError('')
     if (!f.school_id) { setError('Pilih unit.'); return }
+    if (!f.klasifikasi_id) { setError('Pilih klasifikasi aset (untuk kode otomatis).'); return }
     if (!f.nama?.trim()) { setError('Isi nama aset.'); return }
     setSaving(true)
     const payload = {
       school_id: f.school_id,
-      kategori_id: f.kategori_id || null,
+      klasifikasi_id: f.klasifikasi_id,
       ruangan_id: f.ruangan_id || null,
-      kode_aset: f.kode_aset?.trim() || null,
       nama: f.nama.trim(),
       merk_tipe: f.merk_tipe?.trim() || null,
       tahun_perolehan: f.tanggal_perolehan ? new Date(f.tanggal_perolehan).getFullYear() : null,
@@ -290,21 +344,18 @@ function AsetFormModal({ open, editingRow, schools, defaultSchoolId, kategoriLis
   return (
     <Modal open={open} onClose={onClose} title={isEdit ? 'Ubah Aset' : 'Tambah Aset'} width="max-w-2xl">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <div className="grid grid-cols-2 gap-3">
-          <Select label="Unit" required disabled={isEdit} value={f.school_id || ''} onChange={(e) => set('school_id', e.target.value)}>
-            <option value="">— Pilih —</option>
-            {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
-          </Select>
-          <Select label="Kategori" value={f.kategori_id || ''} onChange={(e) => set('kategori_id', e.target.value)}>
-            <option value="">— Pilih —</option>
-            {kategoriList.map((k) => <option key={k.id} value={k.id}>{k.nama}</option>)}
-          </Select>
-        </div>
-        <Input label="Nama Aset" required value={f.nama || ''} onChange={(e) => set('nama', e.target.value)} placeholder="Contoh: Laptop Asus Vivobook" />
+        <Select label="Unit" required disabled={isEdit} value={f.school_id || ''} onChange={(e) => set('school_id', e.target.value)}>
+          <option value="">— Pilih —</option>
+          {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
+        </Select>
+        <KlasifikasiPicker klasifikasiList={klasifikasiList} value={f.klasifikasi_id} onChange={(v) => set('klasifikasi_id', v)} />
+        <p className="-mt-1 flex items-start gap-1.5 rounded-md bg-[var(--color-navy-50)] px-3 py-2 text-xs text-[var(--color-ink-soft)]">
+          Kode Aset & Kode Lokasi dibuat OTOMATIS saat disimpan (dari klasifikasi + ruangan + tahun perolehan). Anda tidak perlu mengetik kode.
+        </p>
+        <Input label="Nama Aset" required value={f.nama || ''} onChange={(e) => set('nama', e.target.value)} placeholder="Contoh: Lemari Besi Arsip" />
         <div className="grid grid-cols-3 gap-3">
-          <Input label="Kode / No. Inventaris" value={f.kode_aset || ''} onChange={(e) => set('kode_aset', e.target.value)} />
           <Input label="Merk / Tipe" value={f.merk_tipe || ''} onChange={(e) => set('merk_tipe', e.target.value)} />
-          <Select label="Ruangan" value={f.ruangan_id || ''} onChange={(e) => set('ruangan_id', e.target.value)}>
+          <Select label="Ruangan" containerClassName="col-span-2" value={f.ruangan_id || ''} onChange={(e) => set('ruangan_id', e.target.value)}>
             <option value="">— Tidak diletakkan —</option>
             {ruanganList.map((r) => <option key={r.id} value={r.id}>{r.nama}</option>)}
           </Select>
@@ -333,7 +384,7 @@ function AsetFormModal({ open, editingRow, schools, defaultSchoolId, kategoriLis
 }
 
 // =========================================================================
-// TAB: RUANGAN (dasar KIR)
+// TAB: RUANGAN (dasar KIR) — dengan kode & PIC
 // =========================================================================
 function RuanganTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
@@ -347,7 +398,7 @@ function RuanganTab({ hasFullAccess, mySchools }) {
     if (!schoolId) { setRows([]); setCounts({}); setLoading(false); return }
     setLoading(true)
     const [{ data: r }, { data: aset }] = await Promise.all([
-      supabase.from('ruangan').select('*').eq('school_id', schoolId).order('nama'),
+      supabase.from('ruangan').select('*, employees:pic_employee_id(nama)').eq('school_id', schoolId).order('nama'),
       supabase.from('aset').select('ruangan_id').eq('school_id', schoolId).eq('status', 'aktif'),
     ])
     const c = {}
@@ -360,7 +411,7 @@ function RuanganTab({ hasFullAccess, mySchools }) {
   useEffect(() => { load() }, [load])
 
   const handleDelete = async (row) => {
-    if (!confirm(`Hapus ruangan "${row.nama}"? Aset di dalamnya tidak ikut terhapus (lokasinya dikosongkan).`)) return
+    if (!confirm(`Hapus ruangan "${row.nama}"? Aset di dalamnya tidak ikut terhapus.`)) return
     const { error } = await supabase.from('ruangan').delete().eq('id', row.id)
     if (error) { alert('Gagal: ' + error.message); return }
     load()
@@ -380,18 +431,20 @@ function RuanganTab({ hasFullAccess, mySchools }) {
         <Button onClick={() => { setEditingRow(null); setFormOpen(true) }} disabled={!schoolId}><Plus className="h-4 w-4" /> Tambah Ruangan</Button>
       </div>
 
-      <SectionCard title="Daftar Ruangan">
+      <SectionCard title="Daftar Ruangan" description="Kode Unit Kerja & Kode Ruangan dipakai untuk menyusun Kode Lokasi aset.">
         {!schoolId ? (
           <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
         ) : rows.length === 0 ? (
-          <EmptyState icon={DoorOpen} title="Belum ada ruangan" description="Tambahkan ruangan untuk mengelompokkan aset (dasar KIR)." />
+          <EmptyState icon={DoorOpen} title="Belum ada ruangan" description="Tambahkan ruangan (dasar KIR)." />
         ) : (
-          <Table columns={['Kode', 'Nama Ruangan', 'Lantai', 'Jumlah Aset', '']}>
+          <Table columns={['Kode Unit', 'Kode Ruang', 'Nama Ruangan', 'Lantai', 'PIC', 'Jml Aset', '']}>
             {rows.map((r) => (
               <Tr key={r.id}>
-                <Td>{r.kode || '—'}</Td>
+                <Td><span className="font-mono text-xs">{r.kode_unit_kerja || '—'}</span></Td>
+                <Td><span className="font-mono text-xs">{r.kode_ruangan || '—'}</span></Td>
                 <Td>{r.nama}</Td>
                 <Td>{r.lantai || '—'}</Td>
+                <Td>{r.employees?.nama || r.pic_nama || '—'}</Td>
                 <Td>{counts[r.id] || 0}</Td>
                 <Td>
                   <div className="flex justify-end gap-1.5">
@@ -412,6 +465,7 @@ function RuanganTab({ hasFullAccess, mySchools }) {
 
 function RuanganFormModal({ open, editingRow, schoolId, onClose, onSaved }) {
   const [f, setF] = useState({})
+  const [pegawai, setPegawai] = useState([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const isEdit = !!editingRow
@@ -419,18 +473,34 @@ function RuanganFormModal({ open, editingRow, schoolId, onClose, onSaved }) {
   useEffect(() => {
     if (!open) return
     setError('')
-    setF(editingRow ? { kode: editingRow.kode || '', nama: editingRow.nama || '', lantai: editingRow.lantai || '', keterangan: editingRow.keterangan || '' }
-      : { kode: '', nama: '', lantai: '', keterangan: '' })
+    setF(editingRow
+      ? { kode_unit_kerja: editingRow.kode_unit_kerja || '', kode_ruangan: editingRow.kode_ruangan || '', nama: editingRow.nama || '', lantai: editingRow.lantai || '', pic_employee_id: editingRow.pic_employee_id || '', pic_nama: editingRow.pic_nama || '', keterangan: editingRow.keterangan || '' }
+      : { kode_unit_kerja: '', kode_ruangan: '', nama: '', lantai: '', pic_employee_id: '', pic_nama: '', keterangan: '' })
   }, [open, editingRow])
 
+  useEffect(() => {
+    if (!open || !schoolId) return
+    supabase.from('employees').select('id, nama').eq('school_id', schoolId).eq('status', 'aktif').order('nama').then(({ data }) => setPegawai(data || []))
+  }, [open, schoolId])
+
   const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }))
+  const pad2 = (v) => (v === '' ? '' : String(v).replace(/\D/g, '').slice(0, 2))
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     if (!f.nama?.trim()) { setError('Isi nama ruangan.'); return }
     setSaving(true)
-    const payload = { school_id: schoolId, kode: f.kode?.trim() || null, nama: f.nama.trim(), lantai: f.lantai?.trim() || null, keterangan: f.keterangan?.trim() || null }
+    const payload = {
+      school_id: schoolId,
+      kode_unit_kerja: f.kode_unit_kerja ? String(f.kode_unit_kerja).padStart(2, '0') : null,
+      kode_ruangan: f.kode_ruangan ? String(f.kode_ruangan).padStart(2, '0') : null,
+      nama: f.nama.trim(),
+      lantai: f.lantai?.trim() || null,
+      pic_employee_id: f.pic_employee_id || null,
+      pic_nama: f.pic_employee_id ? null : (f.pic_nama?.trim() || null),
+      keterangan: f.keterangan?.trim() || null,
+    }
     const query = isEdit ? supabase.from('ruangan').update(payload).eq('id', editingRow.id) : supabase.from('ruangan').insert(payload)
     const { error: err } = await query
     setSaving(false)
@@ -439,14 +509,23 @@ function RuanganFormModal({ open, editingRow, schoolId, onClose, onSaved }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={isEdit ? 'Ubah Ruangan' : 'Tambah Ruangan'}>
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Ubah Ruangan' : 'Tambah Ruangan'} width="max-w-lg">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <Input label="Nama Ruangan" required value={f.nama || ''} onChange={(e) => set('nama', e.target.value)} placeholder="Contoh: Lab Komputer 1" />
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="Kode (opsional)" value={f.kode || ''} onChange={(e) => set('kode', e.target.value)} />
-          <Input label="Lantai (opsional)" value={f.lantai || ''} onChange={(e) => set('lantai', e.target.value)} />
+        <div className="grid grid-cols-3 gap-3">
+          <Input label="Kode Unit Kerja" value={f.kode_unit_kerja || ''} onChange={(e) => set('kode_unit_kerja', pad2(e.target.value))} placeholder="mis. 01" />
+          <Input label="Kode Ruangan" value={f.kode_ruangan || ''} onChange={(e) => set('kode_ruangan', pad2(e.target.value))} placeholder="mis. 12" />
+          <Input label="Lantai" value={f.lantai || ''} onChange={(e) => set('lantai', e.target.value)} />
         </div>
+        <Select label="PIC Ruangan (pegawai)" value={f.pic_employee_id || ''} onChange={(e) => set('pic_employee_id', e.target.value)}>
+          <option value="">— Pilih pegawai / isi manual di bawah —</option>
+          {pegawai.map((p) => <option key={p.id} value={p.id}>{p.nama}</option>)}
+        </Select>
+        {!f.pic_employee_id && (
+          <Input label="PIC (tulis manual, bila bukan pegawai terdaftar)" value={f.pic_nama || ''} onChange={(e) => set('pic_nama', e.target.value)} />
+        )}
         <Textarea label="Keterangan (opsional)" rows={2} value={f.keterangan || ''} onChange={(e) => set('keterangan', e.target.value)} />
+        <p className="text-xs text-[var(--color-ink-soft)]">Kode Unit Kerja & Kode Ruangan (2 digit) menjadi bagian Kode Lokasi aset: kepemilikan.lembaga.<b>unit</b>.<b>ruang</b>.tahun.</p>
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
@@ -458,99 +537,672 @@ function RuanganFormModal({ open, editingRow, schoolId, onClose, onSaved }) {
 }
 
 // =========================================================================
-// TAB: KATEGORI & KODEFIKASI (Yayasan)
+// TAB: KODEFIKASI (Yayasan) — referensi klasifikasi + kebijakan penyusutan
 // =========================================================================
-function KategoriTab() {
-  const [rows, setRows] = useState([])
+function KodefikasiTab() {
+  const [golongan, setGolongan] = useState([])
+  const [klas, setKlas] = useState([])
+  const [q, setQ] = useState('')
   const [loading, setLoading] = useState(true)
-  const [formOpen, setFormOpen] = useState(false)
-  const [editingRow, setEditingRow] = useState(null)
+  const [editGol, setEditGol] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase.from('aset_kategori').select('*').order('nama')
-    setRows(data || [])
+    const [{ data: g }, { data: k }] = await Promise.all([
+      supabase.from('aset_golongan').select('*').order('kode'),
+      supabase.from('aset_klasifikasi').select('*').order('kode'),
+    ])
+    setGolongan(g || [])
+    setKlas(k || [])
     setLoading(false)
   }, [])
-
   useEffect(() => { load() }, [load])
+
+  const results = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    if (!s) return klas.slice(0, 30)
+    return klas.filter((k) => k.uraian.toLowerCase().includes(s) || k.kode.includes(s)).slice(0, 50)
+  }, [q, klas])
 
   if (loading) return <FullPageSpinner />
 
   return (
-    <SectionCard
-      title="Kategori & Kodefikasi Aset"
-      description="Kode & kebijakan penyusutan (umur ekonomis) berlaku seragam se-yayasan."
-      actions={<Button size="sm" onClick={() => { setEditingRow(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tambah</Button>}
-    >
-      {rows.length === 0 ? (
-        <EmptyState icon={Tags} title="Belum ada kategori" description="Tambahkan kategori/kodefikasi aset." />
-      ) : (
-        <Table columns={['Kode', 'Nama', 'Umur Ekonomis', 'Nilai Residu', '']}>
-          {rows.map((k) => (
+    <div className="flex flex-col gap-6">
+      <SectionCard title="Kebijakan Penyusutan per Golongan" description="Umur ekonomis & nilai residu — dipakai menghitung Nilai Buku semua aset di golongan tsb.">
+        <Table columns={['Kode', 'Golongan', 'Umur Ekonomis', 'Nilai Residu', '']}>
+          {golongan.map((g) => (
+            <Tr key={g.kode}>
+              <Td><span className="font-mono">{g.kode}</span></Td>
+              <Td>{g.nama}</Td>
+              <Td>{umurLabel(g.umur_ekonomis_bulan)}</Td>
+              <Td>{Number(g.nilai_residu_persen || 0)}%</Td>
+              <Td><button onClick={() => setEditGol(g)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button></Td>
+            </Tr>
+          ))}
+        </Table>
+      </SectionCard>
+
+      <SectionCard title="Tabel Kode Aset (Klasifikasi)" description={`${klas.length} klasifikasi — referensi kode yang dipakai auto-generate. Cari untuk memeriksa.`}>
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-3">
+          <Search className="h-4 w-4 text-[var(--color-ink-soft)]" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari kode atau nama klasifikasi…" className="w-full bg-transparent py-2 text-sm outline-none" />
+        </div>
+        <Table columns={['Kode', 'Uraian', 'Golongan']}>
+          {results.map((k) => (
             <Tr key={k.id}>
-              <Td>{k.kode}</Td>
-              <Td>{k.nama}</Td>
-              <Td>{umurLabel(k.umur_ekonomis_bulan)}</Td>
-              <Td>{Number(k.nilai_residu_persen || 0)}%</Td>
+              <Td><span className="font-mono text-xs">{k.kode}</span></Td>
+              <Td>{k.uraian}</Td>
+              <Td className="text-xs text-[var(--color-ink-soft)]">{k.golongan}</Td>
+            </Tr>
+          ))}
+        </Table>
+      </SectionCard>
+
+      <GolonganFormModal golongan={editGol} onClose={() => setEditGol(null)} onSaved={() => { setEditGol(null); load() }} />
+    </div>
+  )
+}
+
+function GolonganFormModal({ golongan, onClose, onSaved }) {
+  const [umurTahun, setUmurTahun] = useState('')
+  const [residu, setResidu] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (golongan) {
+      setUmurTahun(golongan.umur_ekonomis_bulan ? String(golongan.umur_ekonomis_bulan / 12) : '')
+      setResidu(String(golongan.nilai_residu_persen ?? 0))
+      setError('')
+    }
+  }, [golongan])
+
+  if (!golongan) return null
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    const { error: err } = await supabase.from('aset_golongan').update({
+      umur_ekonomis_bulan: umurTahun === '' ? null : Math.round(Number(umurTahun) * 12),
+      nilai_residu_persen: residu === '' ? 0 : Number(residu),
+    }).eq('kode', golongan.kode)
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onSaved()
+  }
+
+  return (
+    <Modal open={!!golongan} onClose={onClose} title={`Kebijakan Penyusutan — ${golongan.nama}`}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Umur Ekonomis (tahun)" type="number" value={umurTahun} onChange={(e) => setUmurTahun(e.target.value)} placeholder="kosongkan = tak disusutkan" />
+          <Input label="Nilai Residu (%)" type="number" value={residu} onChange={(e) => setResidu(e.target.value)} />
+        </div>
+        <p className="text-xs text-[var(--color-ink-soft)]">Penyusutan garis lurus: (Nilai Perolehan − Residu) ÷ umur ekonomis. Kosongkan umur untuk golongan yang tak disusutkan (Tanah, Konstruksi dalam Pengerjaan).</p>
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+// =========================================================================
+// TAB: PERENCANAAN (DKA — Daftar Kebutuhan Aset)
+// Alur SOP: satuan pendidikan MENYUSUN & MENGAJUKAN → Yayasan MEMUTUSKAN
+// (mengesahkan / mengembalikan). Kode aset otomatis dari klasifikasi;
+// "Jumlah Tersedia" bisa ditarik dari Buku Inventaris (Tahap 1).
+// =========================================================================
+function DkaTab({ hasFullAccess, mySchools }) {
+  const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
+  const nowY = new Date().getFullYear()
+  const [tahun, setTahun] = useState(nowY)
+  const years = [nowY - 1, nowY, nowY + 1, nowY + 2]
+  const managesUnit = useMemo(() => mySchools.some((s) => s.id === schoolId), [mySchools, schoolId])
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center gap-2">
+        {hasFullAccess && (
+          <Select containerClassName="w-52" value={schoolId} onChange={(e) => setSchoolId(e.target.value)}>
+            <option value="">Semua Unit (rekap)</option>
+            {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
+          </Select>
+        )}
+        <Select containerClassName="w-36" value={tahun} onChange={(e) => setTahun(Number(e.target.value))}>
+          {years.map((y) => <option key={y} value={y}>Tahun {y}</option>)}
+        </Select>
+      </div>
+
+      {hasFullAccess && !schoolId ? (
+        <DkaRekap tahun={tahun} onOpen={(sid) => setSchoolId(sid)} />
+      ) : schoolId ? (
+        <DkaDetail schoolId={schoolId} tahun={tahun} hasFullAccess={hasFullAccess} managesUnit={managesUnit} />
+      ) : (
+        <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
+      )}
+
+      {hasFullAccess && <StandarHargaPanel tahun={tahun} />}
+    </div>
+  )
+}
+
+function DkaRekap({ tahun, onOpen }) {
+  const [rows, setRows] = useState([])
+  const [totals, setTotals] = useState({})
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    ;(async () => {
+      const { data: usulan } = await supabase
+        .from('dka_usulan')
+        .select('*, schools!school_id(nama, jenjang), diajukan_nama:dka_usulan_diajukan_nama')
+        .eq('tahun', tahun)
+        .order('created_at', { ascending: false })
+      const ids = (usulan || []).map((u) => u.id)
+      let t = {}
+      if (ids.length) {
+        const { data: items } = await supabase.from('dka_usulan_item').select('usulan_id, jumlah_harga').in('usulan_id', ids)
+        for (const it of (items || [])) t[it.usulan_id] = (t[it.usulan_id] || 0) + Number(it.jumlah_harga || 0)
+      }
+      if (!alive) return
+      setRows(usulan || [])
+      setTotals(t)
+      setLoading(false)
+    })()
+    return () => { alive = false }
+  }, [tahun])
+
+  if (loading) return <FullPageSpinner />
+
+  const grandTotal = Object.values(totals).reduce((a, b) => a + b, 0)
+  const disahkan = rows.filter((r) => r.status === 'disahkan').length
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <StatCard label="Unit Mengajukan" value={rows.length} />
+        <StatCard label="Sudah Disahkan" value={disahkan} accent="gold" />
+        <StatCard label="Total Nilai Usulan" value={formatRupiah(grandTotal)} />
+      </div>
+      <SectionCard title={`Rekap Usulan DKA — Tahun ${tahun}`} description="Ringkasan usulan pengadaan seluruh satuan pendidikan. Klik untuk membuka & memutuskan.">
+        {rows.length === 0 ? (
+          <EmptyState icon={ClipboardList} title="Belum ada usulan" description="Belum ada satuan pendidikan yang menyusun DKA untuk tahun ini." />
+        ) : (
+          <Table columns={['Unit', 'Judul', 'Diajukan Oleh', 'Status', 'Total Nilai', '']}>
+            {rows.map((r) => (
+              <Tr key={r.id}>
+                <Td>{r.schools?.jenjang} — {r.schools?.nama}</Td>
+                <Td>{r.judul || '—'}</Td>
+                <Td className="text-xs">{r.diajukan_nama || '—'}</Td>
+                <Td><Badge color={DKA_STATUS_BADGE[r.status]}>{DKA_STATUS_LABEL[r.status]}</Badge></Td>
+                <Td>{formatRupiah(totals[r.id] || 0)}</Td>
+                <Td><button onClick={() => onOpen(r.school_id)} className="text-sm font-medium text-[var(--color-navy)] hover:underline">Buka →</button></Td>
+              </Tr>
+            ))}
+          </Table>
+        )}
+      </SectionCard>
+    </div>
+  )
+}
+
+function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
+  const [usulan, setUsulan] = useState(null)
+  const [items, setItems] = useState([])
+  const [klasifikasiList, setKlasifikasiList] = useState([])
+  const [ruanganList, setRuanganList] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [formOpen, setFormOpen] = useState(false)
+  const [editingItem, setEditingItem] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    const [{ data: u }, { data: klas }, { data: ruang }] = await Promise.all([
+      supabase.from('dka_usulan').select('*, diajukan_nama:dka_usulan_diajukan_nama').eq('school_id', schoolId).eq('tahun', tahun).maybeSingle(),
+      supabase.from('aset_klasifikasi').select('*').order('kode'),
+      supabase.from('ruangan').select('id, nama').eq('school_id', schoolId).order('nama'),
+    ])
+    setUsulan(u || null)
+    setKlasifikasiList(klas || [])
+    setRuanganList(ruang || [])
+    if (u) {
+      const { data: it } = await supabase.from('dka_usulan_item').select('*, aset_klasifikasi(kode, uraian), ruangan(nama)').eq('usulan_id', u.id).order('urutan')
+      setItems(it || [])
+    } else setItems([])
+    setLoading(false)
+  }, [schoolId, tahun])
+
+  useEffect(() => { load() }, [load])
+
+  const status = usulan?.status
+  const canEditItems = !!usulan && (hasFullAccess || (managesUnit && ['draft', 'dikembalikan'].includes(status)))
+  const canSubmit = !!usulan && managesUnit && ['draft', 'dikembalikan'].includes(status)
+  const canDecide = !!usulan && hasFullAccess && status === 'diajukan'
+
+  const total = useMemo(() => items.reduce((a, r) => a + Number(r.jumlah_harga || 0), 0), [items])
+
+  const createUsulan = async () => {
+    setBusy(true); setError('')
+    const { error: err } = await supabase.from('dka_usulan').insert({ school_id: schoolId, tahun, status: 'draft' })
+    setBusy(false)
+    if (err) { setError(err.message.includes('duplicate') ? 'Usulan tahun ini sudah ada.' : err.message); return }
+    load()
+  }
+
+  const setStatus = async (newStatus, catatan) => {
+    if (newStatus === 'diajukan' && items.length === 0) { setError('Tambahkan minimal satu item sebelum mengajukan.'); return }
+    setBusy(true); setError('')
+    const patch = { status: newStatus }
+    if (catatan !== undefined) patch.catatan_yayasan = catatan
+    const { error: err } = await supabase.from('dka_usulan').update(patch).eq('id', usulan.id)
+    setBusy(false)
+    if (err) { setError(err.message); return }
+    load()
+  }
+
+  const handleAjukan = () => setStatus('diajukan')
+  const handleSahkan = () => { if (confirm('Sahkan usulan DKA ini? Setelah disahkan, unit tidak dapat mengubahnya.')) setStatus('disahkan') }
+  const handleKembalikan = () => {
+    const c = prompt('Catatan perbaikan untuk unit (alasan dikembalikan):')
+    if (c === null) return
+    setStatus('dikembalikan', c.trim() || 'Perlu perbaikan.')
+  }
+
+  const deleteItem = async (item) => {
+    if (!confirm(`Hapus item "${item.nama_aset}"?`)) return
+    const { error: err } = await supabase.from('dka_usulan_item').delete().eq('id', item.id)
+    if (err) { alert('Gagal: ' + err.message); return }
+    load()
+  }
+
+  if (loading) return <FullPageSpinner />
+
+  if (!usulan) {
+    return (
+      <SectionCard title={`DKA Tahun ${tahun}`}>
+        <EmptyState
+          icon={ClipboardList}
+          title="Belum ada usulan DKA"
+          description={managesUnit ? 'Susun Daftar Kebutuhan Aset (FM-01) untuk diajukan ke Yayasan.' : 'Unit ini belum menyusun DKA untuk tahun tersebut.'}
+        />
+        {managesUnit && (
+          <div className="mt-3 flex justify-center">
+            <Button onClick={createUsulan} disabled={busy}><Plus className="h-4 w-4" /> Buat Usulan DKA {tahun}</Button>
+          </div>
+        )}
+        {error && <p className="mt-3 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+      </SectionCard>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-semibold text-[var(--color-ink)]">Usulan DKA — Tahun {tahun}</h3>
+              <Badge color={DKA_STATUS_BADGE[status]}>{DKA_STATUS_LABEL[status]}</Badge>
+            </div>
+            {usulan.diajukan_nama && <p className="mt-1 text-xs text-[var(--color-ink-soft)]">Diajukan oleh {usulan.diajukan_nama}{usulan.diajukan_at ? ` · ${new Date(usulan.diajukan_at).toLocaleDateString('id-ID')}` : ''}</p>}
+            {status === 'dikembalikan' && usulan.catatan_yayasan && (
+              <p className="mt-2 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]"><b>Catatan Yayasan:</b> {usulan.catatan_yayasan}</p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {canSubmit && <Button onClick={handleAjukan} disabled={busy}><Send className="h-4 w-4" /> Ajukan ke Yayasan</Button>}
+            {canDecide && <Button onClick={handleSahkan} disabled={busy}><CheckCircle2 className="h-4 w-4" /> Sahkan</Button>}
+            {canDecide && <Button variant="outline" onClick={handleKembalikan} disabled={busy}><RotateCcw className="h-4 w-4" /> Kembalikan</Button>}
+          </div>
+        </div>
+        {error && <p className="mt-3 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+      </Card>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <StatCard label="Jumlah Item" value={items.length} />
+        <StatCard label="Total Nilai Pengajuan" value={formatRupiah(total)} accent="gold" />
+        <StatCard label="Item di Atas Standar" value={items.filter((r) => validasiHargaItem(r).perluJustifikasi).length} />
+      </div>
+
+      <SectionCard
+        title="Daftar Kebutuhan Aset (FM-01)"
+        description="Riil = Maksimal − Tersedia. Kode Aset otomatis dari klasifikasi. Harga di atas standar butuh justifikasi."
+        actions={canEditItems ? <Button size="sm" onClick={() => { setEditingItem(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tambah Item</Button> : null}
+      >
+        {items.length === 0 ? (
+          <EmptyState icon={ClipboardList} title="Belum ada item" description="Tambahkan kebutuhan aset." />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table columns={['Kode Aset', 'Nama & Spesifikasi', 'Alasan', 'Cara', 'Riil', 'Ajuan', 'Harga Satuan', 'Jumlah', 'Validasi', canEditItems ? '' : null].filter((c) => c !== null)}>
+              {items.map((r) => {
+                const v = validasiHargaItem(r)
+                return (
+                  <Tr key={r.id}>
+                    <Td><span className="font-mono text-xs">{r.aset_klasifikasi?.kode || '—'}</span></Td>
+                    <Td>
+                      <span className="font-medium">{r.nama_aset}</span>
+                      {r.spesifikasi && <span className="block text-xs text-[var(--color-ink-soft)]">{r.spesifikasi}</span>}
+                      {(r.ruangan?.nama || r.lokasi) && <span className="block text-[11px] text-[var(--color-ink-soft)]">📍 {r.ruangan?.nama || r.lokasi}</span>}
+                    </Td>
+                    <Td className="text-xs">{r.alasan_kebutuhan || '—'}</Td>
+                    <Td className="text-xs">{r.cara_pengadaan || '—'}</Td>
+                    <Td>{Number(r.jumlah_riil)} <span className="text-[11px] text-[var(--color-ink-soft)]">{r.satuan}</span></Td>
+                    <Td>{Number(r.jumlah_pengajuan)}</Td>
+                    <Td>{formatRupiah(r.harga_satuan)}{r.standar_harga != null && <span className="block text-[11px] text-[var(--color-ink-soft)]">std {formatRupiah(r.standar_harga)}</span>}</Td>
+                    <Td className="font-medium">{formatRupiah(r.jumlah_harga)}</Td>
+                    <Td>
+                      <Badge color={v.badge}>{v.label}</Badge>
+                      {v.perluJustifikasi && !r.justifikasi && <span className="block text-[11px] text-[var(--color-danger)]">perlu justifikasi</span>}
+                    </Td>
+                    {canEditItems && (
+                      <Td>
+                        <div className="flex justify-end gap-1.5">
+                          <button onClick={() => { setEditingItem(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
+                          <button onClick={() => deleteItem(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                        </div>
+                      </Td>
+                    )}
+                  </Tr>
+                )
+              })}
+            </Table>
+          </div>
+        )}
+      </SectionCard>
+
+      <DkaItemModal
+        open={formOpen}
+        usulan={usulan}
+        schoolId={schoolId}
+        editingItem={editingItem}
+        klasifikasiList={klasifikasiList}
+        ruanganList={ruanganList}
+        onClose={() => { setFormOpen(false); setEditingItem(null) }}
+        onSaved={() => { setFormOpen(false); setEditingItem(null); load() }}
+      />
+    </div>
+  )
+}
+
+function DkaItemModal({ open, usulan, schoolId, editingItem, klasifikasiList, ruanganList, onClose, onSaved }) {
+  const [f, setF] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [ambil, setAmbil] = useState(false)
+  const [error, setError] = useState('')
+  const isEdit = !!editingItem
+
+  useEffect(() => {
+    if (!open) return
+    setError('')
+    if (editingItem) {
+      setF({
+        klasifikasi_id: editingItem.klasifikasi_id || '', nama_aset: editingItem.nama_aset || '', spesifikasi: editingItem.spesifikasi || '',
+        unit_kerja: editingItem.unit_kerja || '', nama_kegiatan: editingItem.nama_kegiatan || '', ruangan_id: editingItem.ruangan_id || '', lokasi: editingItem.lokasi || '',
+        penanggung_jawab: editingItem.penanggung_jawab || '', alasan_kebutuhan: editingItem.alasan_kebutuhan || '', cara_pengadaan: editingItem.cara_pengadaan || '',
+        sumber_anggaran: editingItem.sumber_anggaran || '', jumlah_maksimal: String(editingItem.jumlah_maksimal ?? '0'), jumlah_tersedia: String(editingItem.jumlah_tersedia ?? '0'),
+        jumlah_pengajuan: String(editingItem.jumlah_pengajuan ?? '0'), satuan: editingItem.satuan || 'unit', harga_satuan: String(editingItem.harga_satuan ?? '0'),
+        standar_harga: editingItem.standar_harga == null ? '' : String(editingItem.standar_harga), justifikasi: editingItem.justifikasi || '',
+      })
+    } else {
+      setF({
+        klasifikasi_id: '', nama_aset: '', spesifikasi: '', unit_kerja: '', nama_kegiatan: '', ruangan_id: '', lokasi: '', penanggung_jawab: '',
+        alasan_kebutuhan: '', cara_pengadaan: '', sumber_anggaran: '', jumlah_maksimal: '1', jumlah_tersedia: '0', jumlah_pengajuan: '1', satuan: 'unit',
+        harga_satuan: '0', standar_harga: '', justifikasi: '',
+      })
+    }
+  }, [open, editingItem])
+
+  const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }))
+
+  // Saat klasifikasi dipilih: prefill nama & tarik Standar Harga tahun ybs.
+  const onPickKlasifikasi = async (id) => {
+    const k = klasifikasiList.find((x) => x.id === id)
+    setF((prev) => ({ ...prev, klasifikasi_id: id, nama_aset: prev.nama_aset || (k?.uraian || '') }))
+    if (!id) return
+    const { data } = await supabase.from('dka_standar_harga').select('harga_maksimal, satuan').eq('klasifikasi_id', id).lte('tahun', usulan.tahun).order('tahun', { ascending: false }).limit(1)
+    if (data && data[0]) setF((prev) => ({ ...prev, standar_harga: String(data[0].harga_maksimal), satuan: prev.satuan && prev.satuan !== 'unit' ? prev.satuan : (data[0].satuan || prev.satuan) }))
+  }
+
+  const ambilTersedia = async () => {
+    if (!f.klasifikasi_id) { setError('Pilih klasifikasi dulu untuk menarik jumlah tersedia dari Inventaris.'); return }
+    setAmbil(true); setError('')
+    const { data, error: err } = await supabase.rpc('dka_hitung_tersedia', { p_school_id: schoolId, p_klasifikasi_id: f.klasifikasi_id })
+    setAmbil(false)
+    if (err) { setError('Gagal menarik: ' + err.message); return }
+    set('jumlah_tersedia', String(data ?? 0))
+  }
+
+  const riil = Math.max(Number(f.jumlah_maksimal || 0) - Number(f.jumlah_tersedia || 0), 0)
+  const jumlahHarga = Number(f.jumlah_pengajuan || 0) * Number(f.harga_satuan || 0)
+  const validasi = validasiHargaItem(f)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    if (!f.nama_aset?.trim()) { setError('Isi nama aset.'); return }
+    if (validasi.perluJustifikasi && !f.justifikasi?.trim()) { setError('Harga di atas standar — isi justifikasi (butuh persetujuan Ketua Yayasan).'); return }
+    setSaving(true)
+    const payload = {
+      usulan_id: usulan.id,
+      klasifikasi_id: f.klasifikasi_id || null,
+      nama_aset: f.nama_aset.trim(),
+      spesifikasi: f.spesifikasi?.trim() || null,
+      unit_kerja: f.unit_kerja?.trim() || null,
+      nama_kegiatan: f.nama_kegiatan?.trim() || null,
+      ruangan_id: f.ruangan_id || null,
+      lokasi: f.ruangan_id ? null : (f.lokasi?.trim() || null),
+      penanggung_jawab: f.penanggung_jawab?.trim() || null,
+      alasan_kebutuhan: f.alasan_kebutuhan || null,
+      cara_pengadaan: f.cara_pengadaan || null,
+      sumber_anggaran: f.sumber_anggaran || null,
+      jumlah_maksimal: Number(f.jumlah_maksimal) || 0,
+      jumlah_tersedia: Number(f.jumlah_tersedia) || 0,
+      jumlah_pengajuan: Number(f.jumlah_pengajuan) || 0,
+      satuan: f.satuan?.trim() || 'unit',
+      harga_satuan: Number(f.harga_satuan) || 0,
+      standar_harga: f.standar_harga === '' ? null : Number(f.standar_harga),
+      justifikasi: f.justifikasi?.trim() || null,
+    }
+    const query = isEdit ? supabase.from('dka_usulan_item').update(payload).eq('id', editingItem.id) : supabase.from('dka_usulan_item').insert(payload)
+    const { error: err } = await query
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onSaved()
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Ubah Item DKA' : 'Tambah Item DKA'} width="max-w-2xl">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <KlasifikasiPicker klasifikasiList={klasifikasiList} value={f.klasifikasi_id} onChange={onPickKlasifikasi} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Nama Aset" required value={f.nama_aset || ''} onChange={(e) => set('nama_aset', e.target.value)} placeholder="mis. Laptop" />
+          <Input label="Merk & Spesifikasi" value={f.spesifikasi || ''} onChange={(e) => set('spesifikasi', e.target.value)} placeholder="mis. Core i5, 8GB" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Nama Proker/Kegiatan" value={f.nama_kegiatan || ''} onChange={(e) => set('nama_kegiatan', e.target.value)} />
+          <Input label="Unit Kerja" value={f.unit_kerja || ''} onChange={(e) => set('unit_kerja', e.target.value)} placeholder="Kurikulum / Tata Usaha…" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Select label="Ruangan / Lokasi" value={f.ruangan_id || ''} onChange={(e) => set('ruangan_id', e.target.value)}>
+            <option value="">— Isi manual di bawah —</option>
+            {ruanganList.map((r) => <option key={r.id} value={r.id}>{r.nama}</option>)}
+          </Select>
+          {!f.ruangan_id
+            ? <Input label="Lokasi (manual)" value={f.lokasi || ''} onChange={(e) => set('lokasi', e.target.value)} />
+            : <Input label="Penanggung Jawab / Pengguna" value={f.penanggung_jawab || ''} onChange={(e) => set('penanggung_jawab', e.target.value)} />}
+        </div>
+        {!f.ruangan_id && <Input label="Penanggung Jawab / Pengguna" value={f.penanggung_jawab || ''} onChange={(e) => set('penanggung_jawab', e.target.value)} />}
+        <div className="grid grid-cols-3 gap-3">
+          <Select label="Alasan Kebutuhan" value={f.alasan_kebutuhan || ''} onChange={(e) => set('alasan_kebutuhan', e.target.value)}>
+            <option value="">—</option>
+            {ALASAN_KEBUTUHAN_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </Select>
+          <Select label="Cara Pengadaan" value={f.cara_pengadaan || ''} onChange={(e) => set('cara_pengadaan', e.target.value)}>
+            <option value="">—</option>
+            {CARA_PENGADAAN_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </Select>
+          <Select label="Sumber Anggaran" value={f.sumber_anggaran || ''} onChange={(e) => set('sumber_anggaran', e.target.value)}>
+            <option value="">—</option>
+            {SUMBER_ANGGARAN_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </Select>
+        </div>
+        <div className="rounded-lg border border-[var(--color-border)] p-3">
+          <div className="grid grid-cols-4 gap-3">
+            <Input label="Jml Maksimal" type="number" value={f.jumlah_maksimal ?? ''} onChange={(e) => set('jumlah_maksimal', e.target.value)} />
+            <div>
+              <Input label="Jml Tersedia" type="number" value={f.jumlah_tersedia ?? ''} onChange={(e) => set('jumlah_tersedia', e.target.value)} />
+              <button type="button" onClick={ambilTersedia} disabled={ambil} className="mt-1 flex items-center gap-1 text-[11px] text-[var(--color-navy)] hover:underline"><Download className="h-3 w-3" /> {ambil ? 'menarik…' : 'dari Inventaris'}</button>
+            </div>
+            <div>
+              <label className="mb-1 block text-[13px] font-medium text-[var(--color-ink)]">Jml Riil</label>
+              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-paper)] px-3 py-2 text-sm text-[var(--color-ink-soft)]">{riil}</div>
+            </div>
+            <Input label="Jml Pengajuan" type="number" value={f.jumlah_pengajuan ?? ''} onChange={(e) => set('jumlah_pengajuan', e.target.value)} />
+          </div>
+          <p className="mt-1 text-[11px] text-[var(--color-ink-soft)]">Jml Riil = Maksimal − Tersedia (min 0). Jml Tersedia bisa ditarik dari Buku Inventaris.</p>
+        </div>
+        <div className="grid grid-cols-4 gap-3">
+          <Input label="Satuan" value={f.satuan || ''} onChange={(e) => set('satuan', e.target.value)} />
+          <Input label="Harga Satuan (Rp)" type="number" value={f.harga_satuan ?? ''} onChange={(e) => set('harga_satuan', e.target.value)} />
+          <Input label="Standar Harga (Rp)" type="number" value={f.standar_harga ?? ''} onChange={(e) => set('standar_harga', e.target.value)} placeholder="opsional" />
+          <div>
+            <label className="mb-1 block text-[13px] font-medium text-[var(--color-ink)]">Jumlah Harga</label>
+            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-paper)] px-3 py-2 text-sm font-medium">{formatRupiah(jumlahHarga)}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge color={validasi.badge}>{validasi.label}</Badge>
+          {validasi.perluJustifikasi && <span className="text-xs text-[var(--color-danger)]">Harga melampaui standar — wajib justifikasi + persetujuan Ketua Yayasan.</span>}
+        </div>
+        {validasi.perluJustifikasi && (
+          <Textarea label="Justifikasi (wajib bila di atas standar)" rows={2} value={f.justifikasi || ''} onChange={(e) => set('justifikasi', e.target.value)} />
+        )}
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+// Standar Harga (referensi Yayasan) — dipakai memvalidasi harga usulan.
+function StandarHargaPanel({ tahun }) {
+  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState([])
+  const [klasifikasiList, setKlasifikasiList] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const [{ data: sh }, { data: klas }] = await Promise.all([
+      supabase.from('dka_standar_harga').select('*, aset_klasifikasi(kode, uraian)').eq('tahun', tahun).order('nama_aset'),
+      supabase.from('aset_klasifikasi').select('*').order('kode'),
+    ])
+    setRows(sh || [])
+    setKlasifikasiList(klas || [])
+    setLoading(false)
+  }, [tahun])
+
+  useEffect(() => { if (open) load() }, [open, load])
+
+  const handleDelete = async (row) => {
+    if (!confirm(`Hapus standar harga "${row.nama_aset}"?`)) return
+    const { error } = await supabase.from('dka_standar_harga').delete().eq('id', row.id)
+    if (error) { alert('Gagal: ' + error.message); return }
+    load()
+  }
+
+  return (
+    <SectionCard
+      title={`Standar Harga ${tahun}`}
+      description="Referensi harga maksimal (dikelola Yayasan). Harga usulan di atas standar akan ditandai butuh justifikasi."
+      actions={
+        <div className="flex items-center gap-2">
+          {open && <Button size="sm" onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tambah</Button>}
+          <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)}><Tag className="h-4 w-4" /> {open ? 'Tutup' : 'Buka'}</Button>
+        </div>
+      }
+    >
+      {!open ? null : loading ? <p className="text-sm text-[var(--color-ink-soft)]">Memuat…</p> : rows.length === 0 ? (
+        <EmptyState icon={Tag} title="Belum ada standar harga" description={`Tetapkan standar harga untuk tahun ${tahun}.`} />
+      ) : (
+        <Table columns={['Kode', 'Nama Aset / Jasa', 'Satuan', 'Harga Maksimal', 'Sumber Rujukan', '']}>
+          {rows.map((r) => (
+            <Tr key={r.id}>
+              <Td><span className="font-mono text-xs">{r.aset_klasifikasi?.kode || '—'}</span></Td>
+              <Td>{r.nama_aset}</Td>
+              <Td>{r.satuan}</Td>
+              <Td>{formatRupiah(r.harga_maksimal)}</Td>
+              <Td className="text-xs text-[var(--color-ink-soft)]">{r.sumber_rujukan || '—'}</Td>
               <Td>
-                <button onClick={() => { setEditingRow(k); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
+                <div className="flex justify-end gap-1.5">
+                  <button onClick={() => { setEditing(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
+                  <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                </div>
               </Td>
             </Tr>
           ))}
         </Table>
       )}
-      <KategoriFormModal open={formOpen} editingRow={editingRow} onClose={() => { setFormOpen(false); setEditingRow(null) }} onSaved={() => { setFormOpen(false); setEditingRow(null); load() }} />
+      <StandarHargaModal open={formOpen} tahun={tahun} editing={editing} klasifikasiList={klasifikasiList} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={() => { setFormOpen(false); setEditing(null); load() }} />
     </SectionCard>
   )
 }
 
-function KategoriFormModal({ open, editingRow, onClose, onSaved }) {
+function StandarHargaModal({ open, tahun, editing, klasifikasiList, onClose, onSaved }) {
   const [f, setF] = useState({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const isEdit = !!editingRow
+  const isEdit = !!editing
 
   useEffect(() => {
     if (!open) return
     setError('')
-    setF(editingRow
-      ? { kode: editingRow.kode || '', nama: editingRow.nama || '', umur_tahun: editingRow.umur_ekonomis_bulan ? String(editingRow.umur_ekonomis_bulan / 12) : '', nilai_residu_persen: String(editingRow.nilai_residu_persen ?? 0) }
-      : { kode: '', nama: '', umur_tahun: '', nilai_residu_persen: '0' })
-  }, [open, editingRow])
+    setF(editing
+      ? { klasifikasi_id: editing.klasifikasi_id || '', nama_aset: editing.nama_aset || '', satuan: editing.satuan || 'unit', harga_maksimal: String(editing.harga_maksimal ?? '0'), sumber_rujukan: editing.sumber_rujukan || '' }
+      : { klasifikasi_id: '', nama_aset: '', satuan: 'unit', harga_maksimal: '0', sumber_rujukan: '' })
+  }, [open, editing])
 
   const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }))
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setError('')
-    if (!f.kode?.trim() || !f.nama?.trim()) { setError('Isi kode dan nama.'); return }
-    setSaving(true)
+    if (!f.nama_aset?.trim()) { setError('Isi nama aset/jasa.'); return }
+    setSaving(true); setError('')
     const payload = {
-      kode: f.kode.trim().toUpperCase(),
-      nama: f.nama.trim(),
-      umur_ekonomis_bulan: f.umur_tahun === '' ? null : Math.round(Number(f.umur_tahun) * 12),
-      nilai_residu_persen: f.nilai_residu_persen === '' ? 0 : Number(f.nilai_residu_persen),
+      tahun, klasifikasi_id: f.klasifikasi_id || null, nama_aset: f.nama_aset.trim(), satuan: f.satuan?.trim() || 'unit',
+      harga_maksimal: Number(f.harga_maksimal) || 0, sumber_rujukan: f.sumber_rujukan?.trim() || null,
     }
-    const query = isEdit ? supabase.from('aset_kategori').update(payload).eq('id', editingRow.id) : supabase.from('aset_kategori').insert(payload)
+    const query = isEdit ? supabase.from('dka_standar_harga').update(payload).eq('id', editing.id) : supabase.from('dka_standar_harga').insert(payload)
     const { error: err } = await query
     setSaving(false)
-    if (err) { setError(err.message.includes('duplicate') ? 'Kode kategori sudah dipakai.' : err.message); return }
+    if (err) { setError(err.message); return }
     onSaved()
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={isEdit ? 'Ubah Kategori' : 'Tambah Kategori'}>
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Ubah Standar Harga' : `Tambah Standar Harga ${tahun}`} width="max-w-lg">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <div className="grid grid-cols-3 gap-3">
-          <Input label="Kode" required value={f.kode || ''} onChange={(e) => set('kode', e.target.value)} placeholder="MEB" />
-          <Input containerClassName="col-span-2" label="Nama" required value={f.nama || ''} onChange={(e) => set('nama', e.target.value)} placeholder="Mebel & Perabot" />
-        </div>
+        <KlasifikasiPicker klasifikasiList={klasifikasiList} value={f.klasifikasi_id} onChange={(v) => set('klasifikasi_id', v)} />
+        <Input label="Nama Aset / Jasa" required value={f.nama_aset || ''} onChange={(e) => set('nama_aset', e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
-          <Input label="Umur Ekonomis (tahun)" type="number" value={f.umur_tahun ?? ''} onChange={(e) => set('umur_tahun', e.target.value)} placeholder="kosongkan = tak disusutkan" />
-          <Input label="Nilai Residu (%)" type="number" value={f.nilai_residu_persen ?? ''} onChange={(e) => set('nilai_residu_persen', e.target.value)} />
+          <Input label="Satuan" value={f.satuan || ''} onChange={(e) => set('satuan', e.target.value)} />
+          <Input label="Harga Maksimal (Rp)" type="number" value={f.harga_maksimal ?? ''} onChange={(e) => set('harga_maksimal', e.target.value)} />
         </div>
-        <p className="text-xs text-[var(--color-ink-soft)]">Penyusutan garis lurus: (Nilai Perolehan − Residu) ÷ umur ekonomis. Kosongkan umur untuk aset yang tidak disusutkan (mis. Tanah).</p>
+        <Input label="Sumber Rujukan" value={f.sumber_rujukan || ''} onChange={(e) => set('sumber_rujukan', e.target.value)} placeholder="mis. survey pasar / e-katalog" />
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Batal</Button>

@@ -1,4 +1,6 @@
 // Modul Aset — label & perhitungan penyusutan (garis lurus).
+// Penyusutan memakai kebijakan per-GOLONGAN (aset_golongan): tiap aset
+// mewarisi umur ekonomis & nilai residu dari golongan klasifikasinya.
 
 export const KONDISI_OPTIONS = ['baik', 'rusak_ringan', 'rusak_berat']
 export const KONDISI_LABEL = { baik: 'Baik', rusak_ringan: 'Rusak Ringan', rusak_berat: 'Rusak Berat' }
@@ -7,12 +9,12 @@ export const KONDISI_BADGE = { baik: 'success', rusak_ringan: 'gold', rusak_bera
 // Penyusutan METODE GARIS LURUS.
 //   penyusutan/bulan = (nilai_perolehan − nilai_residu) / umur_ekonomis_bulan
 //   nilai_buku = maks(nilai_residu, nilai_perolehan − akumulasi)
-// kategori = { umur_ekonomis_bulan, nilai_residu_persen }. Kategori tanpa
-// umur (mis. Tanah) atau aset tanpa tanggal perolehan → tidak disusutkan.
-export function hitungPenyusutan(aset, kategori, asOf = new Date()) {
+// golongan = { umur_ekonomis_bulan, nilai_residu_persen } dari aset_golongan.
+// Golongan tanpa umur (Tanah, Konstruksi) atau aset tanpa tanggal → tidak disusut.
+export function hitungPenyusutan(aset, golongan, asOf = new Date()) {
   const nilaiPerolehan = Number(aset?.nilai_perolehan || 0)
-  const umur = kategori?.umur_ekonomis_bulan
-  const residuPersen = Number(kategori?.nilai_residu_persen || 0)
+  const umur = golongan?.umur_ekonomis_bulan
+  const residuPersen = Number(golongan?.nilai_residu_persen || 0)
   const nilaiResidu = (nilaiPerolehan * residuPersen) / 100
 
   if (!umur || umur <= 0 || !aset?.tanggal_perolehan) {
@@ -30,7 +32,6 @@ export function hitungPenyusutan(aset, kategori, asOf = new Date()) {
   return { disusutkan: true, nilaiResidu, penyusutanPerBulan, bulanBerjalan: bulan, akumulasi, nilaiBuku }
 }
 
-// Umur ekonomis (bulan) → label ramah.
 export function umurLabel(bulan) {
   if (!bulan) return 'Tidak disusutkan'
   if (bulan % 12 === 0) return `${bulan / 12} tahun`
