@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Wallet, Plus, Settings2, Printer, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
@@ -29,11 +29,13 @@ function usePayrollSettings() {
 
 export default function PayrollList() {
   const { hasFullAccess, employee, loading: authLoading } = useAuth()
+  const [sp] = useSearchParams()
+  const asManager = hasFullAccess && sp.get('me') !== '1'
   if (authLoading) return <FullPageSpinner />
   return (
     <div>
-      <PageHeader title={hasFullAccess ? 'Penggajian' : 'Slip Gaji Saya'} description={hasFullAccess ? 'Kelola periode penggajian bulanan seluruh pegawai.' : 'Riwayat slip gaji Anda.'} />
-      {hasFullAccess ? <ManagerPayroll /> : <SelfPayroll employeeId={employee?.id} employee={employee} />}
+      <PageHeader title={asManager ? 'Penggajian' : 'Slip Gaji Saya'} description={asManager ? 'Kelola periode penggajian bulanan seluruh pegawai.' : 'Riwayat slip gaji Anda.'} />
+      {asManager ? <ManagerPayroll /> : <SelfPayroll employeeId={employee?.id} employee={employee} />}
     </div>
   )
 }

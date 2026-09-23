@@ -25,7 +25,7 @@ const SARPRAS_ICONS = {
 // di masa depan tanpa membuat Sidebar penuh sesak. Item "lintas modul"
 // (Pengguna & Peran, Log Aktivitas, Notifikasi Email) sengaja TIDAK ikut
 // masuk grup ini karena berlaku untuk seluruh aplikasi, bukan cuma SDM.
-function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara }) {
+function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, employeeId }) {
   const kepegawaian = [{ to: '/', label: 'Dasbor', icon: LayoutDashboard, end: true }]
   kepegawaian.push({ to: '/pegawai', label: isManager ? 'Data Pegawai' : 'Profil Saya', icon: Users })
   kepegawaian.push({ to: '/presensi', label: isManager ? 'Presensi' : 'Presensi Saya', icon: CalendarCheck })
@@ -78,6 +78,24 @@ function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara }) {
     }
   }
 
+  // MENU PRIBADI: manajer tingkat SEKOLAH (Admin/Kepala Sekolah & Waka) juga
+  // seorang PEGAWAI — mereka butuh akses data pribadinya sendiri (profil,
+  // presensi, cuti, slip, kinerja, beban kerja, pelatihan). Menu manajemen
+  // di grup Kepegawaian menampilkan versi kelola; menu pribadi ini memakai
+  // rute yang sama dengan penanda ?me=1 (mode "diri sendiri"). Admin Yayasan/
+  // HR (hasFullAccess) tidak ditampilkan menu ini sesuai permintaan.
+  const pribadi = []
+  if (isManager && !hasFullAccess) {
+    pribadi.push({ to: '/?me=1', label: 'Dasbor Saya', icon: LayoutDashboard })
+    if (employeeId) pribadi.push({ to: `/pegawai/${employeeId}`, label: 'Profil Saya', icon: Contact })
+    pribadi.push({ to: '/presensi?me=1', label: 'Presensi Saya', icon: CalendarCheck })
+    pribadi.push({ to: '/cuti?me=1', label: 'Cuti Saya', icon: CalendarClock })
+    pribadi.push({ to: '/penggajian?me=1', label: 'Slip Gaji Saya', icon: Wallet })
+    pribadi.push({ to: '/kinerja?me=1', label: 'Kinerja Saya', icon: Star })
+    pribadi.push({ to: '/beban-kerja?me=1', label: 'Beban Kerja Saya', icon: Activity })
+    pribadi.push({ to: '/pelatihan?me=1', label: 'Pelatihan Saya', icon: GraduationCap })
+  }
+
   const lainnya = []
   if (hasFullAccess) {
     lainnya.push({ to: '/pengguna', label: 'Pengguna & Peran', icon: UserCog })
@@ -85,7 +103,7 @@ function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara }) {
     lainnya.push({ to: '/notifikasi-email', label: 'Notifikasi Email', icon: Mail })
   }
 
-  return { kepegawaian, kesiswaan, sarpras, lainnya }
+  return { kepegawaian, kesiswaan, sarpras, pribadi, lainnya }
 }
 
 function NavItem({ to, label, icon: Icon, end, onClick }) {
@@ -149,8 +167,8 @@ function NavGroup({ storageKey, label, icon: Icon, defaultOpen = true, children 
 }
 
 function Sidebar({ open, onClose }) {
-  const { isManager, hasFullAccess, isWaliKelas, isBendahara } = useAuth()
-  const { kepegawaian, kesiswaan, sarpras, lainnya } = navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara })
+  const { isManager, hasFullAccess, isWaliKelas, isBendahara, employee } = useAuth()
+  const { kepegawaian, kesiswaan, sarpras, pribadi, lainnya } = navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, employeeId: employee?.id })
 
   return (
     <aside
@@ -191,6 +209,14 @@ function Sidebar({ open, onClose }) {
           <NavGroup storageKey="simpeg_nav_sarpras_open" label="Sarana & Prasarana" icon={Boxes} defaultOpen>
             {sarpras.map(({ to, label, icon, end }) => (
               <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
+            ))}
+          </NavGroup>
+        )}
+
+        {pribadi.length > 0 && (
+          <NavGroup storageKey="simpeg_nav_pribadi_open" label="Menu Pribadi" icon={Contact} defaultOpen={false}>
+            {pribadi.map(({ to, label, icon }) => (
+              <NavItem key={label} to={to} label={label} icon={icon} onClick={onClose} />
             ))}
           </NavGroup>
         )}

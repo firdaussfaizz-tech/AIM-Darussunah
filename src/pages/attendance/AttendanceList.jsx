@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { CalendarCheck, UploadCloud } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
@@ -13,11 +14,13 @@ const STATUS_LABELS = { hadir: 'Hadir', izin: 'Izin', sakit: 'Sakit', alpa: 'Alp
 
 export default function AttendanceList() {
   const { isManager, employee, loading: authLoading } = useAuth()
+  const [sp] = useSearchParams()
+  const asManager = isManager && sp.get('me') !== '1'
   if (authLoading) return <FullPageSpinner />
   return (
     <div>
-      <PageHeader title={isManager ? 'Presensi Pegawai' : 'Presensi Saya'} description={isManager ? 'Catat dan pantau kehadiran pegawai harian.' : 'Riwayat kehadiran Anda.'} />
-      {isManager ? <ManagerAttendance /> : <SelfAttendance employeeId={employee?.id} />}
+      <PageHeader title={asManager ? 'Presensi Pegawai' : 'Presensi Saya'} description={asManager ? 'Catat dan pantau kehadiran pegawai harian.' : 'Riwayat kehadiran Anda.'} />
+      {asManager ? <ManagerAttendance /> : <SelfAttendance employeeId={employee?.id} />}
     </div>
   )
 }

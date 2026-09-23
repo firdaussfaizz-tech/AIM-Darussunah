@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Star, Plus, Info, Pencil, Trash2, Send, Check, Undo2, Lightbulb } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
@@ -39,7 +40,13 @@ async function syncPerformanceIndex({ employeeId, nilaiAkhir, periodeMulai, peri
 
 export default function PerformanceList() {
   const { isManager, hasFullAccess, employee, loading: authLoading } = useAuth()
-  const [tab, setTab] = useState(isManager ? 'Pengajuan' : 'Rekap & Histori')
+  const [sp] = useSearchParams()
+  const personal = sp.get('me') === '1' // mode "diri sendiri" (Menu Pribadi)
+  // Di mode pribadi, manajer diperlakukan sebagai pegawai biasa: hanya melihat
+  // penilaian kinerjanya sendiri (tanpa UI manajemen/verifikasi).
+  const effIsManager = isManager && !personal
+  const effHasFullAccess = hasFullAccess && !personal
+  const [tab, setTab] = useState(effIsManager ? 'Pengajuan' : 'Rekap & Histori')
   const [periods, setPeriods] = useState([])
   const [periodFilter, setPeriodFilter] = useState('')
   const [kpiIndicators, setKpiIndicators] = useState([])
@@ -92,6 +99,10 @@ export default function PerformanceList() {
 
   useEffect(() => { if (!authLoading) load() }, [authLoading, load])
 
+  // Mode pribadi (?me=1) tidak me-remount halaman; pastikan tab pindah ke
+  // rekap pribadi, bukan tersangkut di tab manajemen.
+  useEffect(() => { if (personal) setTab('Rekap & Histori') }, [personal])
+
   const canWriteRow = (row) => hasFullAccess || !row.target_is_manager
 
   const pengajuanRows = useMemo(() => {
@@ -105,10 +116,10 @@ export default function PerformanceList() {
   }, [rows, hasFullAccess])
 
   const rekapRows = useMemo(() => {
-    let list = rows
+    let list = personal ? rows.filter((r) => r.employee_id === employee?.id) : rows
     if (rekapStatusFilter) list = list.filter((r) => r.status === rekapStatusFilter)
     return list
-  }, [rows, rekapStatusFilter])
+  }, [rows, rekapStatusFilter, personal, employee?.id])
 
   const handleDelete = async (row) => {
     if (!confirm(`Hapus draft penilaian "${row.employees?.nama}" — ${row.performance_periods?.nama} ${row.performance_periods?.tahun}? Tindakan ini tidak bisa dibatalkan.`)) return
@@ -129,14 +140,14 @@ export default function PerformanceList() {
   return (
     <div>
       <PageHeader
-        title={isManager ? 'Penilaian Kinerja' : 'Kinerja Saya'}
-        description={isManager ? 'Nilai kinerja pegawai berdasarkan indikator KPI yayasan, lalu ajukan untuk diverifikasi Yayasan.' : 'Riwayat hasil penilaian kinerja & OKR Anda.'}
-        actions={isManager && (
+        title={effIsManager ? 'Penilaian Kinerja' : 'Kinerja Saya'}
+        description={effIsManager ? 'Nilai kinerja pegawai berdasarkan indikator KPI yayasan, lalu ajukan untuk diverifikasi Yayasan.' : 'Riwayat hasil penilaian kinerja & OKR Anda.'}
+        actions={effIsManager && (
           <Button onClick={() => { setEditingRow(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tambah Penilaian</Button>
         )}
       />
 
-      {isManager && (
+      {effIsManager && (
         <Card className="mb-4 border-[var(--color-navy)]/20 bg-[var(--color-navy-50)]">
           <p className="flex items-start gap-2 text-xs text-[var(--color-ink-soft)]">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -151,7 +162,7 @@ export default function PerformanceList() {
         </Card>
       )}
 
-      {isManager && !hasFullAccess && (
+      {effIsManager && !effHasFullAccess && (
         <Card className="mb-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -176,9 +187,9 @@ export default function PerformanceList() {
         </Card>
       )}
 
-      {isManager && (
+      {effIsManager && (
         <div className="mb-6 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
-          {TABS.filter((t) => t !== 'Verifikasi Yayasan' || hasFullAccess).map((t) => (
+          {TABS.filter((t) => t !== 'Verifikasi Yayasan' || effHasFullAccess).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -197,7 +208,7 @@ export default function PerformanceList() {
         </div>
       )}
 
-      {(!isManager || tab === 'Pengajuan' || tab === 'Verifikasi Yayasan' || tab === 'Rekap & Histori') && (
+      {(!effIsManager || tab === 'Pengajuan' || tab === 'Verifikasi Yayasan' || tab === 'Rekap & Histori') && (
         <Card className="mb-4" padded={false}>
           <div className="p-4">
             <Select containerClassName="sm:w-56" value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)}>
@@ -208,7 +219,7 @@ export default function PerformanceList() {
         </Card>
       )}
 
-      {isManager && tab === 'Pengajuan' && (
+      {effIsManager && tab === 'Pengajuan' && (
         <Card padded={false}>
           <div className="p-5">
             {pengajuanRows.length === 0 ? (
@@ -254,7 +265,7 @@ export default function PerformanceList() {
         </Card>
       )}
 
-      {hasFullAccess && tab === 'Verifikasi Yayasan' && (
+      {effHasFullAccess && tab === 'Verifikasi Yayasan' && (
         <Card padded={false}>
           <div className="p-5">
             {verifikasiRows.length === 0 ? (
@@ -306,14 +317,14 @@ export default function PerformanceList() {
               {rekapRows.length === 0 ? (
                 <EmptyState icon={Star} title="Belum ada data" description="Belum ada riwayat penilaian kinerja pada filter ini." />
               ) : (
-                <Table columns={isManager ? ['Pegawai', 'Periode', 'Nilai Akhir', 'Status', 'Diajukan/Diverifikasi', 'Catatan Yayasan'] : ['Periode', 'Nilai Akhir', 'Status', 'Catatan Yayasan']}>
+                <Table columns={effIsManager ? ['Pegawai', 'Periode', 'Nilai Akhir', 'Status', 'Diajukan/Diverifikasi', 'Catatan Yayasan'] : ['Periode', 'Nilai Akhir', 'Status', 'Catatan Yayasan']}>
                   {rekapRows.map((r) => (
                     <Tr key={r.id}>
-                      {isManager && <Td className="font-medium text-[var(--color-ink)]">{r.employees?.nama}</Td>}
+                      {effIsManager && <Td className="font-medium text-[var(--color-ink)]">{r.employees?.nama}</Td>}
                       <Td>{r.performance_periods?.nama} {r.performance_periods?.tahun}</Td>
                       <Td className="font-medium">{r.nilai_akhir ?? '—'}</Td>
                       <Td><Badge color={STATUS_BADGE_COLOR[r.status]}>{r.status}</Badge></Td>
-                      {isManager && (
+                      {effIsManager && (
                         <Td className="text-xs text-[var(--color-ink-soft)]">
                           {r.diajukan_nama && <div>Diajukan: {r.diajukan_nama}</div>}
                           {r.verifikasi_nama && <div>Diverifikasi: {r.verifikasi_nama}</div>}

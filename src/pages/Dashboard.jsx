@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { Users, CalendarCheck, CalendarClock, FileWarning } from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
@@ -13,13 +13,16 @@ const BULAN_SINGKAT = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', '
 
 export default function Dashboard() {
   const { isManager, hasFullAccess, employee, profile } = useAuth()
+  const [sp] = useSearchParams()
+  const personal = sp.get('me') === '1' // mode "diri sendiri" (Menu Pribadi)
+  const asManager = isManager && !personal
   return (
     <div>
       <PageHeader
         title={`Selamat datang, ${(profile?.full_name || '').split(' ')[0] || ''}`}
-        description={isManager ? 'Ringkasan kepegawaian yayasan hari ini.' : 'Ringkasan data kepegawaian Anda.'}
+        description={asManager ? 'Ringkasan kepegawaian yayasan hari ini.' : 'Ringkasan data kepegawaian Anda.'}
       />
-      {isManager ? <ManagerDashboard hasFullAccess={hasFullAccess} /> : <SelfDashboard employeeId={employee?.id} />}
+      {asManager ? <ManagerDashboard hasFullAccess={hasFullAccess} /> : <SelfDashboard employeeId={employee?.id} />}
     </div>
   )
 }

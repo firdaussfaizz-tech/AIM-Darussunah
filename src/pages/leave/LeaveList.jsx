@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { CalendarClock, Plus, Check, X, History } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
@@ -68,7 +69,10 @@ function authorityLabel(row) {
 
 export default function LeaveList() {
   const { isManager, hasFullAccess, employee, loading: authLoading } = useAuth()
-  const [tab, setTab] = useState(isManager ? 'Approval / Persetujuan' : 'Pengajuan')
+  const [sp] = useSearchParams()
+  const personal = sp.get('me') === '1' // mode "diri sendiri" (Menu Pribadi)
+  const asManager = isManager && !personal
+  const [tab, setTab] = useState(asManager ? 'Approval / Persetujuan' : 'Pengajuan')
   const [leaveTypes, setLeaveTypes] = useState([])
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
@@ -103,6 +107,10 @@ export default function LeaveList() {
   }, [])
 
   useEffect(() => { if (!authLoading) load() }, [authLoading, load])
+
+  // Mode pribadi (?me=1) tidak me-remount halaman (pathname sama), jadi
+  // pastikan tab tidak menyangkut di "Approval" saat masuk mode pribadi.
+  useEffect(() => { if (personal) setTab('Pengajuan') }, [personal])
 
   const decide = async (row, status, extra = {}) => {
     const { data: updated, error } = await supabase
@@ -148,10 +156,10 @@ export default function LeaveList() {
   }, [rows, isManager, hasFullAccess, approvalJenisFilter])
 
   const rekapRows = useMemo(() => {
-    let list = rows
+    let list = personal ? myRows : rows
     if (rekapStatusFilter) list = list.filter((r) => r.status === rekapStatusFilter)
     return list
-  }, [rows, rekapStatusFilter])
+  }, [rows, myRows, personal, rekapStatusFilter])
 
   if (authLoading || loading) return <FullPageSpinner />
 
@@ -159,7 +167,7 @@ export default function LeaveList() {
     <div>
       <PageHeader
         title="Cuti & Izin"
-        description={isManager ? 'Ajukan, tinjau, dan proses pengajuan cuti/izin sesuai kewenangan.' : 'Ajukan cuti/izin dan pantau statusnya.'}
+        description={asManager ? 'Ajukan, tinjau, dan proses pengajuan cuti/izin sesuai kewenangan.' : 'Ajukan cuti/izin dan pantau statusnya.'}
         actions={
           <Button onClick={() => setFormOpen(true)}>
             <Plus className="h-4 w-4" /> Ajukan Cuti
@@ -168,7 +176,7 @@ export default function LeaveList() {
       />
 
       <div className="mb-6 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
-        {TABS.filter((t) => t !== 'Approval / Persetujuan' || isManager).map((t) => (
+        {TABS.filter((t) => t !== 'Approval / Persetujuan' || asManager).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -214,7 +222,7 @@ export default function LeaveList() {
         </Card>
       )}
 
-      {tab === 'Approval / Persetujuan' && isManager && (
+      {tab === 'Approval / Persetujuan' && asManager && (
         <>
           <Card className="mb-4" padded={false}>
             <div className="p-4">
@@ -275,10 +283,10 @@ export default function LeaveList() {
               {rekapRows.length === 0 ? (
                 <EmptyState icon={History} title="Tidak ada data" description="Belum ada riwayat cuti/izin pada filter ini." />
               ) : (
-                <Table columns={isManager ? ['Pegawai', 'Jenis', 'Periode', 'Hari', 'Status', 'Pemberi Izin'] : ['Jenis', 'Periode', 'Hari', 'Status', 'Pemberi Izin']}>
+                <Table columns={asManager ? ['Pegawai', 'Jenis', 'Periode', 'Hari', 'Status', 'Pemberi Izin'] : ['Jenis', 'Periode', 'Hari', 'Status', 'Pemberi Izin']}>
                   {rekapRows.map((r) => (
                     <Tr key={r.id}>
-                      {isManager && <Td className="font-medium text-[var(--color-ink)]">{r.employees?.nama}</Td>}
+                      {asManager && <Td className="font-medium text-[var(--color-ink)]">{r.employees?.nama}</Td>}
                       <Td>{r.leave_types?.nama}</Td>
                       <Td className="text-[var(--color-ink-soft)]">{formatDate(r.tanggal_mulai)} – {formatDate(r.tanggal_selesai)}</Td>
                       <Td>{r.jumlah_hari}</Td>
@@ -310,7 +318,7 @@ export default function LeaveList() {
         onSaved={() => { setFormOpen(false); load() }}
         leaveTypes={leaveTypes}
         employeeId={employee?.id}
-        isManager={isManager}
+        isManager={asManager}
       />
 
       <ApproveSakitModal

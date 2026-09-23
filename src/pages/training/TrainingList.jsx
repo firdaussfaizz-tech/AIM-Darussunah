@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { GraduationCap, Plus } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
@@ -9,6 +9,8 @@ import { STATUS_BADGE_COLOR, formatDate } from '../../lib/format'
 export default function TrainingList() {
   const { hasFullAccess, employee, loading: authLoading } = useAuth()
   const navigate = useNavigate()
+  const [sp] = useSearchParams()
+  const asManager = hasFullAccess && sp.get('me') !== '1'
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [formOpen, setFormOpen] = useState(false)
@@ -20,7 +22,7 @@ export default function TrainingList() {
   // Mereka sekarang melihat riwayat pelatihan mereka sendiri seperti pegawai lain.
   const load = useCallback(async () => {
     setLoading(true)
-    if (hasFullAccess) {
+    if (asManager) {
       const { data } = await supabase.from('trainings').select('*, training_participants(id)').order('tanggal_mulai', { ascending: false })
       setRows(data || [])
     } else if (employee?.id) {
@@ -30,7 +32,7 @@ export default function TrainingList() {
       setRows([])
     }
     setLoading(false)
-  }, [hasFullAccess, employee])
+  }, [asManager, employee])
 
   useEffect(() => { if (!authLoading) load() }, [authLoading, load])
 
@@ -39,9 +41,9 @@ export default function TrainingList() {
   return (
     <div>
       <PageHeader
-        title={hasFullAccess ? 'Pelatihan & Pengembangan' : 'Pelatihan Saya'}
-        description={hasFullAccess ? 'Kelola program pelatihan dan pengembangan SDM.' : 'Riwayat pelatihan yang Anda ikuti.'}
-        actions={hasFullAccess && (
+        title={asManager ? 'Pelatihan & Pengembangan' : 'Pelatihan Saya'}
+        description={asManager ? 'Kelola program pelatihan dan pengembangan SDM.' : 'Riwayat pelatihan yang Anda ikuti.'}
+        actions={asManager && (
           <Button onClick={() => setFormOpen(true)}><Plus className="h-4 w-4" /> Buat Pelatihan</Button>
         )}
       />
@@ -49,8 +51,8 @@ export default function TrainingList() {
       <Card padded={false}>
         <div className="p-5">
           {rows.length === 0 ? (
-            <EmptyState icon={GraduationCap} title="Belum ada pelatihan" description={hasFullAccess ? 'Buat program pelatihan pertama Anda.' : 'Anda belum terdaftar pada pelatihan apa pun.'} />
-          ) : hasFullAccess ? (
+            <EmptyState icon={GraduationCap} title="Belum ada pelatihan" description={asManager ? 'Buat program pelatihan pertama Anda.' : 'Anda belum terdaftar pada pelatihan apa pun.'} />
+          ) : asManager ? (
             <Table columns={['Nama Pelatihan', 'Jenis', 'Tanggal', 'Peserta', '']}>
               {rows.map((t) => (
                 <Tr key={t.id} onClick={() => navigate(`/pelatihan/${t.id}`)}>

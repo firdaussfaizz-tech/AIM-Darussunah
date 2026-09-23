@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Activity, Pencil, Settings2, Info } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
@@ -10,16 +10,18 @@ const jam = (n) => `${Number(n || 0).toFixed(1)} jam`
 
 export default function WorkloadList() {
   const { isManager, employee, loading: authLoading } = useAuth()
+  const [sp] = useSearchParams()
+  const asManager = isManager && sp.get('me') !== '1'
   if (authLoading) return <FullPageSpinner />
   return (
     <div>
       <PageHeader
-        title="Beban Kerja"
-        description={isManager
+        title={asManager ? 'Beban Kerja' : 'Beban Kerja Saya'}
+        description={asManager
           ? 'Analisis beban kerja pegawai — jam tatap muka, tugas tambahan, dan ketatausahaan dibandingkan kapasitas jam kerja mingguan.'
           : 'Rincian beban kerja Anda bulan berjalan, dibandingkan kapasitas jam kerja mingguan.'}
       />
-      {isManager ? <ManagerWorkload /> : <SelfWorkload employeeId={employee?.id} />}
+      {asManager ? <ManagerWorkload /> : <SelfWorkload employeeId={employee?.id} />}
     </div>
   )
 }
