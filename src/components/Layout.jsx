@@ -5,7 +5,7 @@ import {
   GraduationCap, Building2, UserCog, LogOut, Menu, X, Activity, CalendarOff,
   History, Mail, ChevronRight, BookOpen, Contact, CalendarRange, ClipboardCheck,
   ReceiptText, NotebookText, Target, Boxes,
-  ClipboardList, ShoppingCart, Truck, UserCheck, DoorOpen, Wrench, Trash2, Tag, ShieldCheck,
+  ClipboardList, ShoppingCart, Truck, UserCheck, DoorOpen, Wrench, Trash2, Tag, ShieldCheck, FileText,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/format'
@@ -13,10 +13,10 @@ import { SARPRAS_AREAS } from '../lib/sarpras'
 
 // Ikon per area Sarpras (dipetakan dari slug agar lib/sarpras bebas ikon).
 const SARPRAS_ICONS = {
-  perencanaan: ClipboardList, pengadaan: ShoppingCart, penerimaan: Truck,
+  dashboard: LayoutDashboard, perencanaan: ClipboardList, pengadaan: ShoppingCart, penerimaan: Truck,
   penggunaan: UserCheck, inventaris: Boxes, ruangan: DoorOpen,
   inventarisasi: ClipboardCheck, pemeliharaan: Wrench, penghapusan: Trash2,
-  kodefikasi: Tag, kebijakan: ShieldCheck,
+  kodefikasi: Tag, dokumen: FileText, kebijakan: ShieldCheck,
 }
 
 // Fitur modul Kepegawaian (Dasbor s/d Struktur Organisasi) dikelompokkan

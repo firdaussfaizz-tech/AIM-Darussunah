@@ -28,6 +28,7 @@ import SppList from './pages/spp/SppList'
 import NilaiRapor from './pages/nilai/NilaiRapor'
 import KesiswaanDashboard from './pages/kesiswaan/KesiswaanDashboard'
 import AsetList from './pages/aset/AsetList'
+import DokumenCetak from './pages/aset/DokumenCetak'
 
 export default function App() {
   return (
@@ -35,6 +36,9 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          {/* Halaman cetak dokumen — di luar Layout (tanpa sidebar) agar siap print/PDF. */}
+          <Route path="/aset/cetak/:jenis" element={<RequireAuth><DokumenCetak /></RequireAuth>} />
+          <Route path="/aset/cetak/:jenis/:id" element={<RequireAuth><DokumenCetak /></RequireAuth>} />
           <Route
             path="/"
             element={

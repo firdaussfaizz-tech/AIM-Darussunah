@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Boxes, Plus, Pencil, Trash2, DoorOpen, ShieldAlert, Search, ClipboardList, Send, CheckCircle2, RotateCcw, Download, Tag, BookOpen, Clock3, ShieldCheck, Truck, ClipboardCheck, PackageCheck, Wrench, UserCheck, ScanLine, ArchiveX } from 'lucide-react'
+import { Boxes, Plus, Pencil, Trash2, DoorOpen, ShieldAlert, Search, ClipboardList, Send, CheckCircle2, RotateCcw, Download, Tag, BookOpen, Clock3, ShieldCheck, Truck, ClipboardCheck, PackageCheck, Wrench, UserCheck, ScanLine, ArchiveX, Printer } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner, StatCard } from '../../components/ui'
@@ -16,6 +16,12 @@ import {
 import { useParams, Navigate } from 'react-router-dom'
 import { SOP_SARPRAS, PIC_SARPRAS } from '../../lib/sopSarpras'
 import { SARPRAS_AREAS, SARPRAS_DEFAULT } from '../../lib/sarpras'
+import { DOKUMEN_LIST, listRecords } from '../../lib/dokumenSarpras'
+
+// Buka halaman cetak dokumen di tab baru (siap print/PDF).
+function openCetak(jenis, id) {
+  window.open(id ? `/aset/cetak/${jenis}/${id}` : `/aset/cetak/${jenis}`, '_blank', 'noopener')
+}
 
 // Tiap area = satu halaman /aset/:area (menu dropdown di Sidebar). Konten
 // dipilih dari SARPRAS_AREAS berdasarkan slug pada URL.
@@ -57,6 +63,8 @@ export default function AsetList() {
         </div>
       )}
 
+      {active.kind === 'live-dashboard' && <DashboardTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
+      {active.kind === 'live-dokumen' && <DokumenTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-dka' && <DkaTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-pengadaan' && <PengadaanTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-penggunaan' && <PenggunaanTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
@@ -1012,6 +1020,7 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
             {canDecide && <Button onClick={handleSahkan} disabled={busy}><CheckCircle2 className="h-4 w-4" /> Sahkan</Button>}
             {canDecide && <Button variant="outline" onClick={handleKembalikan} disabled={busy}><RotateCcw className="h-4 w-4" /> Kembalikan</Button>}
             {canCancelApproval && <Button variant="outline" onClick={handleBatalkan} disabled={busy} className="text-[var(--color-danger)]"><RotateCcw className="h-4 w-4" /> Batalkan Pengesahan</Button>}
+            <Button variant="outline" onClick={() => openCetak('dka', usulan.id)}><Printer className="h-4 w-4" /> Cetak DKA</Button>
           </div>
         </div>
         {error && <p className="mt-3 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
@@ -1905,6 +1914,178 @@ function UnitBar({ hasFullAccess, schools, schoolId, setSchoolId, right }) {
 }
 
 // =========================================================================
+// TAB: DASHBOARD SARPRAS — ringkasan aset & proses siklus hidup.
+// =========================================================================
+function DashBar({ label, value, max, color }) {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-28 shrink-0 text-xs text-[var(--color-ink-soft)]">{label}</span>
+      <div className="h-3 flex-1 rounded-full bg-black/[0.05]"><div className="h-3 rounded-full" style={{ width: `${pct}%`, background: color || 'var(--color-navy)' }} /></div>
+      <span className="w-10 shrink-0 text-right text-xs font-medium">{value}</span>
+    </div>
+  )
+}
+
+function DashboardTab({ hasFullAccess, mySchools }) {
+  const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const nowY = new Date().getFullYear()
+    let aq = supabase.from('aset').select('id, nilai_perolehan, kondisi, status, schools!school_id(nama, jenjang)')
+    let dq = supabase.from('dka_usulan').select('status').eq('tahun', nowY)
+    let oq = supabase.from('aset_opname').select('status')
+    let hq = supabase.from('aset_penghapusan').select('status')
+    let mq = supabase.from('aset_pemeliharaan_log').select('biaya, aset!inner(school_id)')
+    let yq = supabase.from('aset_penyaluran').select('status, aset!inner(school_id)')
+    if (schoolId) {
+      aq = aq.eq('school_id', schoolId); dq = dq.eq('school_id', schoolId); oq = oq.eq('school_id', schoolId)
+      hq = hq.eq('school_id', schoolId); mq = mq.eq('aset.school_id', schoolId); yq = yq.eq('aset.school_id', schoolId)
+    }
+    const [{ data: aset }, { data: dka }, { data: opname }, { data: hapus }, { data: pmel }, { data: salur }] = await Promise.all([aq, dq, oq, hq, mq, yq])
+    setData({ aset: aset || [], dka: dka || [], opname: opname || [], hapus: hapus || [], pmel: pmel || [], salur: salur || [] })
+    setLoading(false)
+  }, [schoolId])
+  useEffect(() => { load() }, [load])
+
+  const stat = useMemo(() => {
+    if (!data) return null
+    const aktif = data.aset.filter((a) => a.status === 'aktif')
+    const kon = { baik: 0, rusak_ringan: 0, rusak_berat: 0 }
+    aktif.forEach((a) => { kon[a.kondisi] = (kon[a.kondisi] || 0) + 1 })
+    const perUnit = {}
+    aktif.forEach((a) => { const k = a.schools ? `${a.schools.jenjang} — ${a.schools.nama}` : 'Kantor Yayasan'; if (!perUnit[k]) perUnit[k] = { jumlah: 0, nilai: 0 }; perUnit[k].jumlah++; perUnit[k].nilai += Number(a.nilai_perolehan || 0) })
+    return {
+      total: aktif.length,
+      nilai: aktif.reduce((s, a) => s + Number(a.nilai_perolehan || 0), 0),
+      kon, rusak: kon.rusak_ringan + kon.rusak_berat,
+      dihapus: data.aset.filter((a) => a.status === 'dihapus').length,
+      perUnit: Object.entries(perUnit).sort((a, b) => b[1].nilai - a[1].nilai),
+      dkaDisahkan: data.dka.filter((d) => d.status === 'disahkan').length,
+      dkaDiajukan: data.dka.filter((d) => d.status === 'diajukan').length,
+      opnameBerjalan: data.opname.filter((o) => o.status === 'berjalan').length,
+      hapusDiajukan: data.hapus.filter((h) => h.status === 'diajukan').length,
+      salurDiminta: data.salur.filter((s) => s.status === 'diminta').length,
+      pmelJml: data.pmel.length,
+      pmelBiaya: data.pmel.reduce((s, m) => s + Number(m.biaya || 0), 0),
+    }
+  }, [data])
+
+  if (loading || !stat) return <FullPageSpinner />
+  const maxKon = Math.max(stat.kon.baik, stat.kon.rusak_ringan, stat.kon.rusak_berat, 1)
+  const maxUnit = Math.max(...stat.perUnit.map(([, v]) => v.nilai), 1)
+
+  return (
+    <div className="flex flex-col gap-5">
+      <UnitBar hasFullAccess={hasFullAccess} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId} />
+      {hasFullAccess && !schoolId && <p className="-mt-2 text-xs text-[var(--color-ink-soft)]">Menampilkan gabungan seluruh unit. Pilih unit untuk memfilter.</p>}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Total Aset (aktif)" value={stat.total} />
+        <StatCard label="Nilai Perolehan" value={formatRupiah(stat.nilai)} accent="gold" />
+        <StatCard label="Aset Perlu Perhatian (rusak)" value={stat.rusak} />
+        <StatCard label="Aset Dihapus" value={stat.dihapus} />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SectionCard title="Kondisi Aset">
+          <div className="flex flex-col gap-2.5">
+            <DashBar label="Baik" value={stat.kon.baik} max={maxKon} color="var(--color-success)" />
+            <DashBar label="Rusak Ringan" value={stat.kon.rusak_ringan} max={maxKon} color="var(--color-gold)" />
+            <DashBar label="Rusak Berat" value={stat.kon.rusak_berat} max={maxKon} color="var(--color-danger)" />
+          </div>
+        </SectionCard>
+        <SectionCard title="Proses Berjalan (siklus aset)">
+          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+            <div><div className="text-lg font-semibold text-[var(--color-navy)]">{stat.dkaDisahkan}</div><div className="text-xs text-[var(--color-ink-soft)]">DKA disahkan</div></div>
+            <div><div className="text-lg font-semibold text-[var(--color-navy)]">{stat.dkaDiajukan}</div><div className="text-xs text-[var(--color-ink-soft)]">DKA menunggu sahkan</div></div>
+            <div><div className="text-lg font-semibold text-[var(--color-navy)]">{stat.salurDiminta}</div><div className="text-xs text-[var(--color-ink-soft)]">Penyaluran diminta</div></div>
+            <div><div className="text-lg font-semibold text-[var(--color-navy)]">{stat.opnameBerjalan}</div><div className="text-xs text-[var(--color-ink-soft)]">Opname berjalan</div></div>
+            <div><div className="text-lg font-semibold text-[var(--color-navy)]">{stat.hapusDiajukan}</div><div className="text-xs text-[var(--color-ink-soft)]">Penghapusan diajukan</div></div>
+            <div><div className="text-lg font-semibold text-[var(--color-navy)]">{stat.pmelJml}</div><div className="text-xs text-[var(--color-ink-soft)]">Catatan pemeliharaan</div></div>
+          </div>
+          <p className="mt-3 text-xs text-[var(--color-ink-soft)]">Total biaya pemeliharaan tercatat: <b>{formatRupiah(stat.pmelBiaya)}</b></p>
+        </SectionCard>
+      </div>
+
+      {!schoolId && stat.perUnit.length > 0 && (
+        <SectionCard title="Distribusi Aset per Unit">
+          <div className="flex flex-col gap-2.5">
+            {stat.perUnit.map(([nama, v]) => (
+              <div key={nama} className="flex items-center gap-2">
+                <span className="w-40 shrink-0 truncate text-xs text-[var(--color-ink-soft)]" title={nama}>{nama}</span>
+                <div className="h-3 flex-1 rounded-full bg-black/[0.05]"><div className="h-3 rounded-full bg-[var(--color-navy)]" style={{ width: `${Math.round((v.nilai / maxUnit) * 100)}%` }} /></div>
+                <span className="w-16 shrink-0 text-right text-xs">{v.jumlah} aset</span>
+                <span className="w-28 shrink-0 text-right text-xs font-medium">{formatRupiah(v.nilai)}</span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
+    </div>
+  )
+}
+
+// =========================================================================
+// TAB: DOKUMEN & FORMULIR — cetak semua dokumen kerja SOP (auto-isi data).
+// =========================================================================
+function DokumenRow({ doc, schoolId }) {
+  const [recs, setRecs] = useState(null)
+  const [sel, setSel] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  if (!doc.pick) {
+    return (
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] py-2 last:border-0">
+        <span className="text-sm text-[var(--color-ink)]">{doc.label}</span>
+        <Button size="sm" variant="outline" onClick={() => openCetak(doc.jenis)}><Printer className="h-3.5 w-3.5" /> Cetak</Button>
+      </div>
+    )
+  }
+  const loadRecs = async () => { setLoading(true); const r = await listRecords(doc.pick, schoolId); setRecs(r); setLoading(false) }
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] py-2 last:border-0">
+      <span className="text-sm text-[var(--color-ink)]">{doc.label}</span>
+      <div className="flex items-center gap-2">
+        {recs === null ? (
+          <Button size="sm" variant="outline" onClick={loadRecs} disabled={!schoolId || loading}>{loading ? 'Memuat…' : 'Pilih data'}</Button>
+        ) : recs.length === 0 ? (
+          <span className="text-[11px] text-[var(--color-ink-soft)]">tidak ada data</span>
+        ) : (
+          <>
+            <Select containerClassName="w-56" value={sel} onChange={(e) => setSel(e.target.value)}>
+              <option value="">— pilih data —</option>
+              {recs.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+            </Select>
+            <Button size="sm" disabled={!sel} onClick={() => openCetak(doc.jenis, sel)}><Printer className="h-3.5 w-3.5" /> Cetak</Button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DokumenTab({ hasFullAccess, mySchools }) {
+  const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
+  const areas = useMemo(() => [...new Set(DOKUMEN_LIST.map((d) => d.area))], [])
+  return (
+    <div className="flex flex-col gap-5">
+      <UnitBar hasFullAccess={hasFullAccess} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId} />
+      <p className="-mt-2 text-sm text-[var(--color-ink-soft)]">Dokumen resmi terisi <b>otomatis dari data</b> — pilih unit &amp; data sumbernya lalu <b>Cetak / Simpan PDF</b>. Dokumen tanpa data (formulir) langsung bisa dicetak sebagai blanko.</p>
+      {hasFullAccess && !schoolId && <p className="rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-xs text-[var(--color-gold)]">Pilih unit dulu untuk mencetak dokumen berbasis data. Formulir kosong tetap bisa dicetak tanpa memilih unit.</p>}
+      {areas.map((area) => (
+        <SectionCard key={area} title={area}>
+          <div>{DOKUMEN_LIST.filter((d) => d.area === area).map((doc) => <DokumenRow key={doc.jenis} doc={doc} schoolId={schoolId} />)}</div>
+        </SectionCard>
+      ))}
+    </div>
+  )
+}
+
+// =========================================================================
 // TAB: PENGGUNAAN (Status Penggunaan) — BAB VI
 // =========================================================================
 function PenggunaanTab({ hasFullAccess, mySchools }) {
@@ -2488,12 +2669,11 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
             <div className="flex items-center gap-2"><h3 className="text-base font-semibold text-[var(--color-ink)]">{sesi.judul || 'Opname'} — {sesi.tahun}</h3><Badge color={OPNAME_STATUS_BADGE[sesi.status]}>{OPNAME_STATUS_LABEL[sesi.status]}</Badge></div>
             <p className="mt-1 text-xs text-[var(--color-ink-soft)]">{items.length} aset · {dicek} dicek · {hilang} tidak ditemukan</p>
           </div>
-          {editable && (
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={generate} disabled={busy}><Download className="h-4 w-4" /> {items.length ? 'Tarik Ulang' : 'Tarik dari Inventaris'}</Button>
-              <Button onClick={selesaikan} disabled={busy}><CheckCircle2 className="h-4 w-4" /> Selesaikan</Button>
-            </div>
-          )}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => openCetak('lhi', opnameId)}><Printer className="h-4 w-4" /> Cetak LHI</Button>
+            {editable && <Button variant="outline" onClick={generate} disabled={busy}><Download className="h-4 w-4" /> {items.length ? 'Tarik Ulang' : 'Tarik dari Inventaris'}</Button>}
+            {editable && <Button onClick={selesaikan} disabled={busy}><CheckCircle2 className="h-4 w-4" /> Selesaikan</Button>}
+          </div>
         </div>
       </Card>
       <SectionCard title="Daftar Hasil Inventarisasi (LHI)">
@@ -2681,6 +2861,8 @@ function PenghapusanDetail({ penghapusanId, hasFullAccess, managesUnit, schoolId
             {canSubmit && <Button onClick={handleAjukan} disabled={busy}><Send className="h-4 w-4" /> Ajukan</Button>}
             {canDecide && <Button onClick={handleSetujui} disabled={busy}><CheckCircle2 className="h-4 w-4" /> Setujui</Button>}
             {canDecide && <Button variant="outline" onClick={handleTolak} disabled={busy}><RotateCcw className="h-4 w-4" /> Tolak</Button>}
+            <Button variant="outline" onClick={() => openCetak('permohonan_penghapusan', u.id)}><Printer className="h-4 w-4" /> Permohonan</Button>
+            {status === 'disahkan' && <Button variant="outline" onClick={() => openCetak('sk_penghapusan', u.id)}><Printer className="h-4 w-4" /> SK</Button>}
           </div>
         </div>
         {canEdit && (

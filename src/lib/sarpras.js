@@ -8,6 +8,7 @@
 //   kind   : live-* (fitur sudah ada) | menyusul | kebijakan
 //   fullAccessOnly : hanya Yayasan (Admin Yayasan/HR)
 export const SARPRAS_AREAS = [
+  { slug: 'dashboard', label: 'Dashboard', sop: null, kind: 'live-dashboard' },
   { slug: 'perencanaan', label: 'Perencanaan', sop: 'perencanaan', kind: 'live-dka' },
   { slug: 'pengadaan', label: 'Pengadaan', sop: 'pengadaan', kind: 'live-pengadaan' },
   { slug: 'penerimaan', label: 'Penerimaan & Penyaluran', sop: 'penyaluran', kind: 'live-penyaluran' },
@@ -18,8 +19,9 @@ export const SARPRAS_AREAS = [
   { slug: 'pemeliharaan', label: 'Pemeliharaan', sop: 'pemeliharaan', kind: 'live-pemeliharaan' },
   { slug: 'penghapusan', label: 'Penghapusan', sop: 'penghapusan', kind: 'live-penghapusan' },
   { slug: 'kodefikasi', label: 'Kodefikasi', sop: 'kodefikasi', kind: 'live-kodefikasi', fullAccessOnly: true },
+  { slug: 'dokumen', label: 'Dokumen & Formulir', sop: null, kind: 'live-dokumen' },
   { slug: 'kebijakan', label: 'Kebijakan & SOP', sop: null, kind: 'kebijakan' },
 ]
 
 // Area default saat membuka /aset tanpa slug.
-export const SARPRAS_DEFAULT = 'inventaris'
+export const SARPRAS_DEFAULT = 'dashboard'
