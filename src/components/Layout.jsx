@@ -5,9 +5,19 @@ import {
   GraduationCap, Building2, UserCog, LogOut, Menu, X, Activity, CalendarOff,
   History, Mail, ChevronRight, BookOpen, Contact, CalendarRange, ClipboardCheck,
   ReceiptText, NotebookText, Target, Boxes,
+  ClipboardList, ShoppingCart, Truck, UserCheck, DoorOpen, Wrench, Trash2, Tag, ShieldCheck,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/format'
+import { SARPRAS_AREAS } from '../lib/sarpras'
+
+// Ikon per area Sarpras (dipetakan dari slug agar lib/sarpras bebas ikon).
+const SARPRAS_ICONS = {
+  perencanaan: ClipboardList, pengadaan: ShoppingCart, penerimaan: Truck,
+  penggunaan: UserCheck, inventaris: Boxes, ruangan: DoorOpen,
+  inventarisasi: ClipboardCheck, pemeliharaan: Wrench, penghapusan: Trash2,
+  kodefikasi: Tag, kebijakan: ShieldCheck,
+}
 
 // Fitur modul Kepegawaian (Dasbor s/d Struktur Organisasi) dikelompokkan
 // jadi satu dropdown yang bisa dilipat di Sidebar — menyiapkan tempat
@@ -58,10 +68,14 @@ function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara }) {
   }
 
   // Modul Sarana & Prasarana (Manajemen Aset) — untuk manajemen sekolah &
-  // Yayasan (per-unit lewat RLS). Kelompok tersendiri.
+  // Yayasan (per-unit lewat RLS). Tiap area siklus (juknis) jadi sub-menu
+  // tersendiri di dropdown, seperti Kepegawaian & Kesiswaan.
   const sarpras = []
   if (isManager) {
-    sarpras.push({ to: '/aset', label: 'Inventaris Aset', icon: Boxes })
+    for (const a of SARPRAS_AREAS) {
+      if (a.fullAccessOnly && !hasFullAccess) continue
+      sarpras.push({ to: `/aset/${a.slug}`, label: a.label, icon: SARPRAS_ICONS[a.slug] || Boxes })
+    }
   }
 
   const lainnya = []

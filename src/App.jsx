@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { RequireAuth, RequireFullAccess } from './components/RouteGuards'
 import Layout from './components/Layout'
@@ -69,7 +69,8 @@ export default function App() {
             <Route path="presensi-siswa" element={<StudentAttendanceList />} />
             <Route path="spp" element={<SppList />} />
             <Route path="nilai-rapor" element={<NilaiRapor />} />
-            <Route path="aset" element={<AsetList />} />
+            <Route path="aset" element={<Navigate to="/aset/inventaris" replace />} />
+            <Route path="aset/:area" element={<AsetList />} />
           </Route>
         </Routes>
       </BrowserRouter>

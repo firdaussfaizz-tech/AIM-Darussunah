@@ -9,28 +9,15 @@ import {
   DKA_STATUS_LABEL, DKA_STATUS_BADGE, ALASAN_KEBUTUHAN_OPTIONS, CARA_PENGADAAN_OPTIONS,
   SUMBER_ANGGARAN_OPTIONS, validasiHargaItem,
 } from '../../lib/dka'
+import { useParams, Navigate } from 'react-router-dom'
 import { SOP_SARPRAS, PIC_SARPRAS } from '../../lib/sopSarpras'
+import { SARPRAS_AREAS, SARPRAS_DEFAULT } from '../../lib/sarpras'
 
-// Navigasi modul mengikuti SIKLUS HIDUP ASET (juknis BAB III–XIII).
-// kind: live-* = fitur pencatatan sudah ada; menyusul = SOP dulu, fitur
-// pencatatan menyusul tahap berikutnya; kebijakan = kumpulan SOP.
-const AREA_TABS = [
-  { key: 'Perencanaan', sop: 'perencanaan', kind: 'live-dka' },
-  { key: 'Pengadaan', sop: 'pengadaan', kind: 'menyusul' },
-  { key: 'Penerimaan & Penyaluran', sop: 'penyaluran', kind: 'menyusul' },
-  { key: 'Penggunaan', sop: 'penggunaan', kind: 'menyusul' },
-  { key: 'Inventaris', sop: 'inventaris', kind: 'live-inventaris' },
-  { key: 'Ruangan', sop: 'inventaris', kind: 'live-ruangan' },
-  { key: 'Inventarisasi', sop: 'inventarisasi', kind: 'menyusul' },
-  { key: 'Pemeliharaan', sop: 'pemeliharaan', kind: 'menyusul' },
-  { key: 'Penghapusan', sop: 'penghapusan', kind: 'menyusul' },
-  { key: 'Kodefikasi', sop: 'kodefikasi', kind: 'live-kodefikasi', fullAccessOnly: true },
-  { key: 'Kebijakan & SOP', sop: null, kind: 'kebijakan' },
-]
-
+// Tiap area = satu halaman /aset/:area (menu dropdown di Sidebar). Konten
+// dipilih dari SARPRAS_AREAS berdasarkan slug pada URL.
 export default function AsetList() {
   const { isManager, hasFullAccess, roles, loading: authLoading } = useAuth()
-  const [tab, setTab] = useState('Inventaris')
+  const { area } = useParams()
   const [sopOpen, setSopOpen] = useState(false)
 
   const mySchools = useMemo(() => {
@@ -48,27 +35,16 @@ export default function AsetList() {
     return <EmptyState icon={ShieldAlert} title="Akses terbatas" description="Halaman Sarana & Prasarana hanya untuk manajemen (Admin Yayasan/HR, Admin Sekolah, Kepala Sekolah)." />
   }
 
-  const tabs = AREA_TABS.filter((t) => hasFullAccess || !t.fullAccessOnly)
-  const active = tabs.find((t) => t.key === tab) || tabs[0]
-  const sop = active?.sop ? SOP_SARPRAS[active.sop] : null
+  const active = SARPRAS_AREAS.find((a) => a.slug === area)
+  // Slug tak dikenal, atau area khusus Yayasan diakses non-Yayasan → alihkan.
+  if (!active || (active.fullAccessOnly && !hasFullAccess)) {
+    return <Navigate to={`/aset/${SARPRAS_DEFAULT}`} replace />
+  }
+  const sop = active.sop ? SOP_SARPRAS[active.sop] : null
 
   return (
     <div>
-      <PageHeader title="Sarana & Prasarana" description="Pengelolaan aset satuan pendidikan sesuai Juknis Manajemen Aset YPI Darussunah — dari perencanaan hingga penghapusan. Setiap area memuat SOP-nya." />
-      <div className="mb-4 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
-              active.key === t.key ? 'border-[var(--color-navy)] text-[var(--color-navy)]' : 'border-transparent text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]'
-            }`}
-          >
-            {t.key}
-            {t.kind === 'menyusul' && <Clock3 className="ml-1 inline h-3 w-3 text-[var(--color-ink-soft)]" />}
-          </button>
-        ))}
-      </div>
+      <PageHeader title={`Sarana & Prasarana — ${active.label}`} description="Pengelolaan aset satuan pendidikan sesuai Juknis Manajemen Aset YPI Darussunah. Setiap area memuat SOP-nya." />
 
       {sop && (
         <div className="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--color-navy-50)] px-4 py-2.5">
