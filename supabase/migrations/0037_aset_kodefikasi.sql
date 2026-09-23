@@ -312,10 +312,10 @@ alter table public.schools add column if not exists kode_lembaga text;
 -- Pesantren/boarding=04). Yayasan bisa membakukan lebih lanjut.
 update public.schools set kode_lembaga = case
   when kode_lembaga is not null then kode_lembaga
-  when lower(jenjang) = 'sd' then '01'
-  when lower(jenjang) = 'smp' then '02'
-  when lower(jenjang) = 'sma' then '03'
-  when lower(jenjang) like 'pesantren%' or lower(jenjang) like 'boarding%' then '04'
+  when lower(jenjang::text) = 'sd' then '01'
+  when lower(jenjang::text) = 'smp' then '02'
+  when lower(jenjang::text) = 'sma' then '03'
+  when lower(jenjang::text) like 'pesantren%' or lower(jenjang::text) like 'boarding%' then '04'
   else '00'
 end
 where kode_lembaga is null;
