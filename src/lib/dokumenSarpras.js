@@ -48,7 +48,8 @@ export const DOKUMEN_LIST = [
   { jenis: 'spa', area: 'Penerimaan & Penyaluran', label: 'Surat Permintaan Aset (SPA)', pick: 'penyaluran' },
   { jenis: 'sppa', area: 'Penerimaan & Penyaluran', label: 'Surat Perintah Penyaluran Aset (SPPA)', pick: 'penyaluran' },
   { jenis: 'kartu_persediaan', area: 'Penerimaan & Penyaluran', label: 'Kartu Persediaan Aset (formulir)', pick: null },
-  { jenis: 'buku_pengeluaran', area: 'Penerimaan & Penyaluran', label: 'Buku Pengeluaran Aset (formulir)', pick: null },
+  { jenis: 'buku_persediaan', area: 'Penerimaan & Penyaluran', label: 'Buku Persediaan (Kartu Stok Barang Habis Pakai)', pick: 'bhp' },
+  { jenis: 'buku_pengeluaran', area: 'Penerimaan & Penyaluran', label: 'Buku Pengeluaran Barang', pick: 'school' },
   { jenis: 'bukti_pengambilan', area: 'Penerimaan & Penyaluran', label: 'Bukti Pengambilan Aset (formulir)', pick: null },
   // Penggunaan
   { jenis: 'surat_pengajuan_penggunaan', area: 'Penggunaan', label: 'Surat Pengajuan Status Penggunaan (formulir)', pick: null },
@@ -115,6 +116,10 @@ export async function listRecords(pick, schoolId) {
     const { data } = await supabase.from('ruangan').select('id, nama').eq('school_id', schoolId).order('nama')
     return (data || []).map((r) => ({ id: r.id, label: r.nama }))
   }
+  if (pick === 'bhp') {
+    const { data } = await supabase.from('barang_habis_pakai').select('id, nama, satuan, stok').eq('school_id', schoolId).order('nama')
+    return (data || []).map((r) => ({ id: r.id, label: `${r.nama} (stok ${Number(r.stok)} ${r.satuan})` }))
+  }
   if (pick === 'school') {
     const { data } = await supabase.from('schools').select('id, nama, jenjang').eq('id', schoolId).maybeSingle()
     return data ? [{ id: data.id, label: unitName(data) }] : []
@@ -169,11 +174,20 @@ export async function loadDokumen(jenis, id) {
     const { data: aset } = await supabase.from('aset').select('*, aset_klasifikasi(kode)').eq('ruangan_id', id).eq('status', 'aktif').order('nama')
     return { _meta: meta, rg, aset: aset || [], school: rg?.schools }
   }
+  if (g === 'bhp') {
+    const { data: b } = await supabase.from('barang_habis_pakai').select('*, schools!school_id(nama, jenjang)').eq('id', id).maybeSingle()
+    const { data: trx } = await supabase.from('bhp_transaksi').select('*').eq('bhp_id', id).order('tanggal')
+    return { _meta: meta, b, trx: trx || [], school: b?.schools }
+  }
   if (g === 'school') {
     const { data: school } = await supabase.from('schools').select('id, nama, jenjang').eq('id', id).maybeSingle()
     if (jenis === 'logbook_pemeliharaan') {
       const { data: logs } = await supabase.from('aset_pemeliharaan_log').select('*, aset!inner(nama, kode_aset, school_id)').eq('aset.school_id', id).order('tanggal', { ascending: false })
       return { _meta: meta, school, logs: logs || [] }
+    }
+    if (jenis === 'buku_pengeluaran') {
+      const { data: trx } = await supabase.from('bhp_transaksi').select('*, barang_habis_pakai!inner(nama, satuan, school_id)').eq('jenis', 'keluar').eq('barang_habis_pakai.school_id', id).order('tanggal', { ascending: false })
+      return { _meta: meta, school, trx: trx || [] }
     }
     const { data: aset } = await supabase.from('aset').select('*, aset_klasifikasi(kode, uraian), ruangan(nama)').eq('school_id', id).order('kode_aset', { nullsFirst: false })
     return { _meta: meta, school, aset: aset || [] }
@@ -447,7 +461,25 @@ const BUILDERS = {
   kerangka_pengadaan: () => ({ judul: 'KERANGKA KERJA PENGADAAN', nomor: blank, meta: [['Nama Aset', blank], ['Merk & Spesifikasi', blank], ['Jumlah', blank], ['Harga Satuan', blank], ['Pagu Anggaran', blank], ['Waktu & Lokasi', blank], ['Persyaratan Penyedia', blank]], narasi: ['Formulir disusun berdasarkan DKA yang ditetapkan & RKAS satuan pendidikan.'], ttd: ttdDua({ peran: 'Menyetujui,\nKetua Yayasan', jabatan: '', nama: blank }, { peran: 'Kepala Satuan Pendidikan', jabatan: '', nama: blank }) }),
   surat_penawaran: () => ({ judul: 'SURAT PENAWARAN / INVOICE', nomor: blank, tables: [{ columns: ['No', 'Nama Barang', 'Spesifikasi', 'Jumlah', 'Harga Satuan', 'Jumlah'], rows: Array.from({ length: 6 }, (_, i) => [i + 1, '', '', '', '', '']) }], ttd: [{ peran: 'Hormat kami,\nPenyedia', jabatan: '', nama: blank }] }),
   kartu_persediaan: () => ({ judul: 'KARTU PERSEDIAAN ASET', nomor: blank, meta: [['Nama Barang', blank], ['Satuan', blank]], tables: [{ columns: ['Tanggal', 'Uraian', 'Masuk', 'Keluar', 'Saldo'], rows: Array.from({ length: 10 }, () => ['', '', '', '', '']) }], ttd: [{ peran: 'Petugas Gudang / Tata Usaha', jabatan: '', nama: blank }] }),
-  buku_pengeluaran: () => ({ judul: 'BUKU PENGELUARAN ASET', nomor: blank, tables: [{ columns: ['Tanggal', 'Nama Aset', 'Jumlah', 'Tujuan/Penerima', 'No. SPPA', 'Paraf'], rows: Array.from({ length: 12 }, () => ['', '', '', '', '', '']) }], ttd: [{ peran: 'Tata Usaha', jabatan: '', nama: blank }] }),
+  buku_persediaan: ({ b, trx = [], school }) => {
+    let saldo = 0
+    const rows = trx.map((t, i) => {
+      saldo += (t.jenis === 'masuk' ? Number(t.jumlah) : -Number(t.jumlah))
+      return [i + 1, tgl(t.tanggal), t.jenis === 'masuk' ? 'Masuk' : 'Keluar', t.jenis === 'masuk' ? Number(t.jumlah) : '', t.jenis === 'keluar' ? Number(t.jumlah) : '', saldo, t.sumber_tujuan || '—']
+    })
+    return {
+      judul: 'BUKU PERSEDIAAN (KARTU STOK)', nomor: b?.nama || '', unit: unitName(school),
+      meta: [['Nama Barang', b?.nama || '—'], ['Satuan', b?.satuan || '—'], ['Stok Saat Ini', `${Number(b?.stok ?? 0)} ${b?.satuan || ''}`]],
+      tables: [{ columns: ['No', 'Tanggal', 'Jenis', 'Masuk', 'Keluar', 'Saldo', 'Sumber/Tujuan'], rows }],
+      ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'Petugas / Tata Usaha', jabatan: '', nama: blank }),
+    }
+  },
+  buku_pengeluaran: ({ school, trx = [] }) => ({
+    judul: 'BUKU PENGELUARAN BARANG', nomor: unitName(school), unit: unitName(school),
+    tables: [{ columns: ['No', 'Tanggal', 'Barang', 'Jumlah', 'Satuan', 'Penerima/Tujuan', 'Keterangan'],
+      rows: trx.map((t, i) => [i + 1, tgl(t.tanggal), t.barang_habis_pakai?.nama || '—', Number(t.jumlah), t.barang_habis_pakai?.satuan || '—', t.sumber_tujuan || '—', t.keterangan || '—']) }],
+    ttd: [{ peran: 'Tata Usaha', jabatan: '', nama: blank }],
+  }),
   bukti_pengambilan: () => ({ judul: 'BUKTI PENGAMBILAN ASET', nomor: blank, meta: [['Nama Pengambil', blank], ['Unit/Jabatan', blank], ['Tanggal', blank]], tables: [{ columns: ['Nama Aset', 'Kode', 'Jumlah', 'Keperluan'], rows: Array.from({ length: 4 }, () => ['', '', '', '']) }], ttd: ttdDua({ peran: 'Pengambil', jabatan: '', nama: blank }, { peran: 'Petugas', jabatan: '', nama: blank }) }),
   surat_pengajuan_penggunaan: () => ({ judul: 'SURAT PENGAJUAN STATUS PENGGUNAAN', nomor: blank, intro: 'Dengan ini mengajukan permohonan penggunaan aset untuk mendukung pelaksanaan tugas sebagai berikut:', tables: [{ columns: ['Nama Aset', 'Jumlah', 'Keperluan/Tugas'], rows: Array.from({ length: 4 }, () => ['', '', '']) }], ttd: ttdDua({ peran: 'Menyetujui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'Pemohon', jabatan: '', nama: blank }) }),
   rencana_inventarisasi: () => ({ judul: 'RENCANA KERJA INVENTARISASI', nomor: blank, meta: [['Tim Inventarisasi', blank], ['Periode', blank], ['Lokasi/Ruangan', blank]], tables: [{ columns: ['No', 'Kegiatan', 'Jadwal', 'Penanggung Jawab'], rows: Array.from({ length: 6 }, (_, i) => [i + 1, '', '', '']) }], ttd: ttdDua({ peran: 'Menyetujui,\nPengurus Yayasan Bidang Sarpras', jabatan: '', nama: blank }, { peran: 'Ketua Tim Inventarisasi', jabatan: '', nama: blank }) }),

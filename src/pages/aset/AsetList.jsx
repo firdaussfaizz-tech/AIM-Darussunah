@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Boxes, Plus, Pencil, Trash2, DoorOpen, ShieldAlert, Search, ClipboardList, Send, CheckCircle2, RotateCcw, Download, Tag, BookOpen, Clock3, ShieldCheck, Truck, ClipboardCheck, PackageCheck, Wrench, UserCheck, ScanLine, ArchiveX, Printer } from 'lucide-react'
+import { Boxes, Plus, Pencil, Trash2, DoorOpen, ShieldAlert, Search, ClipboardList, Send, CheckCircle2, RotateCcw, Download, Tag, BookOpen, Clock3, ShieldCheck, Truck, ClipboardCheck, PackageCheck, Wrench, UserCheck, ScanLine, ArchiveX, Printer, Package } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner, StatCard } from '../../components/ui'
@@ -21,6 +21,72 @@ import { DOKUMEN_LIST, listRecords } from '../../lib/dokumenSarpras'
 // Buka halaman cetak dokumen di tab baru (siap print/PDF).
 function openCetak(jenis, id) {
   window.open(id ? `/aset/cetak/${jenis}/${id}` : `/aset/cetak/${jenis}`, '_blank', 'noopener')
+}
+
+// Nomor surat otomatis berurut per unit + kode + tahun (RPC next_doc_number).
+async function autoNo(schoolId, kode) {
+  if (!schoolId) return ''
+  const { data, error } = await supabase.rpc('next_doc_number', { p_school_id: schoolId, p_kode: kode, p_tahun: new Date().getFullYear() })
+  return error ? '' : (data || '')
+}
+
+// Rekap lintas unit untuk Yayasan (dipakai saat belum memilih unit).
+function CrossUnitRecap({ title, description, columns, rows, onOpen }) {
+  return (
+    <SectionCard title={title} description={description}>
+      {rows.length === 0 ? (
+        <EmptyState icon={ClipboardList} title="Belum ada data" description="Belum ada catatan pada unit mana pun." />
+      ) : (
+        <Table columns={[...columns, '']}>
+          {rows.map((r) => (
+            <Tr key={r.id}>
+              {r.cells.map((c, i) => <Td key={i}>{c}</Td>)}
+              <Td><button onClick={() => onOpen(r.id)} className="text-sm font-medium text-[var(--color-navy)] hover:underline">Buka →</button></Td>
+            </Tr>
+          ))}
+        </Table>
+      )}
+    </SectionCard>
+  )
+}
+
+function PemeliharaanRekap({ onOpen }) {
+  const [rows, setRows] = useState(null)
+  useEffect(() => {
+    supabase.from('aset_pemeliharaan_log').select('biaya, aset!inner(school_id, schools!school_id(nama, jenjang))').then(({ data }) => {
+      const m = {}
+      for (const r of (data || [])) { const sid = r.aset?.school_id; if (!sid) continue; const s = r.aset?.schools; if (!m[sid]) m[sid] = { label: s ? `${s.jenjang} — ${s.nama}` : '—', count: 0, biaya: 0 }; m[sid].count++; m[sid].biaya += Number(r.biaya || 0) }
+      setRows(Object.entries(m).map(([id, v]) => ({ id, cells: [v.label, v.count, formatRupiah(v.biaya)] })))
+    })
+  }, [])
+  if (rows === null) return <FullPageSpinner />
+  return <CrossUnitRecap title="Rekap Pemeliharaan per Unit" description="Ringkasan seluruh unit. Klik untuk membuka detail." columns={['Unit', 'Catatan', 'Total Biaya']} rows={rows} onOpen={onOpen} />
+}
+
+function OpnameRekap({ onOpen }) {
+  const [rows, setRows] = useState(null)
+  useEffect(() => {
+    supabase.from('aset_opname').select('status, school_id, schools!school_id(nama, jenjang)').then(({ data }) => {
+      const m = {}
+      for (const r of (data || [])) { const sid = r.school_id; const s = r.schools; if (!m[sid]) m[sid] = { label: s ? `${s.jenjang} — ${s.nama}` : '—', total: 0, berjalan: 0 }; m[sid].total++; if (r.status === 'berjalan') m[sid].berjalan++ }
+      setRows(Object.entries(m).map(([id, v]) => ({ id, cells: [v.label, v.total, v.berjalan] })))
+    })
+  }, [])
+  if (rows === null) return <FullPageSpinner />
+  return <CrossUnitRecap title="Rekap Inventarisasi per Unit" description="Ringkasan sesi opname seluruh unit. Klik untuk membuka." columns={['Unit', 'Sesi', 'Berjalan']} rows={rows} onOpen={onOpen} />
+}
+
+function PenghapusanRekap({ onOpen }) {
+  const [rows, setRows] = useState(null)
+  useEffect(() => {
+    supabase.from('aset_penghapusan').select('status, school_id, schools!school_id(nama, jenjang)').then(({ data }) => {
+      const m = {}
+      for (const r of (data || [])) { const sid = r.school_id; const s = r.schools; if (!m[sid]) m[sid] = { label: s ? `${s.jenjang} — ${s.nama}` : '—', total: 0, diajukan: 0 }; m[sid].total++; if (r.status === 'diajukan') m[sid].diajukan++ }
+      setRows(Object.entries(m).map(([id, v]) => ({ id, cells: [v.label, v.total, v.diajukan] })))
+    })
+  }, [])
+  if (rows === null) return <FullPageSpinner />
+  return <CrossUnitRecap title="Rekap Penghapusan per Unit" description="Ringkasan usulan penghapusan seluruh unit. Klik untuk membuka & memutuskan." columns={['Unit', 'Usulan', 'Menunggu Keputusan']} rows={rows} onOpen={onOpen} />
 }
 
 // Tiap area = satu halaman /aset/:area (menu dropdown di Sidebar). Konten
@@ -74,6 +140,7 @@ export default function AsetList() {
       {active.kind === 'live-penghapusan' && <PenghapusanTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-inventaris' && <InventarisTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-ruangan' && <RuanganTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
+      {active.kind === 'live-bhp' && <BhpTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-kodefikasi' && <KodefikasiTab />}
       {active.kind === 'menyusul' && <MenyusulArea sopId={active.sop} />}
       {active.kind === 'kebijakan' && <KebijakanTab />}
@@ -1665,14 +1732,14 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
         )}
       </SectionCard>
 
-      <PengadaanPesanModal open={pesanOpen} item={activeItem} onClose={() => { setPesanOpen(false); setActiveItem(null) }} onSaved={() => { setPesanOpen(false); setActiveItem(null); load() }} />
+      <PengadaanPesanModal open={pesanOpen} item={activeItem} schoolId={schoolId} onClose={() => { setPesanOpen(false); setActiveItem(null) }} onSaved={() => { setPesanOpen(false); setActiveItem(null); load() }} />
       <PengadaanPeriksaModal open={periksaOpen} item={activeItem} onClose={() => { setPeriksaOpen(false); setActiveItem(null) }} onSaved={() => { setPeriksaOpen(false); setActiveItem(null); load() }} />
       <PengadaanBastModal open={bastOpen} item={activeItem} onClose={() => { setBastOpen(false); setActiveItem(null) }} onSaved={() => { setBastOpen(false); setActiveItem(null); load() }} />
     </div>
   )
 }
 
-function PengadaanPesanModal({ open, item, onClose, onSaved }) {
+function PengadaanPesanModal({ open, item, schoolId, onClose, onSaved }) {
   const [f, setF] = useState({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -1729,7 +1796,10 @@ function PengadaanPesanModal({ open, item, onClose, onSaved }) {
         </Select>
         <Input label="Penyedia / Toko / Rekanan" value={f.penyedia || ''} onChange={(e) => set('penyedia', e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
-          <Input label="Nomor SPK / Pesanan" value={f.nomor_spk || ''} onChange={(e) => set('nomor_spk', e.target.value)} placeholder="Wajib bila Rp50–200 juta" />
+          <div>
+            <Input label="Nomor SPK / Pesanan" value={f.nomor_spk || ''} onChange={(e) => set('nomor_spk', e.target.value)} placeholder="Wajib bila Rp50–200 juta" />
+            <button type="button" onClick={async () => set('nomor_spk', await autoNo(schoolId, 'SPK'))} className="mt-1 text-[11px] text-[var(--color-navy)] hover:underline">buat nomor otomatis</button>
+          </div>
           <Input label="Tanggal SPK" type="date" value={f.tanggal_spk || ''} onChange={(e) => set('tanggal_spk', e.target.value)} />
         </div>
         <Input label="Nomor Nota/Kuitansi/Invoice" value={f.nomor_bukti || ''} onChange={(e) => set('nomor_bukti', e.target.value)} />
@@ -2221,7 +2291,10 @@ function PenggunaanModal({ open, schoolId, editing, onClose, onSaved }) {
           <Input label="Unit Kerja" value={f.unit_kerja || ''} onChange={(e) => set('unit_kerja', e.target.value)} />
           <Input label="Tanggal Penetapan" type="date" value={f.tanggal_penetapan || ''} onChange={(e) => set('tanggal_penetapan', e.target.value)} />
         </div>
-        <Input label="Nomor Berita Acara" value={f.nomor_ba || ''} onChange={(e) => set('nomor_ba', e.target.value)} />
+        <div>
+          <Input label="Nomor Berita Acara" value={f.nomor_ba || ''} onChange={(e) => set('nomor_ba', e.target.value)} />
+          <button type="button" onClick={async () => set('nomor_ba', await autoNo(schoolId, 'BA'))} className="mt-1 text-[11px] text-[var(--color-navy)] hover:underline">buat nomor otomatis</button>
+        </div>
         <Textarea label="Keterangan" rows={2} value={f.keterangan || ''} onChange={(e) => set('keterangan', e.target.value)} />
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Batal</Button><Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button></div>
@@ -2269,7 +2342,7 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
       <UnitBar hasFullAccess={hasFullAccess} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}
         right={canManage && schoolId && <Button onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Catat Pemeliharaan</Button>} />
       {!schoolId ? (
-        <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
+        hasFullAccess ? <PemeliharaanRekap onOpen={setSchoolId} /> : <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
       ) : loading ? <FullPageSpinner /> : (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -2434,7 +2507,8 @@ function PenyaluranTab({ hasFullAccess, mySchools }) {
   useEffect(() => { load() }, [load])
 
   const handleSalurkan = async (row) => {
-    const no = prompt('Nomor SPPA (Surat Perintah Penyaluran Aset):', row.nomor_sppa || '')
+    const suggested = row.nomor_sppa || await autoNo(schoolId, 'SPPA')
+    const no = prompt('Nomor SPPA (Surat Perintah Penyaluran Aset):', suggested)
     if (no === null) return
     const { error } = await supabase.from('aset_penyaluran').update({ status: 'disalurkan', nomor_sppa: no.trim() || null, tanggal_penyaluran: new Date().toISOString().slice(0, 10) }).eq('id', row.id)
     if (error) { alert('Gagal: ' + error.message); return }
@@ -2546,7 +2620,10 @@ function PenyaluranModal({ open, schoolId, onClose, onSaved }) {
         {!f.ruangan_tujuan_id && <Input label="Penerima" value={f.penerima || ''} onChange={(e) => set('penerima', e.target.value)} />}
         <div className="grid grid-cols-3 gap-3">
           <Input label="Jumlah" type="number" value={f.jumlah ?? ''} onChange={(e) => set('jumlah', e.target.value)} />
-          <Input label="Nomor SPA" value={f.nomor_spa || ''} onChange={(e) => set('nomor_spa', e.target.value)} />
+          <div>
+            <Input label="Nomor SPA" value={f.nomor_spa || ''} onChange={(e) => set('nomor_spa', e.target.value)} />
+            <button type="button" onClick={async () => set('nomor_spa', await autoNo(schoolId, 'SPA'))} className="mt-1 text-[11px] text-[var(--color-navy)] hover:underline">otomatis</button>
+          </div>
           <Input label="Tanggal Permintaan" type="date" value={f.tanggal_permintaan || ''} onChange={(e) => set('tanggal_permintaan', e.target.value)} />
         </div>
         <Textarea label="Keterangan" rows={2} value={f.keterangan || ''} onChange={(e) => set('keterangan', e.target.value)} />
@@ -2596,7 +2673,7 @@ function InventarisasiTab({ hasFullAccess, mySchools }) {
       <UnitBar hasFullAccess={hasFullAccess} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}
         right={canManage && schoolId && <Button onClick={createSession} disabled={busy}><Plus className="h-4 w-4" /> Sesi Opname Baru</Button>} />
       {!schoolId ? (
-        <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
+        hasFullAccess ? <OpnameRekap onOpen={setSchoolId} /> : <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
       ) : loading ? <FullPageSpinner /> : (
         <SectionCard title="Sesi Inventarisasi (Opname)" description="Sensus aset vs Buku Inventaris. Kondisi aktual otomatis memperbarui kondisi aset.">
           {sessions.length === 0 ? (
@@ -2780,7 +2857,7 @@ function PenghapusanTab({ hasFullAccess, mySchools }) {
       <UnitBar hasFullAccess={hasFullAccess} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}
         right={managesUnit && schoolId && <Button onClick={createUsulan} disabled={busy}><Plus className="h-4 w-4" /> Usulan Penghapusan</Button>} />
       {!schoolId ? (
-        <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
+        hasFullAccess ? <PenghapusanRekap onOpen={setSchoolId} /> : <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
       ) : loading ? <FullPageSpinner /> : (
         <SectionCard title="Usulan Penghapusan & Pemindahtanganan" description="Sekolah mengusulkan; Yayasan menyetujui. Setelah disetujui, aset otomatis ditandai dihapus di Inventaris.">
           {rows.length === 0 ? (
@@ -2838,7 +2915,8 @@ function PenghapusanDetail({ penghapusanId, hasFullAccess, managesUnit, schoolId
   }
   const handleAjukan = async () => { if (items.length === 0) { setError('Tambahkan minimal satu aset.'); return } saveHeader({ status: 'diajukan' }) }
   const handleSetujui = async () => {
-    const sk = prompt('Nomor SK Penghapusan (opsional):', u.nomor_sk || '')
+    const suggested = u.nomor_sk || await autoNo(schoolId, 'SK')
+    const sk = prompt('Nomor SK Penghapusan:', suggested)
     if (sk === null) return
     if (!confirm('Setujui usulan penghapusan ini? Aset yang tercantum akan otomatis ditandai DIHAPUS di Inventaris.')) return
     saveHeader({ status: 'disahkan', nomor_sk: sk.trim() || null })
@@ -2952,6 +3030,191 @@ function PenghapusanItemModal({ open, penghapusanId, schoolId, onClose, onSaved 
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Batal</Button><Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button></div>
       </form>
+    </Modal>
+  )
+}
+
+// =========================================================================
+// TAB: BARANG HABIS PAKAI (BHP) — persediaan + buku transaksi (stok otomatis).
+// =========================================================================
+function BhpTab({ hasFullAccess, mySchools }) {
+  const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
+  const managesUnit = useMemo(() => mySchools.some((s) => s.id === schoolId), [mySchools, schoolId])
+  const canManage = hasFullAccess || managesUnit
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [trxItem, setTrxItem] = useState(null)
+
+  const load = useCallback(async () => {
+    if (!schoolId) { setRows([]); setLoading(false); return }
+    setLoading(true)
+    const { data } = await supabase.from('barang_habis_pakai').select('*').eq('school_id', schoolId).order('nama')
+    setRows(data || []); setLoading(false)
+  }, [schoolId])
+  useEffect(() => { load() }, [load])
+
+  const handleDelete = async (row) => {
+    if (!confirm(`Hapus "${row.nama}" beserta riwayat transaksinya?`)) return
+    const { error } = await supabase.from('barang_habis_pakai').delete().eq('id', row.id)
+    if (error) { alert('Gagal: ' + error.message); return }
+    load()
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <UnitBar hasFullAccess={hasFullAccess} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}
+        right={schoolId && (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => openCetak('buku_pengeluaran', schoolId)}><Printer className="h-4 w-4" /> Buku Pengeluaran</Button>
+            {canManage && <Button onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tambah Barang</Button>}
+          </div>
+        )} />
+      {!schoolId ? (
+        <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
+      ) : loading ? <FullPageSpinner /> : (
+        <SectionCard title="Barang Habis Pakai (Persediaan)" description="Stok diperbarui otomatis dari transaksi masuk/keluar. Kartu stok bisa dicetak sebagai Buku Persediaan.">
+          {rows.length === 0 ? (
+            <EmptyState icon={Package} title="Belum ada barang" description="Tambahkan barang habis pakai (ATK, bahan pembersih, dll)." />
+          ) : (
+            <div className="overflow-x-auto">
+              <Table columns={['Nama', 'Satuan', 'Stok', 'Stok Min', 'Status', canManage ? 'Aksi' : 'Aksi']}>
+                {rows.map((r) => {
+                  const low = Number(r.stok) <= Number(r.stok_min)
+                  return (
+                    <Tr key={r.id}>
+                      <Td className="font-medium">{r.nama}</Td>
+                      <Td>{r.satuan}</Td>
+                      <Td className="font-medium">{Number(r.stok)}</Td>
+                      <Td>{Number(r.stok_min)}</Td>
+                      <Td>{low ? <Badge color="danger">Perlu isi ulang</Badge> : <Badge color="success">Aman</Badge>}</Td>
+                      <Td className="text-right">
+                        <div className="flex justify-end gap-1.5">
+                          <Button size="sm" variant="outline" onClick={() => setTrxItem(r)}><ClipboardList className="h-3.5 w-3.5" /> Transaksi</Button>
+                          <button onClick={() => openCetak('buku_persediaan', r.id)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Cetak kartu stok"><Printer className="h-4 w-4" /></button>
+                          {canManage && <button onClick={() => { setEditing(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>}
+                          {canManage && <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>}
+                        </div>
+                      </Td>
+                    </Tr>
+                  )
+                })}
+              </Table>
+            </div>
+          )}
+        </SectionCard>
+      )}
+      <BhpFormModal open={formOpen} schoolId={schoolId} editing={editing} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={() => { setFormOpen(false); setEditing(null); load() }} />
+      <BhpTrxModal item={trxItem} onClose={() => setTrxItem(null)} onChanged={load} />
+    </div>
+  )
+}
+
+function BhpFormModal({ open, schoolId, editing, onClose, onSaved }) {
+  const [f, setF] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const isEdit = !!editing
+  useEffect(() => {
+    if (!open) return
+    setError('')
+    setF(editing
+      ? { nama: editing.nama || '', satuan: editing.satuan || 'pcs', stok_min: String(editing.stok_min ?? '0') }
+      : { nama: '', satuan: 'pcs', stok_min: '0', stok_awal: '0' })
+  }, [open, editing])
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!f.nama?.trim()) { setError('Isi nama barang.'); return }
+    setError(''); setSaving(true)
+    if (isEdit) {
+      const { error: err } = await supabase.from('barang_habis_pakai').update({ nama: f.nama.trim(), satuan: f.satuan.trim() || 'pcs', stok_min: Number(f.stok_min) || 0 }).eq('id', editing.id)
+      setSaving(false); if (err) { setError(err.message); return }; onSaved(); return
+    }
+    const { data, error: err } = await supabase.from('barang_habis_pakai').insert({ school_id: schoolId, nama: f.nama.trim(), satuan: f.satuan.trim() || 'pcs', stok_min: Number(f.stok_min) || 0 }).select('id').single()
+    if (err) { setSaving(false); setError(err.message); return }
+    const awal = Number(f.stok_awal) || 0
+    if (awal > 0 && data?.id) await supabase.from('bhp_transaksi').insert({ bhp_id: data.id, jenis: 'masuk', jumlah: awal, sumber_tujuan: 'Stok awal' })
+    setSaving(false); onSaved()
+  }
+  return (
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Ubah Barang' : 'Tambah Barang Habis Pakai'} width="max-w-md">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <Input label="Nama Barang" required value={f.nama || ''} onChange={(e) => set('nama', e.target.value)} placeholder="mis. Kertas A4, Spidol" />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Satuan" value={f.satuan || ''} onChange={(e) => set('satuan', e.target.value)} />
+          <Input label="Stok Minimum" type="number" value={f.stok_min ?? ''} onChange={(e) => set('stok_min', e.target.value)} />
+        </div>
+        {!isEdit && <Input label="Stok Awal" type="number" value={f.stok_awal ?? ''} onChange={(e) => set('stok_awal', e.target.value)} placeholder="dicatat sebagai transaksi masuk" />}
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Batal</Button><Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button></div>
+      </form>
+    </Modal>
+  )
+}
+
+function BhpTrxModal({ item, onClose, onChanged }) {
+  const open = !!item
+  const [trx, setTrx] = useState([])
+  const [f, setF] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const load = useCallback(async () => {
+    if (!item) return
+    const { data } = await supabase.from('bhp_transaksi').select('*').eq('bhp_id', item.id).order('tanggal', { ascending: false })
+    setTrx(data || [])
+  }, [item])
+  useEffect(() => {
+    if (!open) return
+    setF({ jenis: 'masuk', jumlah: '', tanggal: new Date().toISOString().slice(0, 10), sumber_tujuan: '', keterangan: '' })
+    setError(''); load()
+  }, [open, load])
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
+  const add = async (e) => {
+    e.preventDefault()
+    const j = Number(f.jumlah)
+    if (!(j > 0)) { setError('Jumlah harus lebih dari 0.'); return }
+    setError(''); setSaving(true)
+    const { error: err } = await supabase.from('bhp_transaksi').insert({ bhp_id: item.id, jenis: f.jenis, jumlah: j, tanggal: f.tanggal || null, sumber_tujuan: f.sumber_tujuan?.trim() || null, keterangan: f.keterangan?.trim() || null })
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    setF((s) => ({ ...s, jumlah: '', sumber_tujuan: '', keterangan: '' }))
+    load(); if (onChanged) onChanged()
+  }
+  const del = async (t) => { if (!confirm('Hapus transaksi ini? Stok akan dikembalikan.')) return; await supabase.from('bhp_transaksi').delete().eq('id', t.id); load(); if (onChanged) onChanged() }
+  if (!item) return null
+  return (
+    <Modal open={open} onClose={onClose} title={`Transaksi — ${item.nama}`} width="max-w-xl">
+      <form onSubmit={add} className="flex flex-col gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Select label="Jenis" value={f.jenis || 'masuk'} onChange={(e) => set('jenis', e.target.value)}>
+            <option value="masuk">Masuk</option>
+            <option value="keluar">Keluar</option>
+          </Select>
+          <Input label="Jumlah" type="number" value={f.jumlah ?? ''} onChange={(e) => set('jumlah', e.target.value)} />
+          <Input label="Tanggal" type="date" value={f.tanggal || ''} onChange={(e) => set('tanggal', e.target.value)} />
+          <Input label={f.jenis === 'masuk' ? 'Pemasok' : 'Penerima'} value={f.sumber_tujuan || ''} onChange={(e) => set('sumber_tujuan', e.target.value)} />
+        </div>
+        <Input label="Keterangan" value={f.keterangan || ''} onChange={(e) => set('keterangan', e.target.value)} />
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end"><Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Tambah Transaksi'}</Button></div>
+      </form>
+      <div className="mt-4 overflow-x-auto">
+        <Table columns={['Tanggal', 'Jenis', 'Jumlah', 'Sumber/Tujuan', '']}>
+          {trx.length === 0 ? (
+            <Tr><Td>—</Td><Td></Td><Td></Td><Td></Td><Td></Td></Tr>
+          ) : trx.map((t) => (
+            <Tr key={t.id}>
+              <Td className="text-xs">{t.tanggal ? new Date(t.tanggal).toLocaleDateString('id-ID') : '—'}</Td>
+              <Td><Badge color={t.jenis === 'masuk' ? 'success' : 'gold'}>{t.jenis === 'masuk' ? 'Masuk' : 'Keluar'}</Badge></Td>
+              <Td>{Number(t.jumlah)}</Td>
+              <Td className="text-xs">{t.sumber_tujuan || '—'}</Td>
+              <Td className="text-right"><button onClick={() => del(t)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button></Td>
+            </Tr>
+          ))}
+        </Table>
+      </div>
     </Modal>
   )
 }

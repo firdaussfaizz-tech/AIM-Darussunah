@@ -5,7 +5,7 @@ import {
   GraduationCap, Building2, UserCog, LogOut, Menu, X, Activity, CalendarOff,
   History, Mail, ChevronRight, BookOpen, Contact, CalendarRange, ClipboardCheck,
   ReceiptText, NotebookText, Target, Boxes,
-  ClipboardList, ShoppingCart, Truck, UserCheck, DoorOpen, Wrench, Trash2, Tag, ShieldCheck, FileText,
+  ClipboardList, ShoppingCart, Truck, UserCheck, DoorOpen, Wrench, Trash2, Tag, ShieldCheck, FileText, Package,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/format'
@@ -14,7 +14,7 @@ import { SARPRAS_AREAS } from '../lib/sarpras'
 // Ikon per area Sarpras (dipetakan dari slug agar lib/sarpras bebas ikon).
 const SARPRAS_ICONS = {
   dashboard: LayoutDashboard, perencanaan: ClipboardList, pengadaan: ShoppingCart, penerimaan: Truck,
-  penggunaan: UserCheck, inventaris: Boxes, ruangan: DoorOpen,
+  penggunaan: UserCheck, inventaris: Boxes, ruangan: DoorOpen, 'habis-pakai': Package,
   inventarisasi: ClipboardCheck, pemeliharaan: Wrench, penghapusan: Trash2,
   kodefikasi: Tag, dokumen: FileText, kebijakan: ShieldCheck,
 }

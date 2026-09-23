@@ -15,6 +15,7 @@ export const SARPRAS_AREAS = [
   { slug: 'penggunaan', label: 'Penggunaan', sop: 'penggunaan', kind: 'live-penggunaan' },
   { slug: 'inventaris', label: 'Inventaris', sop: 'inventaris', kind: 'live-inventaris' },
   { slug: 'ruangan', label: 'Ruangan', sop: 'inventaris', kind: 'live-ruangan' },
+  { slug: 'habis-pakai', label: 'Barang Habis Pakai', sop: 'penyaluran', kind: 'live-bhp' },
   { slug: 'inventarisasi', label: 'Inventarisasi', sop: 'inventarisasi', kind: 'live-inventarisasi' },
   { slug: 'pemeliharaan', label: 'Pemeliharaan', sop: 'pemeliharaan', kind: 'live-pemeliharaan' },
   { slug: 'penghapusan', label: 'Penghapusan', sop: 'penghapusan', kind: 'live-penghapusan' },

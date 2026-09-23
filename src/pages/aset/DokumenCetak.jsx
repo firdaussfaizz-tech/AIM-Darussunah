@@ -36,7 +36,8 @@ export default function DokumenCetak() {
         .doc-bar button { display: inline-flex; align-items: center; gap: 6px; font: 500 14px system-ui, sans-serif; padding: 8px 16px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; }
         .doc-bar button.primary { background: #1e3a5f; color: #fff; border-color: #1e3a5f; }
         .doc-page { background: #fff; width: 210mm; min-height: 297mm; margin: 0 auto; padding: 18mm 16mm; box-shadow: 0 1px 8px rgba(0,0,0,.12); color: #111; font-family: 'Times New Roman', Georgia, serif; font-size: 12pt; line-height: 1.45; }
-        .doc-kop { text-align: center; border-bottom: 3px double #111; padding-bottom: 8px; margin-bottom: 16px; }
+        .doc-kop { position: relative; text-align: center; border-bottom: 3px double #111; padding-bottom: 8px; margin-bottom: 16px; min-height: 64px; }
+        .doc-logo { position: absolute; left: 0; top: 0; height: 64px; width: auto; max-width: 84px; object-fit: contain; }
         .doc-kop .y { font-size: 15pt; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
         .doc-kop .u { font-size: 11pt; }
         .doc-kop .a { font-size: 9.5pt; color: #333; }
@@ -73,6 +74,7 @@ export default function DokumenCetak() {
 
       <div className="doc-page">
         <div className="doc-kop">
+          <img className="doc-logo" src="/logo-yayasan.png" alt="" onError={(e) => { e.currentTarget.style.display = 'none' }} />
           <div className="y">{KOP.yayasan}</div>
           {def.unit && <div className="u">{def.unit}</div>}
           <div className="a">{KOP.alamat}</div>
