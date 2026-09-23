@@ -32,8 +32,32 @@ export function AuthProvider({ children }) {
       supabase.from('employees').select('*, schools!school_id(nama, jenjang)').eq('user_id', userId).maybeSingle(),
     ])
     setProfile(profileData || null)
-    setRoles(roleData || [])
     setEmployee(employeeData || null)
+
+    // AKSES WAKIL KEPALA SEKOLAH: pegawai yang mengemban tugas tambahan
+    // ber-flag `beri_akses_manajer` (mis. Wakil Kepala Sekolah) diberi akses
+    // setara Kepala Sekolah di unit-nya. Kita suntikkan SATU peran sintetis
+    // kepala_sekolah untuk school pegawai bila belum punya peran manajer di
+    // sana — sehingga isManager, mySchools, dan menu ikut terbuka. RLS di DB
+    // (has_school_access/is_school_manager, migrasi 0039) menjamin sisi data.
+    let effectiveRoles = roleData || []
+    if (employeeData?.id && employeeData?.school_id) {
+      const { data: tt } = await supabase
+        .from('employee_tugas_tambahan')
+        .select('tugas_tambahan(beri_akses_manajer)')
+        .eq('employee_id', employeeData.id)
+      const grantsManager = (tt || []).some((r) => r.tugas_tambahan?.beri_akses_manajer)
+      const alreadyManager = effectiveRoles.some(
+        (r) => r.school_id === employeeData.school_id && ['kepala_sekolah', 'admin_sekolah'].includes(r.role)
+      )
+      if (grantsManager && !alreadyManager) {
+        effectiveRoles = [
+          ...effectiveRoles,
+          { role: 'kepala_sekolah', school_id: employeeData.school_id, schools: employeeData.schools, _via_tugas_tambahan: true },
+        ]
+      }
+    }
+    setRoles(effectiveRoles)
 
     // Rombel yang Wali Kelas-nya adalah pegawai ini — dipakai untuk
     // menampilkan menu Kesiswaan (Presensi Siswa, Nilai & Rapor) ke Wali

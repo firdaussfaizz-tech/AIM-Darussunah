@@ -790,7 +790,12 @@ function DkaTab({ hasFullAccess, mySchools }) {
         <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
       )}
 
-      {hasFullAccess && <StandarHargaPanel tahun={tahun} />}
+      <div className="flex flex-col gap-3">
+        <h3 className="mt-2 text-sm font-semibold text-[var(--color-ink)]">3 Standar Perencanaan (acuan wajib) {hasFullAccess ? '' : '— hanya baca'}</h3>
+        <StandarAsetPanel tahun={tahun} canEdit={hasFullAccess} />
+        <StandarKebutuhanPanel tahun={tahun} canEdit={hasFullAccess} />
+        <StandarHargaPanel tahun={tahun} canEdit={hasFullAccess} />
+      </div>
     </div>
   )
 }
@@ -1427,7 +1432,7 @@ function DkaItemModal({ open, usulan, schoolId, editingItem, klasifikasiList, ru
 }
 
 // Standar Harga (referensi Yayasan) — dipakai memvalidasi harga usulan.
-function StandarHargaPanel({ tahun }) {
+function StandarHargaPanel({ tahun, canEdit = true }) {
   const [open, setOpen] = useState(false)
   const [rows, setRows] = useState([])
   const [klasifikasiList, setKlasifikasiList] = useState([])
@@ -1461,15 +1466,15 @@ function StandarHargaPanel({ tahun }) {
       description="Referensi harga maksimal (dikelola Yayasan). Harga usulan di atas standar akan ditandai butuh justifikasi."
       actions={
         <div className="flex items-center gap-2">
-          {open && <Button size="sm" onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tambah</Button>}
+          {open && canEdit && <Button size="sm" onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tambah</Button>}
           <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)}><Tag className="h-4 w-4" /> {open ? 'Tutup' : 'Buka'}</Button>
         </div>
       }
     >
       {!open ? null : loading ? <p className="text-sm text-[var(--color-ink-soft)]">Memuat…</p> : rows.length === 0 ? (
-        <EmptyState icon={Tag} title="Belum ada standar harga" description={`Tetapkan standar harga untuk tahun ${tahun}.`} />
+        <EmptyState icon={Tag} title="Belum ada standar harga" description={canEdit ? `Tetapkan standar harga untuk tahun ${tahun}.` : 'Yayasan belum menetapkan standar harga tahun ini.'} />
       ) : (
-        <Table columns={['Kode', 'Nama Aset / Jasa', 'Satuan', 'Harga Maksimal', 'Sumber Rujukan', '']}>
+        <Table columns={['Kode', 'Nama Aset / Jasa', 'Satuan', 'Harga Maksimal', 'Sumber Rujukan', canEdit ? '' : null].filter((c) => c !== null)}>
           {rows.map((r) => (
             <Tr key={r.id}>
               <Td><span className="font-mono text-xs">{r.aset_klasifikasi?.kode || '—'}</span></Td>
@@ -1477,19 +1482,185 @@ function StandarHargaPanel({ tahun }) {
               <Td>{r.satuan}</Td>
               <Td>{formatRupiah(r.harga_maksimal)}</Td>
               <Td className="text-xs text-[var(--color-ink-soft)]">{r.sumber_rujukan || '—'}</Td>
-              <Td>
-                <div className="flex justify-end gap-1.5">
-                  <button onClick={() => { setEditing(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
-                  <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
-                </div>
-              </Td>
+              {canEdit && (
+                <Td>
+                  <div className="flex justify-end gap-1.5">
+                    <button onClick={() => { setEditing(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
+                    <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                  </div>
+                </Td>
+              )}
             </Tr>
           ))}
         </Table>
       )}
-      <StandarHargaModal open={formOpen} tahun={tahun} editing={editing} klasifikasiList={klasifikasiList} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={() => { setFormOpen(false); setEditing(null); load() }} />
+      {canEdit && <StandarHargaModal open={formOpen} tahun={tahun} editing={editing} klasifikasiList={klasifikasiList} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={() => { setFormOpen(false); setEditing(null); load() }} />}
     </SectionCard>
   )
+}
+
+// Panel generik untuk Standar Aset & Standar Kebutuhan (kode_ref teks bebas,
+// dikelola Yayasan; dibaca semua manajer). def menentukan tabel, kolom, field.
+function StandarRefPanel({ tahun, canEdit, def }) {
+  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await supabase.from(def.table).select('*').eq('tahun', tahun).order('kode_ref')
+    setRows(data || [])
+    setLoading(false)
+  }, [tahun, def.table])
+  useEffect(() => { if (open) load() }, [open, load])
+
+  const handleDelete = async (row) => {
+    if (!confirm(`Hapus "${row.nama_aset}"?`)) return
+    const { error } = await supabase.from(def.table).delete().eq('id', row.id)
+    if (error) { alert('Gagal: ' + error.message); return }
+    load()
+  }
+
+  return (
+    <SectionCard
+      title={`${def.title} ${tahun}`}
+      description={def.desc}
+      actions={
+        <div className="flex items-center gap-2">
+          {open && canEdit && <Button size="sm" onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tambah</Button>}
+          <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)}><Tag className="h-4 w-4" /> {open ? 'Tutup' : 'Buka'}</Button>
+        </div>
+      }
+    >
+      {!open ? null : loading ? <p className="text-sm text-[var(--color-ink-soft)]">Memuat…</p> : rows.length === 0 ? (
+        <EmptyState icon={Tag} title={`Belum ada ${def.title.toLowerCase()}`} description={canEdit ? `Tetapkan untuk tahun ${tahun}.` : `Yayasan belum menetapkan ${def.title.toLowerCase()} tahun ini.`} />
+      ) : (
+        <div className="overflow-x-auto">
+          <Table columns={[...def.columns.map((c) => c.label), canEdit ? '' : null].filter((c) => c !== null)}>
+            {rows.map((r) => (
+              <Tr key={r.id}>
+                {def.columns.map((c) => (
+                  <Td key={c.key} className={c.mono ? 'font-mono text-xs' : (c.small ? 'text-xs text-[var(--color-ink-soft)]' : '')}>{r[c.key] || '—'}</Td>
+                ))}
+                {canEdit && (
+                  <Td>
+                    <div className="flex justify-end gap-1.5">
+                      <button onClick={() => { setEditing(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
+                      <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                  </Td>
+                )}
+              </Tr>
+            ))}
+          </Table>
+        </div>
+      )}
+      {canEdit && <StandarRefModal open={formOpen} tahun={tahun} editing={editing} def={def} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={() => { setFormOpen(false); setEditing(null); load() }} />}
+    </SectionCard>
+  )
+}
+
+function StandarRefModal({ open, tahun, editing, def, onClose, onSaved }) {
+  const [f, setF] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const isEdit = !!editing
+
+  useEffect(() => {
+    if (!open) return
+    setError('')
+    const init = {}
+    for (const fld of def.fields) init[fld.key] = editing ? (editing[fld.key] ?? '') : (fld.default ?? '')
+    setF(init)
+  }, [open, editing, def.fields])
+
+  const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }))
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!f.nama_aset?.trim()) { setError('Isi nama aset.'); return }
+    setSaving(true); setError('')
+    const payload = { tahun }
+    for (const fld of def.fields) {
+      let v = f[fld.key]
+      if (fld.type === 'number') v = v === '' || v == null ? null : Number(v)
+      else v = (typeof v === 'string' ? v.trim() : v) || null
+      payload[fld.key] = v
+    }
+    payload.nama_aset = f.nama_aset.trim()
+    const query = isEdit ? supabase.from(def.table).update(payload).eq('id', editing.id) : supabase.from(def.table).insert(payload)
+    const { error: err } = await query
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onSaved()
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={isEdit ? `Ubah ${def.title}` : `Tambah ${def.title} ${tahun}`} width="max-w-lg">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        {def.fields.map((fld) => (
+          fld.multiline
+            ? <Textarea key={fld.key} label={fld.label} rows={2} value={f[fld.key] || ''} onChange={(e) => set(fld.key, e.target.value)} />
+            : <Input key={fld.key} label={fld.label} type={fld.type === 'number' ? 'number' : 'text'} required={fld.key === 'nama_aset'} value={f[fld.key] ?? ''} onChange={(e) => set(fld.key, e.target.value)} placeholder={fld.placeholder || ''} />
+        ))}
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+const STANDAR_ASET_DEF = {
+  table: 'dka_standar_aset',
+  title: 'Standar Aset',
+  desc: 'STD-01 — spesifikasi minimal aset (dikelola Yayasan).',
+  columns: [
+    { key: 'kode_ref', label: 'Kode', mono: true },
+    { key: 'nama_aset', label: 'Nama Aset' },
+    { key: 'kelompok_aset', label: 'Kelompok' },
+    { key: 'spesifikasi_minimal', label: 'Spesifikasi Minimal', small: true },
+    { key: 'umur_manfaat_tahun', label: 'Umur (thn)' },
+  ],
+  fields: [
+    { key: 'kode_ref', label: 'Kode Ref (mis. PRB-001)' },
+    { key: 'nama_aset', label: 'Nama Aset' },
+    { key: 'kelompok_aset', label: 'Kelompok Aset' },
+    { key: 'spesifikasi_minimal', label: 'Spesifikasi Minimal', multiline: true },
+    { key: 'keterangan_rujukan', label: 'Keterangan / Rujukan' },
+    { key: 'umur_manfaat_tahun', label: 'Umur Manfaat (tahun)', type: 'number' },
+  ],
+}
+const STANDAR_KEBUTUHAN_DEF = {
+  table: 'dka_standar_kebutuhan',
+  title: 'Standar Kebutuhan',
+  desc: 'STD-02 — jumlah ideal aset sebagai acuan (dikelola Yayasan).',
+  columns: [
+    { key: 'kode_ref', label: 'Kode', mono: true },
+    { key: 'nama_aset', label: 'Nama Aset' },
+    { key: 'peruntukan', label: 'Peruntukan / Unit' },
+    { key: 'jumlah_ideal', label: 'Jumlah Ideal' },
+    { key: 'satuan', label: 'Satuan' },
+  ],
+  fields: [
+    { key: 'kode_ref', label: 'Kode Ref (mis. PRB-001)' },
+    { key: 'nama_aset', label: 'Nama Aset' },
+    { key: 'peruntukan', label: 'Peruntukan / Unit Kerja' },
+    { key: 'dasar_perhitungan', label: 'Dasar Perhitungan', multiline: true },
+    { key: 'jumlah_ideal', label: 'Jumlah Ideal (mis. 1 per peserta didik)' },
+    { key: 'satuan', label: 'Satuan', default: 'unit' },
+  ],
+}
+
+function StandarAsetPanel({ tahun, canEdit }) {
+  return <StandarRefPanel tahun={tahun} canEdit={canEdit} def={STANDAR_ASET_DEF} />
+}
+function StandarKebutuhanPanel({ tahun, canEdit }) {
+  return <StandarRefPanel tahun={tahun} canEdit={canEdit} def={STANDAR_KEBUTUHAN_DEF} />
 }
 
 function StandarHargaModal({ open, tahun, editing, klasifikasiList, onClose, onSaved }) {
