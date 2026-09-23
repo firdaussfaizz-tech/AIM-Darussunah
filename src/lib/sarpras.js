@@ -9,7 +9,7 @@
 //   fullAccessOnly : hanya Yayasan (Admin Yayasan/HR)
 export const SARPRAS_AREAS = [
   { slug: 'perencanaan', label: 'Perencanaan', sop: 'perencanaan', kind: 'live-dka' },
-  { slug: 'pengadaan', label: 'Pengadaan', sop: 'pengadaan', kind: 'menyusul' },
+  { slug: 'pengadaan', label: 'Pengadaan', sop: 'pengadaan', kind: 'live-pengadaan' },
   { slug: 'penerimaan', label: 'Penerimaan & Penyaluran', sop: 'penyaluran', kind: 'menyusul' },
   { slug: 'penggunaan', label: 'Penggunaan', sop: 'penggunaan', kind: 'menyusul' },
   { slug: 'inventaris', label: 'Inventaris', sop: 'inventaris', kind: 'live-inventaris' },
