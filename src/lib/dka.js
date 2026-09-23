@@ -74,6 +74,46 @@ export const METODE_REALISASI_OPTIONS = [
   'Tukar menukar',
 ]
 
+// --- Area lanjutan siklus aset (0044) ---
+
+// Penggunaan (BAB VI)
+export const PENGGUNAAN_STATUS_LABEL = { aktif: 'Digunakan', dikembalikan: 'Dikembalikan' }
+export const PENGGUNAAN_STATUS_BADGE = { aktif: 'navy', dikembalikan: 'neutral' }
+
+// Pemeliharaan pelaksanaan (BAB IX)
+export const PEMELIHARAAN_JENIS_OPTIONS = ['Preventif', 'Korektif', 'Perbaikan']
+
+// Penerimaan & Penyaluran (BAB V)
+export const PENYALURAN_STATUS_LABEL = { diminta: 'Diminta (SPA)', disalurkan: 'Disalurkan (SPPA)', ditolak: 'Ditolak' }
+export const PENYALURAN_STATUS_BADGE = { diminta: 'gold', disalurkan: 'success', ditolak: 'danger' }
+
+// Inventarisasi / Opname (BAB VII)
+export const OPNAME_STATUS_LABEL = { berjalan: 'Berjalan', selesai: 'Selesai' }
+export const OPNAME_STATUS_BADGE = { berjalan: 'gold', selesai: 'success' }
+
+// Penghapusan (BAB X & XI) — pakai ulang dka_status_enum, label kontekstual.
+export const PENGHAPUSAN_STATUS_LABEL = {
+  draft: 'Draft',
+  diajukan: 'Diajukan',
+  disahkan: 'Disetujui Yayasan',
+  dikembalikan: 'Ditolak / Dikembalikan',
+}
+export const PENGHAPUSAN_STATUS_BADGE = {
+  draft: 'neutral',
+  diajukan: 'gold',
+  disahkan: 'success',
+  dikembalikan: 'danger',
+}
+export const PENGHAPUSAN_ALASAN_OPTIONS = [
+  'Rusak berat',
+  'Force majeure',
+  'Idle / tidak terpakai',
+  'Efisiensi lokasi',
+  'Kebutuhan organisasi',
+  'Kehilangan',
+]
+export const PENGHAPUSAN_CARA_OPTIONS = ['Penghapusan', 'Penjualan', 'Hibah', 'Tukar menukar']
+
 // Validasi harga item vs Standar Harga (SOP): harga_satuan > standar →
 // perlu justifikasi + persetujuan Ketua Yayasan. Tanpa standar → netral.
 export function validasiHargaItem(item) {
