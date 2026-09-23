@@ -4,6 +4,7 @@
 // atau 'all' (manajemen + guru; guru lihat data miliknya sendiri).
 export const ACADEMIC_AREAS = [
   { slug: 'dashboard', label: 'Dashboard', scope: 'manager' },
+  { slug: 'mapel', label: 'Mata Pelajaran', scope: 'manager' },
   { slug: 'penugasan', label: 'Penugasan Mengajar', scope: 'manager' },
   { slug: 'jadwal', label: 'Jadwal Pelajaran', labelGuru: 'Jadwal Saya', scope: 'all' },
   { slug: 'jurnal', label: 'Jurnal KBM', scope: 'all' },

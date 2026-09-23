@@ -14,7 +14,7 @@ import { ACADEMIC_AREAS } from '../lib/academic'
 
 // Ikon per area Academic (dipetakan dari slug).
 const ACAD_ICONS = {
-  dashboard: LayoutDashboard, penugasan: GraduationCap, jadwal: CalendarRange,
+  dashboard: LayoutDashboard, mapel: BookOpen, penugasan: GraduationCap, jadwal: CalendarRange,
   jurnal: NotebookText, kurikulum: BookOpen, ekstrakurikuler: Star, perangkat: FileText,
 }
 

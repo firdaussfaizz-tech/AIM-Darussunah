@@ -67,6 +67,7 @@ export default function AcademicManagement() {
       <PageHeader title={`Akademik — ${isManager ? active.label : (active.labelGuru || active.label)}`} description="Manajemen pembelajaran: penugasan, jadwal, jurnal KBM, kurikulum, ekstrakurikuler, dan perangkat ajar." />
       <AcademicCtxBar ctx={ctx} />
       {active.slug === 'dashboard' && <AcademicDashboard ctx={ctx} />}
+      {active.slug === 'mapel' && <MapelTab ctx={ctx} />}
       {active.slug === 'penugasan' && <PenugasanTab ctx={ctx} />}
       {active.slug === 'jadwal' && <JadwalTab ctx={ctx} />}
       {active.slug === 'jurnal' && <JurnalTab ctx={ctx} />}
@@ -165,6 +166,76 @@ function AcademicDashboard({ ctx }) {
 // =========================================================================
 // PENUGASAN MENGAJAR
 // =========================================================================
+// =========================================================================
+// MATA PELAJARAN
+// =========================================================================
+function MapelTab({ ctx }) {
+  const { effSchoolId } = ctx
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const load = useCallback(async () => {
+    if (!effSchoolId) { setRows([]); setLoading(false); return }
+    setLoading(true)
+    const { data } = await supabase.from('mata_pelajaran').select('*').eq('school_id', effSchoolId).order('nama')
+    setRows(data || []); setLoading(false)
+  }, [effSchoolId])
+  useEffect(() => { load() }, [load])
+  const del = async (r) => { if (!confirm(`Hapus mapel "${r.nama}"?`)) return; const { error } = await supabase.from('mata_pelajaran').delete().eq('id', r.id); if (error) { alert('Gagal: ' + error.message); return } load() }
+  if (!effSchoolId) return <NeedUnit />
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex justify-end"><Button onClick={() => { setEditing(null); setOpen(true) }}><Plus className="h-4 w-4" /> Tambah Mapel</Button></div>
+      <SectionCard title="Mata Pelajaran" description="Daftar mata pelajaran unit ini — dipakai di Penugasan, Jadwal, Jurnal, Kurikulum, dan Nilai & Rapor.">
+        {loading ? <FullPageSpinner /> : rows.length === 0 ? (
+          <EmptyState icon={BookOpen} title="Belum ada mata pelajaran" description="Tambahkan mata pelajaran untuk unit ini." />
+        ) : (
+          <Table columns={['Nama Mata Pelajaran', '']}>
+            {rows.map((r) => (
+              <Tr key={r.id}>
+                <Td className="font-medium">{r.nama}</Td>
+                <Td><div className="flex justify-end gap-1.5">
+                  <button onClick={() => { setEditing(r); setOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]"><Pencil className="h-4 w-4" /></button>
+                  <button onClick={() => del(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]"><Trash2 className="h-4 w-4" /></button>
+                </div></Td>
+              </Tr>
+            ))}
+          </Table>
+        )}
+      </SectionCard>
+      <MapelModal open={open} effSchoolId={effSchoolId} editing={editing} onClose={() => { setOpen(false); setEditing(null) }} onSaved={() => { setOpen(false); setEditing(null); load() }} />
+    </div>
+  )
+}
+
+function MapelModal({ open, effSchoolId, editing, onClose, onSaved }) {
+  const [nama, setNama] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => { if (open) { setNama(editing?.nama || ''); setError('') } }, [open, editing])
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!nama.trim()) { setError('Isi nama mata pelajaran.'); return }
+    setError(''); setSaving(true)
+    const q = editing ? supabase.from('mata_pelajaran').update({ nama: nama.trim() }).eq('id', editing.id) : supabase.from('mata_pelajaran').insert({ school_id: effSchoolId, nama: nama.trim() })
+    const { error: err } = await q
+    setSaving(false); if (err) { setError(err.message); return }; onSaved()
+  }
+  return (
+    <Modal open={open} onClose={onClose} title={editing ? 'Ubah Mata Pelajaran' : 'Tambah Mata Pelajaran'} width="max-w-md">
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        <Input label="Nama Mata Pelajaran" required value={nama} onChange={(e) => setNama(e.target.value)} placeholder="mis. Matematika, PAI, Bahasa Indonesia" />
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Batal</Button><Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button></div>
+      </form>
+    </Modal>
+  )
+}
+
+// =========================================================================
+// PENUGASAN MENGAJAR
+// =========================================================================
 function PenugasanTab({ ctx }) {
   const { effSchoolId, tahunId, semester } = ctx
   const { rombel, mapel, guru } = useAcademicLists(effSchoolId, tahunId)
@@ -185,6 +256,16 @@ function PenugasanTab({ ctx }) {
   useEffect(() => { load() }, [load])
 
   const del = async (r) => { if (!confirm('Hapus penugasan ini?')) return; await supabase.from('penugasan_mengajar').delete().eq('id', r.id); load() }
+
+  const rekapGuru = useMemo(() => {
+    const m = {}
+    for (const r of rows) {
+      const key = r.employee_id || '__none'
+      if (!m[key]) m[key] = { nama: r.employees?.nama || 'Tanpa guru', jp: 0, n: 0 }
+      m[key].jp += Number(r.jam_per_minggu || 0); m[key].n++
+    }
+    return Object.values(m).sort((a, b) => b.jp - a.jp)
+  }, [rows])
 
   if (!effSchoolId || !tahunId) return <NeedUnit />
   return (
@@ -210,52 +291,103 @@ function PenugasanTab({ ctx }) {
           </Table>
         )}
       </SectionCard>
+
+      {rekapGuru.length > 0 && (
+        <SectionCard title="Akumulasi JP per Guru" description="Total jam mengajar/minggu semester ini. Angka ini OTOMATIS mengisi 'JP Mengajar' pada modul Beban Kerja (Kepegawaian).">
+          <Table columns={['Guru', 'Jml Penugasan', 'Total JP/Minggu']}>
+            {rekapGuru.map((g, i) => (
+              <Tr key={i}>
+                <Td className="font-medium">{g.nama}</Td>
+                <Td>{g.n}</Td>
+                <Td className="font-medium">{g.jp} JP</Td>
+              </Tr>
+            ))}
+          </Table>
+        </SectionCard>
+      )}
+
       <PenugasanModal open={open} ctx={ctx} lists={{ rombel, mapel, guru }} editing={editing} onClose={() => { setOpen(false); setEditing(null) }} onSaved={() => { setOpen(false); setEditing(null); load() }} />
     </div>
   )
 }
 
+// Form penugasan: satu guru bisa mengampu BANYAK (mapel × rombel) sekaligus.
 function PenugasanModal({ open, ctx, lists, editing, onClose, onSaved }) {
   const { effSchoolId, tahunId, semester } = ctx
-  const [f, setF] = useState({})
+  const isEdit = !!editing
+  const [employeeId, setEmployeeId] = useState('')
+  const [items, setItems] = useState([{ mata_pelajaran_id: '', rombel_id: '', jam_per_minggu: '2' }])
+  const [keterangan, setKeterangan] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
   useEffect(() => {
     if (!open) return; setError('')
-    setF(editing ? { employee_id: editing.employee_id || '', mata_pelajaran_id: editing.mata_pelajaran_id || '', rombel_id: editing.rombel_id || '', jam_per_minggu: String(editing.jam_per_minggu ?? '0'), keterangan: editing.keterangan || '' }
-      : { employee_id: '', mata_pelajaran_id: '', rombel_id: '', jam_per_minggu: '2', keterangan: '' })
+    if (editing) {
+      setEmployeeId(editing.employee_id || '')
+      setItems([{ mata_pelajaran_id: editing.mata_pelajaran_id || '', rombel_id: editing.rombel_id || '', jam_per_minggu: String(editing.jam_per_minggu ?? '0') }])
+      setKeterangan(editing.keterangan || '')
+    } else {
+      setEmployeeId(''); setItems([{ mata_pelajaran_id: '', rombel_id: '', jam_per_minggu: '2' }]); setKeterangan('')
+    }
   }, [open, editing])
-  const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
+
+  const setItem = (idx, k, v) => setItems((arr) => arr.map((it, i) => (i === idx ? { ...it, [k]: v } : it)))
+  const addItem = () => setItems((arr) => [...arr, { mata_pelajaran_id: '', rombel_id: '', jam_per_minggu: '2' }])
+  const removeItem = (idx) => setItems((arr) => (arr.length > 1 ? arr.filter((_, i) => i !== idx) : arr))
+  const totalJp = items.reduce((a, it) => a + (Number(it.jam_per_minggu) || 0), 0)
+
   const submit = async (e) => {
     e.preventDefault()
-    if (!f.mata_pelajaran_id || !f.rombel_id) { setError('Pilih mata pelajaran & rombel.'); return }
+    const valid = items.filter((it) => it.mata_pelajaran_id && it.rombel_id)
+    if (valid.length === 0) { setError('Isi minimal satu baris mata pelajaran + rombel.'); return }
     setError(''); setSaving(true)
-    const payload = { school_id: effSchoolId, tahun_ajaran_id: tahunId, semester, employee_id: f.employee_id || null, mata_pelajaran_id: f.mata_pelajaran_id, rombel_id: f.rombel_id, jam_per_minggu: Number(f.jam_per_minggu) || 0, keterangan: f.keterangan?.trim() || null }
-    const q = editing ? supabase.from('penugasan_mengajar').update(payload).eq('id', editing.id) : supabase.from('penugasan_mengajar').insert(payload)
-    const { error: err } = await q
+    if (isEdit) {
+      const it = valid[0]
+      const { error: err } = await supabase.from('penugasan_mengajar').update({ employee_id: employeeId || null, mata_pelajaran_id: it.mata_pelajaran_id, rombel_id: it.rombel_id, jam_per_minggu: Number(it.jam_per_minggu) || 0, keterangan: keterangan.trim() || null }).eq('id', editing.id)
+      setSaving(false)
+      if (err) { setError(err.message.includes('duplicate') ? 'Kombinasi mapel + rombel + semester sudah ada.' : err.message); return }
+      onSaved(); return
+    }
+    const payload = valid.map((it) => ({ school_id: effSchoolId, tahun_ajaran_id: tahunId, semester, employee_id: employeeId || null, mata_pelajaran_id: it.mata_pelajaran_id, rombel_id: it.rombel_id, jam_per_minggu: Number(it.jam_per_minggu) || 0, keterangan: keterangan.trim() || null }))
+    const { error: err } = await supabase.from('penugasan_mengajar').insert(payload)
     setSaving(false)
-    if (err) { setError(err.message.includes('duplicate') ? 'Kombinasi mapel + rombel + semester sudah ada.' : err.message); return }
+    if (err) { setError(err.message.includes('duplicate') ? 'Ada kombinasi mapel + rombel + semester yang sudah ada.' : err.message); return }
     onSaved()
   }
+
   return (
-    <Modal open={open} onClose={onClose} title={editing ? 'Ubah Penugasan' : 'Tambah Penugasan Mengajar'} width="max-w-lg">
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Ubah Penugasan' : 'Tambah Penugasan Mengajar'} width="max-w-2xl">
       <form onSubmit={submit} className="flex flex-col gap-3">
-        <Select label="Guru Pengampu" value={f.employee_id || ''} onChange={(e) => set('employee_id', e.target.value)}>
+        <Select label="Guru Pengampu" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
           <option value="">— Pilih guru —</option>
           {lists.guru.map((g) => <option key={g.id} value={g.id}>{g.nama}</option>)}
         </Select>
-        <div className="grid grid-cols-2 gap-3">
-          <Select label="Mata Pelajaran" value={f.mata_pelajaran_id || ''} onChange={(e) => set('mata_pelajaran_id', e.target.value)}>
-            <option value="">— Pilih —</option>
-            {lists.mapel.map((m) => <option key={m.id} value={m.id}>{m.nama}</option>)}
-          </Select>
-          <Select label="Rombel" value={f.rombel_id || ''} onChange={(e) => set('rombel_id', e.target.value)}>
-            <option value="">— Pilih —</option>
-            {lists.rombel.map((r) => <option key={r.id} value={r.id}>{r.nama_rombel}</option>)}
-          </Select>
+        <div className="flex flex-col gap-2">
+          <label className="text-[13px] font-medium text-[var(--color-ink)]">Mata Pelajaran &amp; Rombel {isEdit ? '' : '(boleh lebih dari satu)'}</label>
+          {items.map((it, idx) => (
+            <div key={idx} className="grid grid-cols-[1fr_1fr_84px_auto] items-center gap-2">
+              <Select value={it.mata_pelajaran_id} onChange={(e) => setItem(idx, 'mata_pelajaran_id', e.target.value)}>
+                <option value="">— Mapel —</option>
+                {lists.mapel.map((m) => <option key={m.id} value={m.id}>{m.nama}</option>)}
+              </Select>
+              <Select value={it.rombel_id} onChange={(e) => setItem(idx, 'rombel_id', e.target.value)}>
+                <option value="">— Rombel —</option>
+                {lists.rombel.map((r) => <option key={r.id} value={r.id}>{r.nama_rombel}</option>)}
+              </Select>
+              <Input type="number" value={it.jam_per_minggu} onChange={(e) => setItem(idx, 'jam_per_minggu', e.target.value)} placeholder="JP" />
+              {!isEdit && <button type="button" onClick={() => removeItem(idx)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus baris"><Trash2 className="h-4 w-4" /></button>}
+            </div>
+          ))}
+          {!isEdit && (
+            <div className="flex items-center justify-between">
+              <button type="button" onClick={addItem} className="text-xs font-medium text-[var(--color-navy)] hover:underline">+ Tambah mapel/rombel</button>
+              <span className="text-xs text-[var(--color-ink-soft)]">Total: <b>{totalJp} JP/minggu</b></span>
+            </div>
+          )}
         </div>
-        <Input label="Jam per Minggu (JP)" type="number" value={f.jam_per_minggu ?? ''} onChange={(e) => set('jam_per_minggu', e.target.value)} />
-        <Input label="Keterangan" value={f.keterangan || ''} onChange={(e) => set('keterangan', e.target.value)} />
+        {lists.mapel.length === 0 && <p className="rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-xs text-[var(--color-gold)]">Belum ada mata pelajaran di unit ini. Tambahkan dulu lewat menu "Mata Pelajaran".</p>}
+        <Input label="Keterangan" value={keterangan} onChange={(e) => setKeterangan(e.target.value)} />
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Batal</Button><Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button></div>
       </form>
@@ -267,7 +399,7 @@ function PenugasanModal({ open, ctx, lists, editing, onClose, onSaved }) {
 // JADWAL PELAJARAN
 // =========================================================================
 function JadwalTab({ ctx }) {
-  const { effSchoolId, tahunId, isManager, employee } = ctx
+  const { effSchoolId, tahunId, semester, isManager, employee } = ctx
   const { rombel, mapel, guru } = useAcademicLists(effSchoolId, tahunId)
   const [rombelId, setRombelId] = useState('')
   const [rows, setRows] = useState([])
