@@ -49,6 +49,31 @@ export const SUMBER_ANGGARAN_OPTIONS = [
   'Lainnya',
 ]
 
+// Status proses pengadaan per item DKA disahkan (Tahap Pengadaan → Penerimaan).
+export const PENGADAAN_STATUS_LABEL = {
+  menunggu: 'Menunggu Pengadaan',
+  dipesan: 'Sudah Dipesan',
+  pemeriksaan: 'Lolos Pemeriksaan',
+  ditolak: 'Tidak Sesuai — Perlu Pemesanan Ulang',
+  diterima: 'Diterima (masuk Inventaris)',
+}
+export const PENGADAAN_STATUS_BADGE = {
+  menunggu: 'neutral',
+  dipesan: 'gold',
+  pemeriksaan: 'navy',
+  ditolak: 'danger',
+  diterima: 'success',
+}
+
+// SOP BAB IV — cara/metode realisasi pengadaan.
+export const METODE_REALISASI_OPTIONS = [
+  'Pembelian langsung',
+  'Pengadaan langsung (SPK)',
+  'Swakelola',
+  'Hibah/Wakaf',
+  'Tukar menukar',
+]
+
 // Validasi harga item vs Standar Harga (SOP): harga_satuan > standar →
 // perlu justifikasi + persetujuan Ketua Yayasan. Tanpa standar → netral.
 export function validasiHargaItem(item) {
