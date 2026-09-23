@@ -46,6 +46,8 @@ function ManagerDashboard({ hasFullAccess }) {
   const [bebanRows, setBebanRows] = useState([])
   const [tugasRows, setTugasRows] = useState([])
   const [bebanSettings, setBebanSettings] = useState(DEFAULT_BEBAN_KERJA_SETTINGS)
+  const [sppRekap, setSppRekap] = useState([])
+  const [sppTa, setSppTa] = useState(null)
 
   useEffect(() => {
     const load = async () => {
@@ -123,6 +125,19 @@ function ManagerDashboard({ hasFullAccess }) {
       setBebanSettings(bebanSet || DEFAULT_BEBAN_KERJA_SETTINGS)
       setPayrollRuns(runs || [])
       setSelectedRunId((runs && runs.length > 0) ? runs[0].id : '')
+
+      // Ringkasan SPP (A9) — tahun ajaran aktif, per unit. RPC sudah
+      // memfilter akses; di Dashboard hanya Admin Yayasan/HR yang sampai
+      // sini sehingga mencakup seluruh unit.
+      const { data: taAktif } = await supabase.from('tahun_ajaran').select('id, nama').eq('status', 'aktif').maybeSingle()
+      if (taAktif) {
+        const { data: rekap } = await supabase.rpc('spp_rekap_per_unit', { p_tahun_ajaran_id: taAktif.id })
+        setSppRekap(rekap || [])
+        setSppTa(taAktif)
+      } else {
+        setSppRekap([])
+        setSppTa(null)
+      }
       setYayasanLoading(false)
     }
     loadYayasan()
@@ -173,6 +188,26 @@ function ManagerDashboard({ hasFullAccess }) {
     (acc, u) => ({ jumlah: acc.jumlah + u.jumlah, bruto: acc.bruto + u.bruto, potongan: acc.potongan + u.potongan, bersih: acc.bersih + u.bersih }),
     { jumlah: 0, bruto: 0, potongan: 0, bersih: 0 },
   ), [biayaPerUnit])
+
+  // Ringkasan SPP per unit (A9) — tunggakan = ditagih − dibayar.
+  const sppPerUnit = useMemo(() => (sppRekap || []).map((u) => {
+    const dt = Number(u.total_tagihan || 0)
+    const db = Number(u.total_dibayar || 0)
+    const jt = Number(u.jumlah_tagihan || 0)
+    const jl = Number(u.jumlah_lunas || 0)
+    return {
+      key: u.school_id || 'tanpa-unit',
+      unit: u.jenjang ? `${u.jenjang} — ${u.nama}` : (u.nama || 'Tanpa unit'),
+      jenjang: u.jenjang || 'zzz',
+      ditagih: dt, dibayar: db, tunggakan: Math.max(0, dt - db),
+      persenLunas: jt > 0 ? Math.round((jl / jt) * 100) : 0,
+    }
+  }).sort((a, b) => (JENJANG_ORDER[a.jenjang] ?? 9) - (JENJANG_ORDER[b.jenjang] ?? 9) || a.unit.localeCompare(b.unit)), [sppRekap])
+
+  const totalSpp = useMemo(() => sppPerUnit.reduce(
+    (a, u) => ({ ditagih: a.ditagih + u.ditagih, dibayar: a.dibayar + u.dibayar, tunggakan: a.tunggakan + u.tunggakan }),
+    { ditagih: 0, dibayar: 0, tunggakan: 0 },
+  ), [sppPerUnit])
 
   // Tren kehadiran 6 bulan terakhir (persentase hadir dari seluruh baris
   // presensi tercatat bulan itu, seluruh yayasan).
@@ -357,6 +392,37 @@ function ManagerDashboard({ hasFullAccess }) {
             ))}
           </div>
           <Link to="/beban-kerja" className="mt-3 inline-block text-sm font-medium text-[var(--color-navy)] hover:underline">Lihat rincian per pegawai →</Link>
+        </SectionCard>
+      )}
+
+      {hasFullAccess && !yayasanLoading && (
+        <SectionCard
+          title="Ringkasan SPP per Unit"
+          description={sppTa ? `Tahun Ajaran ${sppTa.nama} (aktif) · Tunggakan = ditagih − dibayar` : 'Belum ada tahun ajaran aktif'}
+          actions={<Link to="/spp" className="text-sm font-medium text-[var(--color-navy)] hover:underline">Buka SPP</Link>}
+        >
+          {sppPerUnit.length === 0 ? (
+            <p className="text-sm text-[var(--color-ink-soft)]">Belum ada tagihan SPP pada tahun ajaran aktif.</p>
+          ) : (
+            <Table columns={['Unit', 'Ditagih', 'Dibayar', 'Tunggakan', '% Lunas']}>
+              {sppPerUnit.map((u) => (
+                <Tr key={u.key}>
+                  <Td>{u.unit}</Td>
+                  <Td>{formatRupiah(u.ditagih)}</Td>
+                  <Td>{formatRupiah(u.dibayar)}</Td>
+                  <Td className="font-medium text-[var(--color-danger)]">{formatRupiah(u.tunggakan)}</Td>
+                  <Td>{u.persenLunas}%</Td>
+                </Tr>
+              ))}
+              <Tr>
+                <Td className="font-semibold">Total</Td>
+                <Td className="font-semibold">{formatRupiah(totalSpp.ditagih)}</Td>
+                <Td className="font-semibold">{formatRupiah(totalSpp.dibayar)}</Td>
+                <Td className="font-semibold text-[var(--color-danger)]">{formatRupiah(totalSpp.tunggakan)}</Td>
+                <Td className="font-semibold">{totalSpp.ditagih > 0 ? Math.round((totalSpp.dibayar / totalSpp.ditagih) * 100) : 0}%</Td>
+              </Tr>
+            </Table>
+          )}
         </SectionCard>
       )}
 

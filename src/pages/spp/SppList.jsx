@@ -1,11 +1,11 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Wallet, Plus, Pencil, Trash2, PlayCircle, ShieldAlert, ReceiptText } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Input, Select, EmptyState, FullPageSpinner, StatCard } from '../../components/ui'
 import { BULAN, formatRupiah, formatDate, STATUS_BADGE_COLOR, SPP_TAGIHAN_STATUS_LABELS } from '../../lib/format'
 
-const TABS = ['Tagihan & Pembayaran', 'Tarif SPP']
+const TABS = ['Tagihan & Pembayaran', 'Rekap & Tunggakan', 'Tarif SPP']
 
 export default function SppList() {
   const { isManager, isBendahara, hasFullAccess, managedSchoolIds, employee, loading: authLoading } = useAuth()
@@ -22,7 +22,9 @@ export default function SppList() {
     )
   }
 
-  const tabs = isManager ? TABS : [TABS[0]]
+  // Bendahara melihat Tagihan & Rekap (bukan Tarif); manajemen sekolah &
+  // Yayasan melihat semuanya.
+  const tabs = isManager ? TABS : ['Tagihan & Pembayaran', 'Rekap & Tunggakan']
   // Admin Sekolah/Kepala Sekolah (isManager tapi bukan Admin Yayasan/HR)
   // dikunci ke unit-nya sendiri. Bendahara SENGAJA tidak dikunci — aksesnya
   // memang lintas unit by design (lihat migrasi 0024/0026).
@@ -46,6 +48,7 @@ export default function SppList() {
       </div>
 
       {tab === 'Tagihan & Pembayaran' && <TagihanTab employeeId={employee?.id} lockedSchoolId={lockedSchoolId} />}
+      {tab === 'Rekap & Tunggakan' && <RekapTab />}
       {tab === 'Tarif SPP' && isManager && <TarifTab lockedSchoolId={lockedSchoolId} />}
     </div>
   )
@@ -336,6 +339,138 @@ function PembayaranModal({ tagihan, employeeId, onClose, onChanged }) {
 // TAB: TARIF SPP
 // =========================================================================
 const emptyTarifForm = { school_id: '', tahun_ajaran_id: '', tingkat: '', nominal: '' }
+
+// =========================================================================
+// TAB: REKAP & TUNGGAKAN (read-only; angka dari RPC 0035_spp_rekap.sql yang
+// sudah memfilter akses — Bendahara lintas unit, manajer sekolah per unit).
+// =========================================================================
+function RekapTab() {
+  const [tahunAjaranList, setTahunAjaranList] = useState([])
+  const [taId, setTaId] = useState('')
+  const [rekap, setRekap] = useState([])
+  const [penunggak, setPenunggak] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    supabase.from('tahun_ajaran').select('id, nama, status').order('tanggal_mulai', { ascending: false, nullsFirst: false }).then(({ data }) => {
+      const list = data || []
+      setTahunAjaranList(list)
+      const def = (list.find((t) => t.status === 'aktif') || list[0])?.id || ''
+      setTaId(def)
+      if (!def) setLoading(false)
+    })
+  }, [])
+
+  const load = useCallback(async () => {
+    if (!taId) { setRekap([]); setPenunggak([]); setLoading(false); return }
+    setLoading(true)
+    setError('')
+    const [{ data: r, error: e1 }, { data: p, error: e2 }] = await Promise.all([
+      supabase.rpc('spp_rekap_per_unit', { p_tahun_ajaran_id: taId }),
+      supabase.rpc('spp_penunggak', { p_tahun_ajaran_id: taId, p_limit: 20 }),
+    ])
+    if (e1 || e2) setError((e1 || e2).message)
+    setRekap(r || [])
+    setPenunggak(p || [])
+    setLoading(false)
+  }, [taId])
+
+  useEffect(() => { if (taId) load() }, [taId, load])
+
+  const rows = useMemo(() => (rekap || []).map((u) => {
+    const jt = Number(u.jumlah_tagihan || 0)
+    const jl = Number(u.jumlah_lunas || 0)
+    const dt = Number(u.total_tagihan || 0)
+    const db = Number(u.total_dibayar || 0)
+    return {
+      key: u.school_id || 'tanpa-unit',
+      unit: u.jenjang ? `${u.jenjang} — ${u.nama}` : (u.nama || 'Tanpa unit'),
+      jumlah_tagihan: jt, jumlah_lunas: jl,
+      persenLunas: jt > 0 ? Math.round((jl / jt) * 100) : 0,
+      ditagih: dt, dibayar: db, tunggakan: Math.max(0, dt - db),
+    }
+  }), [rekap])
+
+  const total = useMemo(() => rows.reduce((a, u) => ({
+    jumlah_tagihan: a.jumlah_tagihan + u.jumlah_tagihan,
+    jumlah_lunas: a.jumlah_lunas + u.jumlah_lunas,
+    ditagih: a.ditagih + u.ditagih,
+    dibayar: a.dibayar + u.dibayar,
+    tunggakan: a.tunggakan + u.tunggakan,
+  }), { jumlah_tagihan: 0, jumlah_lunas: 0, ditagih: 0, dibayar: 0, tunggakan: 0 }), [rows])
+
+  if (loading) return <FullPageSpinner />
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center gap-3">
+        <Select containerClassName="w-56" value={taId} onChange={(e) => setTaId(e.target.value)}>
+          {tahunAjaranList.length === 0 && <option value="">— Belum ada Tahun Ajaran —</option>}
+          {tahunAjaranList.map((t) => <option key={t.id} value={t.id}>TA {t.nama}{t.status === 'aktif' ? ' (aktif)' : ''}</option>)}
+        </Select>
+      </div>
+
+      {error && (
+        <Card className="border-[var(--color-danger)] bg-[var(--color-danger-soft)]">
+          <p className="text-sm text-[var(--color-danger)]">Gagal memuat rekap: {error}</p>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Total Ditagih" value={formatRupiah(total.ditagih)} />
+        <StatCard label="Total Dibayar" value={formatRupiah(total.dibayar)} accent="gold" />
+        <StatCard label="Total Tunggakan" value={formatRupiah(total.tunggakan)} />
+        <StatCard label="Tagihan Lunas" value={`${total.jumlah_lunas} / ${total.jumlah_tagihan}`} sub={total.jumlah_tagihan > 0 ? `${Math.round((total.jumlah_lunas / total.jumlah_tagihan) * 100)}% lunas` : undefined} />
+      </div>
+
+      <SectionCard title="Rekap SPP per Unit">
+        {rows.length === 0 ? (
+          <p className="text-sm text-[var(--color-ink-soft)]">Belum ada tagihan SPP pada tahun ajaran ini.</p>
+        ) : (
+          <Table columns={['Unit', 'Tagihan', 'Lunas', '% Lunas', 'Ditagih', 'Dibayar', 'Tunggakan']}>
+            {rows.map((u) => (
+              <Tr key={u.key}>
+                <Td>{u.unit}</Td>
+                <Td>{u.jumlah_tagihan}</Td>
+                <Td>{u.jumlah_lunas}</Td>
+                <Td>{u.persenLunas}%</Td>
+                <Td>{formatRupiah(u.ditagih)}</Td>
+                <Td>{formatRupiah(u.dibayar)}</Td>
+                <Td className="font-medium text-[var(--color-danger)]">{formatRupiah(u.tunggakan)}</Td>
+              </Tr>
+            ))}
+            <Tr>
+              <Td className="font-semibold">Total</Td>
+              <Td className="font-semibold">{total.jumlah_tagihan}</Td>
+              <Td className="font-semibold">{total.jumlah_lunas}</Td>
+              <Td className="font-semibold">{total.jumlah_tagihan > 0 ? Math.round((total.jumlah_lunas / total.jumlah_tagihan) * 100) : 0}%</Td>
+              <Td className="font-semibold">{formatRupiah(total.ditagih)}</Td>
+              <Td className="font-semibold">{formatRupiah(total.dibayar)}</Td>
+              <Td className="font-semibold text-[var(--color-danger)]">{formatRupiah(total.tunggakan)}</Td>
+            </Tr>
+          </Table>
+        )}
+      </SectionCard>
+
+      <SectionCard title="20 Penunggak Terbesar" description="Siswa dengan sisa tunggakan terbesar pada tahun ajaran ini">
+        {penunggak.length === 0 ? (
+          <p className="text-sm text-[var(--color-ink-soft)]">Tidak ada tunggakan. 🎉</p>
+        ) : (
+          <Table columns={['Nama Siswa', 'Unit', 'Tunggakan']}>
+            {penunggak.map((p) => (
+              <Tr key={p.siswa_id}>
+                <Td>{p.nama}</Td>
+                <Td>{p.jenjang ? `${p.jenjang} — ${p.unit}` : (p.unit || '—')}</Td>
+                <Td className="font-medium text-[var(--color-danger)]">{formatRupiah(Number(p.tunggakan || 0))}</Td>
+              </Tr>
+            ))}
+          </Table>
+        )}
+      </SectionCard>
+    </div>
+  )
+}
 
 function TarifTab({ lockedSchoolId }) {
   const [tarifList, setTarifList] = useState([])

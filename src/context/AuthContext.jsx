@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabaseClient'
 
 const AuthContext = createContext(null)
@@ -10,6 +10,11 @@ export function AuthProvider({ children }) {
   const [employee, setEmployee] = useState(null)
   const [waliKelasRombel, setWaliKelasRombel] = useState([])
   const [loadingContext, setLoadingContext] = useState(true)
+  // ID pengguna yang konteksnya sudah dimuat. Dipakai untuk MENGABAIKAN
+  // event auth berulang (TOKEN_REFRESHED / SIGNED_IN ulang) yang dipancarkan
+  // Supabase saat tab browser kembali fokus — tanpa ini, `loading` menyala
+  // lagi, seluruh aplikasi remount, dan pengguna terlempar ke halaman awal.
+  const loadedUserIdRef = useRef(undefined)
 
   const loadContext = useCallback(async (userId) => {
     if (!userId) {
@@ -52,12 +57,19 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
+      loadedUserIdRef.current = data.session?.user?.id ?? null
       loadContext(data.session?.user?.id)
     })
-  const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession)
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-        loadContext(newSession?.user?.id)
+      const newUserId = newSession?.user?.id ?? null
+      // HANYA muat ulang konteks (yang menyalakan `loading`) bila IDENTITAS
+      // pengguna benar-benar berubah — bukan pada TOKEN_REFRESHED atau
+      // SIGNED_IN berulang saat tab kembali fokus. Ini mencegah aplikasi
+      // remount & kembali ke halaman awal setiap kali berpindah tab.
+      if (newUserId !== loadedUserIdRef.current) {
+        loadedUserIdRef.current = newUserId
+        loadContext(newUserId)
       }
     })
     return () => listener.subscription.unsubscribe()
