@@ -10,6 +10,13 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/format'
 import { SARPRAS_AREAS } from '../lib/sarpras'
+import { ACADEMIC_AREAS } from '../lib/academic'
+
+// Ikon per area Academic (dipetakan dari slug).
+const ACAD_ICONS = {
+  dashboard: LayoutDashboard, penugasan: GraduationCap, jadwal: CalendarRange,
+  jurnal: NotebookText, kurikulum: BookOpen, ekstrakurikuler: Star, perangkat: FileText,
+}
 
 // Ikon per area Sarpras (dipetakan dari slug agar lib/sarpras bebas ikon).
 const SARPRAS_ICONS = {
@@ -67,6 +74,15 @@ function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, empl
     kesiswaan.push({ to: '/nilai-rapor', label: 'Nilai & Rapor', icon: NotebookText })
   }
 
+  // Modul Academic Management (Pembelajaran) — manajemen untuk semua area,
+  // guru pengampu untuk jadwal/jurnal/perangkat miliknya sendiri.
+  const akademik = []
+  if (isManager) {
+    for (const a of ACADEMIC_AREAS) akademik.push({ to: `/pembelajaran/${a.slug}`, label: a.label, icon: ACAD_ICONS[a.slug] || CalendarRange })
+  } else if (employeeId) {
+    for (const a of ACADEMIC_AREAS.filter((a) => a.scope === 'all')) akademik.push({ to: `/pembelajaran/${a.slug}`, label: a.labelGuru || a.label, icon: ACAD_ICONS[a.slug] || CalendarRange })
+  }
+
   // Modul Sarana & Prasarana (Manajemen Aset) — untuk manajemen sekolah &
   // Yayasan (per-unit lewat RLS). Tiap area siklus (juknis) jadi sub-menu
   // tersendiri di dropdown, seperti Kepegawaian & Kesiswaan.
@@ -103,7 +119,7 @@ function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, empl
     lainnya.push({ to: '/notifikasi-email', label: 'Notifikasi Email', icon: Mail })
   }
 
-  return { kepegawaian, kesiswaan, sarpras, pribadi, lainnya }
+  return { kepegawaian, kesiswaan, akademik, sarpras, pribadi, lainnya }
 }
 
 function NavItem({ to, label, icon: Icon, end, onClick }) {
@@ -168,7 +184,7 @@ function NavGroup({ storageKey, label, icon: Icon, defaultOpen = true, children 
 
 function Sidebar({ open, onClose }) {
   const { isManager, hasFullAccess, isWaliKelas, isBendahara, employee } = useAuth()
-  const { kepegawaian, kesiswaan, sarpras, pribadi, lainnya } = navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, employeeId: employee?.id })
+  const { kepegawaian, kesiswaan, akademik, sarpras, pribadi, lainnya } = navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, employeeId: employee?.id })
 
   return (
     <aside
@@ -200,6 +216,14 @@ function Sidebar({ open, onClose }) {
         {kesiswaan.length > 0 && (
           <NavGroup storageKey="simpeg_nav_kesiswaan_open" label="Kesiswaan" icon={BookOpen} defaultOpen>
             {kesiswaan.map(({ to, label, icon, end }) => (
+              <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
+            ))}
+          </NavGroup>
+        )}
+
+        {akademik.length > 0 && (
+          <NavGroup storageKey="simpeg_nav_akademik_open" label="Akademik / Pembelajaran" icon={BookOpen} defaultOpen={false}>
+            {akademik.map(({ to, label, icon, end }) => (
               <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
             ))}
           </NavGroup>

@@ -29,6 +29,7 @@ import NilaiRapor from './pages/nilai/NilaiRapor'
 import KesiswaanDashboard from './pages/kesiswaan/KesiswaanDashboard'
 import AsetList from './pages/aset/AsetList'
 import DokumenCetak from './pages/aset/DokumenCetak'
+import AcademicManagement from './pages/academic/AcademicManagement'
 
 export default function App() {
   return (
@@ -75,6 +76,8 @@ export default function App() {
             <Route path="nilai-rapor" element={<NilaiRapor />} />
             <Route path="aset" element={<Navigate to="/aset/inventaris" replace />} />
             <Route path="aset/:area" element={<AsetList />} />
+            <Route path="pembelajaran" element={<Navigate to="/pembelajaran/jadwal" replace />} />
+            <Route path="pembelajaran/:area" element={<AcademicManagement />} />
           </Route>
         </Routes>
       </BrowserRouter>
