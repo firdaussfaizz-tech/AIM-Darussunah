@@ -323,6 +323,31 @@ where kode_lembaga is null;
 -- ---------------------------------------------------------------------
 -- 4. Ruangan: kode unit kerja, kode ruangan, dan PIC (permintaan user).
 -- ---------------------------------------------------------------------
+-- FONDASI (bila 0036 belum dijalankan): pastikan tabel ruangan ada dulu.
+-- Bentuk dasar sama dgn 0036 — aman bila 0036 sudah jalan (dilewati).
+create table if not exists public.ruangan (
+  id uuid primary key default gen_random_uuid(),
+  school_id uuid not null references public.schools(id) on delete cascade,
+  kode text,
+  nama text not null,
+  lantai text,
+  keterangan text,
+  created_at timestamptz not null default now(),
+  unique (school_id, nama)
+);
+create index if not exists ruangan_school_idx on public.ruangan (school_id);
+alter table public.ruangan enable row level security;
+drop policy if exists ruangan_select on public.ruangan;
+create policy ruangan_select on public.ruangan for select using (
+  public.is_yayasan_admin() or public.has_school_access(school_id)
+);
+drop policy if exists ruangan_write on public.ruangan;
+create policy ruangan_write on public.ruangan for all using (
+  public.is_yayasan_admin() or public.is_school_manager(school_id)
+) with check (
+  public.is_yayasan_admin() or public.is_school_manager(school_id)
+);
+
 alter table public.ruangan
   add column if not exists kode_unit_kerja text,
   add column if not exists kode_ruangan text,
@@ -332,6 +357,41 @@ alter table public.ruangan
 -- ---------------------------------------------------------------------
 -- 5. Aset: kolom kodefikasi baru + register + kepemilikan; lepas kategori lama.
 -- ---------------------------------------------------------------------
+-- FONDASI (bila 0036 belum dijalankan): pastikan tabel aset ada dulu.
+-- Bentuk dasar TANPA kategori_id (0037 memang melepas ketergantungan itu);
+-- aman bila 0036 sudah jalan (dilewati — kolom kategori_id dilepas di bawah).
+create table if not exists public.aset (
+  id uuid primary key default gen_random_uuid(),
+  school_id uuid not null references public.schools(id) on delete cascade,
+  ruangan_id uuid references public.ruangan(id) on delete set null,
+  kode_aset text,
+  nama text not null,
+  merk_tipe text,
+  tahun_perolehan int,
+  tanggal_perolehan date,
+  jumlah int not null default 1 check (jumlah >= 0),
+  satuan text not null default 'unit',
+  nilai_perolehan numeric(16,2) not null default 0 check (nilai_perolehan >= 0),
+  sumber_dana text,
+  kondisi text not null default 'baik' check (kondisi in ('baik', 'rusak_ringan', 'rusak_berat')),
+  status text not null default 'aktif' check (status in ('aktif', 'dihapus')),
+  keterangan text,
+  created_at timestamptz not null default now()
+);
+create index if not exists aset_school_idx on public.aset (school_id);
+create index if not exists aset_ruangan_idx on public.aset (ruangan_id);
+alter table public.aset enable row level security;
+drop policy if exists aset_select on public.aset;
+create policy aset_select on public.aset for select using (
+  public.is_yayasan_admin() or public.has_school_access(school_id)
+);
+drop policy if exists aset_write on public.aset;
+create policy aset_write on public.aset for all using (
+  public.is_yayasan_admin() or public.is_school_manager(school_id)
+) with check (
+  public.is_yayasan_admin() or public.is_school_manager(school_id)
+);
+
 alter table public.aset
   add column if not exists klasifikasi_id uuid references public.aset_klasifikasi(id),
   add column if not exists kepemilikan text not null default '05',
