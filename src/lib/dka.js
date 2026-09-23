@@ -35,6 +35,9 @@ export const CARA_PENGADAAN_OPTIONS = [
   'Pembangunan sendiri',
 ]
 
+// Sheet "Ref" — Jenis Pemeliharaan.
+export const JENIS_PEMELIHARAAN_OPTIONS = ['Preventif', 'Korektif']
+
 // Sheet "Ref" — Sumber Anggaran.
 export const SUMBER_ANGGARAN_OPTIONS = [
   'BOS',

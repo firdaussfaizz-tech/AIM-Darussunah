@@ -7,7 +7,7 @@ import { formatRupiah } from '../../lib/format'
 import { KONDISI_OPTIONS, KONDISI_LABEL, KONDISI_BADGE, hitungPenyusutan, umurLabel } from '../../lib/aset'
 import {
   DKA_STATUS_LABEL, DKA_STATUS_BADGE, ALASAN_KEBUTUHAN_OPTIONS, CARA_PENGADAAN_OPTIONS,
-  SUMBER_ANGGARAN_OPTIONS, validasiHargaItem,
+  SUMBER_ANGGARAN_OPTIONS, JENIS_PEMELIHARAAN_OPTIONS, validasiHargaItem,
 } from '../../lib/dka'
 import { useParams, Navigate } from 'react-router-dom'
 import { SOP_SARPRAS, PIC_SARPRAS } from '../../lib/sopSarpras'
@@ -812,8 +812,12 @@ function DkaRekap({ tahun, onOpen }) {
       const ids = (usulan || []).map((u) => u.id)
       let t = {}
       if (ids.length) {
-        const { data: items } = await supabase.from('dka_usulan_item').select('usulan_id, jumlah_harga').in('usulan_id', ids)
+        const [{ data: items }, { data: pmel }] = await Promise.all([
+          supabase.from('dka_usulan_item').select('usulan_id, jumlah_harga').in('usulan_id', ids),
+          supabase.from('dka_pemeliharaan_item').select('usulan_id, jumlah_biaya').in('usulan_id', ids),
+        ])
         for (const it of (items || [])) t[it.usulan_id] = (t[it.usulan_id] || 0) + Number(it.jumlah_harga || 0)
+        for (const it of (pmel || [])) t[it.usulan_id] = (t[it.usulan_id] || 0) + Number(it.jumlah_biaya || 0)
       }
       if (!alive) return
       setRows(usulan || [])
@@ -860,13 +864,17 @@ function DkaRekap({ tahun, onOpen }) {
 function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
   const [usulan, setUsulan] = useState(null)
   const [items, setItems] = useState([])
+  const [pemel, setPemel] = useState([])
   const [klasifikasiList, setKlasifikasiList] = useState([])
   const [ruanganList, setRuanganList] = useState([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [subtab, setSubtab] = useState('pengadaan')
   const [formOpen, setFormOpen] = useState(false)
   const [editingItem, setEditingItem] = useState(null)
+  const [pemelOpen, setPemelOpen] = useState(false)
+  const [editingPemel, setEditingPemel] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -880,9 +888,13 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
     setKlasifikasiList(klas || [])
     setRuanganList(ruang || [])
     if (u) {
-      const { data: it } = await supabase.from('dka_usulan_item').select('*, aset_klasifikasi(kode, uraian), ruangan(nama)').eq('usulan_id', u.id).order('urutan')
+      const [{ data: it }, { data: pm }] = await Promise.all([
+        supabase.from('dka_usulan_item').select('*, aset_klasifikasi(kode, uraian), ruangan(nama)').eq('usulan_id', u.id).order('urutan'),
+        supabase.from('dka_pemeliharaan_item').select('*').eq('usulan_id', u.id).order('urutan'),
+      ])
       setItems(it || [])
-    } else setItems([])
+      setPemel(pm || [])
+    } else { setItems([]); setPemel([]) }
     setLoading(false)
   }, [schoolId, tahun])
 
@@ -893,7 +905,8 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
   const canSubmit = !!usulan && managesUnit && ['draft', 'dikembalikan'].includes(status)
   const canDecide = !!usulan && hasFullAccess && status === 'diajukan'
 
-  const total = useMemo(() => items.reduce((a, r) => a + Number(r.jumlah_harga || 0), 0), [items])
+  const totalPengadaan = useMemo(() => items.reduce((a, r) => a + Number(r.jumlah_harga || 0), 0), [items])
+  const totalPemel = useMemo(() => pemel.reduce((a, r) => a + Number(r.jumlah_biaya || 0), 0), [pemel])
 
   const createUsulan = async () => {
     setBusy(true); setError('')
@@ -904,7 +917,7 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
   }
 
   const setStatus = async (newStatus, catatan) => {
-    if (newStatus === 'diajukan' && items.length === 0) { setError('Tambahkan minimal satu item sebelum mengajukan.'); return }
+    if (newStatus === 'diajukan' && items.length === 0 && pemel.length === 0) { setError('Tambahkan minimal satu item (pengadaan atau pemeliharaan) sebelum mengajukan.'); return }
     setBusy(true); setError('')
     const patch = { status: newStatus }
     if (catatan !== undefined) patch.catatan_yayasan = catatan
@@ -915,7 +928,7 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
   }
 
   const handleAjukan = () => setStatus('diajukan')
-  const handleSahkan = () => { if (confirm('Sahkan usulan DKA ini? Setelah disahkan, unit tidak dapat mengubahnya.')) setStatus('disahkan') }
+  const handleSahkan = () => { if (confirm('Sahkan DKA ini? Setelah disahkan, unit tidak dapat mengubahnya. DKA menjadi dasar RKAS & pengadaan.')) setStatus('disahkan') }
   const handleKembalikan = () => {
     const c = prompt('Catatan perbaikan untuk unit (alasan dikembalikan):')
     if (c === null) return
@@ -928,6 +941,12 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
     if (err) { alert('Gagal: ' + err.message); return }
     load()
   }
+  const deletePemel = async (item) => {
+    if (!confirm(`Hapus item pemeliharaan "${item.nama_aset}"?`)) return
+    const { error: err } = await supabase.from('dka_pemeliharaan_item').delete().eq('id', item.id)
+    if (err) { alert('Gagal: ' + err.message); return }
+    load()
+  }
 
   if (loading) return <FullPageSpinner />
 
@@ -937,7 +956,7 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
         <EmptyState
           icon={ClipboardList}
           title="Belum ada usulan DKA"
-          description={managesUnit ? 'Susun Daftar Kebutuhan Aset (FM-01) untuk diajukan ke Yayasan.' : 'Unit ini belum menyusun DKA untuk tahun tersebut.'}
+          description={managesUnit ? 'Susun Daftar Kebutuhan Aset (pengadaan & pemeliharaan) untuk diajukan ke Yayasan.' : 'Unit ini belum menyusun DKA untuk tahun tersebut.'}
         />
         {managesUnit && (
           <div className="mt-3 flex justify-center">
@@ -958,7 +977,8 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
               <h3 className="text-base font-semibold text-[var(--color-ink)]">Usulan DKA — Tahun {tahun}</h3>
               <Badge color={DKA_STATUS_BADGE[status]}>{DKA_STATUS_LABEL[status]}</Badge>
             </div>
-            {usulan.diajukan_nama && <p className="mt-1 text-xs text-[var(--color-ink-soft)]">Diajukan oleh {usulan.diajukan_nama}{usulan.diajukan_at ? ` · ${new Date(usulan.diajukan_at).toLocaleDateString('id-ID')}` : ''}</p>}
+            <p className="mt-1 text-xs text-[var(--color-ink-soft)]">Penanggung jawab: Kepala Satuan Pendidikan.{usulan.diajukan_nama ? ` Diajukan oleh ${usulan.diajukan_nama}${usulan.diajukan_at ? ` · ${new Date(usulan.diajukan_at).toLocaleDateString('id-ID')}` : ''}.` : ''}</p>
+            {status === 'disahkan' && <p className="mt-2 rounded-md bg-[var(--color-success-soft)] px-3 py-2 text-sm text-[var(--color-success)]">DKA disahkan — menjadi dasar penyusunan RKAS BOS komponen Sarpras & proses pengadaan.</p>}
             {status === 'dikembalikan' && usulan.catatan_yayasan && (
               <p className="mt-2 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]"><b>Catatan Yayasan:</b> {usulan.catatan_yayasan}</p>
             )}
@@ -972,57 +992,105 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
         {error && <p className="mt-3 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
       </Card>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <StatCard label="Jumlah Item" value={items.length} />
-        <StatCard label="Total Nilai Pengajuan" value={formatRupiah(total)} accent="gold" />
-        <StatCard label="Item di Atas Standar" value={items.filter((r) => validasiHargaItem(r).perluJustifikasi).length} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Item Pengadaan" value={items.length} />
+        <StatCard label="Item Pemeliharaan" value={pemel.length} />
+        <StatCard label="Total Pengadaan" value={formatRupiah(totalPengadaan)} accent="gold" />
+        <StatCard label="Total Pemeliharaan" value={formatRupiah(totalPemel)} accent="gold" />
       </div>
 
-      <SectionCard
-        title="Daftar Kebutuhan Aset (FM-01)"
-        description="Riil = Maksimal − Tersedia. Kode Aset otomatis dari klasifikasi. Harga di atas standar butuh justifikasi."
-        actions={canEditItems ? <Button size="sm" onClick={() => { setEditingItem(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tambah Item</Button> : null}
-      >
-        {items.length === 0 ? (
-          <EmptyState icon={ClipboardList} title="Belum ada item" description="Tambahkan kebutuhan aset." />
-        ) : (
-          <div className="overflow-x-auto">
-            <Table columns={['Kode Aset', 'Nama & Spesifikasi', 'Alasan', 'Cara', 'Riil', 'Ajuan', 'Harga Satuan', 'Jumlah', 'Validasi', canEditItems ? '' : null].filter((c) => c !== null)}>
-              {items.map((r) => {
-                const v = validasiHargaItem(r)
-                return (
+      <div className="flex gap-1 border-b border-[var(--color-border)]">
+        {[['pengadaan', `Rencana Pengadaan (${items.length})`], ['pemeliharaan', `Rencana Pemeliharaan (${pemel.length})`]].map(([k, lbl]) => (
+          <button key={k} onClick={() => setSubtab(k)} className={`border-b-2 px-3 py-2 text-sm font-medium transition-colors ${subtab === k ? 'border-[var(--color-navy)] text-[var(--color-navy)]' : 'border-transparent text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]'}`}>{lbl}</button>
+        ))}
+      </div>
+
+      {subtab === 'pengadaan' && (
+        <SectionCard
+          title="Formulir Rencana Kebutuhan Pengadaan Aset"
+          description="Riil = Maksimal − Tersedia (Tersedia ditarik dari Buku Inventaris). Kode Aset otomatis dari klasifikasi. Harga di atas standar butuh justifikasi."
+          actions={canEditItems ? <Button size="sm" onClick={() => { setEditingItem(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tambah Item</Button> : null}
+        >
+          {items.length === 0 ? (
+            <EmptyState icon={ClipboardList} title="Belum ada item pengadaan" description="Tambahkan kebutuhan pengadaan aset." />
+          ) : (
+            <div className="overflow-x-auto">
+              <Table columns={['Kode Aset', 'Nama & Spesifikasi', 'Alasan', 'Cara', 'Riil', 'Ajuan', 'Harga Satuan', 'Jumlah', 'Validasi', canEditItems ? '' : null].filter((c) => c !== null)}>
+                {items.map((r) => {
+                  const v = validasiHargaItem(r)
+                  return (
+                    <Tr key={r.id}>
+                      <Td><span className="font-mono text-xs">{r.aset_klasifikasi?.kode || '—'}</span></Td>
+                      <Td>
+                        <span className="font-medium">{r.nama_aset}</span>
+                        {r.spesifikasi && <span className="block text-xs text-[var(--color-ink-soft)]">{r.spesifikasi}</span>}
+                        {(r.ruangan?.nama || r.lokasi) && <span className="block text-[11px] text-[var(--color-ink-soft)]">📍 {r.ruangan?.nama || r.lokasi}</span>}
+                      </Td>
+                      <Td className="text-xs">{r.alasan_kebutuhan || '—'}</Td>
+                      <Td className="text-xs">{r.cara_pengadaan || '—'}</Td>
+                      <Td>{Number(r.jumlah_riil)} <span className="text-[11px] text-[var(--color-ink-soft)]">{r.satuan}</span></Td>
+                      <Td>{Number(r.jumlah_pengajuan)}</Td>
+                      <Td>{formatRupiah(r.harga_satuan)}{r.standar_harga != null && <span className="block text-[11px] text-[var(--color-ink-soft)]">std {formatRupiah(r.standar_harga)}</span>}</Td>
+                      <Td className="font-medium">{formatRupiah(r.jumlah_harga)}</Td>
+                      <Td>
+                        <Badge color={v.badge}>{v.label}</Badge>
+                        {v.perluJustifikasi && !r.justifikasi && <span className="block text-[11px] text-[var(--color-danger)]">perlu justifikasi</span>}
+                      </Td>
+                      {canEditItems && (
+                        <Td>
+                          <div className="flex justify-end gap-1.5">
+                            <button onClick={() => { setEditingItem(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
+                            <button onClick={() => deleteItem(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                          </div>
+                        </Td>
+                      )}
+                    </Tr>
+                  )
+                })}
+              </Table>
+            </div>
+          )}
+        </SectionCard>
+      )}
+
+      {subtab === 'pemeliharaan' && (
+        <SectionCard
+          title="Formulir Rencana Kebutuhan Pemeliharaan Aset"
+          description="Pilih aset dari Buku Inventaris (data & kondisi tertarik otomatis). Jumlah Biaya = Volume × Harga Satuan."
+          actions={canEditItems ? <Button size="sm" onClick={() => { setEditingPemel(null); setPemelOpen(true) }}><Plus className="h-4 w-4" /> Tambah Item</Button> : null}
+        >
+          {pemel.length === 0 ? (
+            <EmptyState icon={ClipboardList} title="Belum ada item pemeliharaan" description="Tambahkan rencana pemeliharaan aset yang sudah ada." />
+          ) : (
+            <div className="overflow-x-auto">
+              <Table columns={['Kode Aset', 'Nama Aset', 'Kondisi', 'Jenis', 'Volume', 'Harga Satuan', 'Jumlah Biaya', canEditItems ? '' : null].filter((c) => c !== null)}>
+                {pemel.map((r) => (
                   <Tr key={r.id}>
-                    <Td><span className="font-mono text-xs">{r.aset_klasifikasi?.kode || '—'}</span></Td>
+                    <Td><span className="font-mono text-xs">{r.kode_aset || '—'}</span></Td>
                     <Td>
                       <span className="font-medium">{r.nama_aset}</span>
-                      {r.spesifikasi && <span className="block text-xs text-[var(--color-ink-soft)]">{r.spesifikasi}</span>}
-                      {(r.ruangan?.nama || r.lokasi) && <span className="block text-[11px] text-[var(--color-ink-soft)]">📍 {r.ruangan?.nama || r.lokasi}</span>}
+                      {(r.lokasi || r.nama_kegiatan) && <span className="block text-[11px] text-[var(--color-ink-soft)]">{r.lokasi ? `📍 ${r.lokasi}` : ''}{r.lokasi && r.nama_kegiatan ? ' · ' : ''}{r.nama_kegiatan || ''}</span>}
                     </Td>
-                    <Td className="text-xs">{r.alasan_kebutuhan || '—'}</Td>
-                    <Td className="text-xs">{r.cara_pengadaan || '—'}</Td>
-                    <Td>{Number(r.jumlah_riil)} <span className="text-[11px] text-[var(--color-ink-soft)]">{r.satuan}</span></Td>
-                    <Td>{Number(r.jumlah_pengajuan)}</Td>
-                    <Td>{formatRupiah(r.harga_satuan)}{r.standar_harga != null && <span className="block text-[11px] text-[var(--color-ink-soft)]">std {formatRupiah(r.standar_harga)}</span>}</Td>
-                    <Td className="font-medium">{formatRupiah(r.jumlah_harga)}</Td>
-                    <Td>
-                      <Badge color={v.badge}>{v.label}</Badge>
-                      {v.perluJustifikasi && !r.justifikasi && <span className="block text-[11px] text-[var(--color-danger)]">perlu justifikasi</span>}
-                    </Td>
+                    <Td><Badge color={KONDISI_BADGE[r.kondisi]}>{KONDISI_LABEL[r.kondisi]}</Badge></Td>
+                    <Td className="text-xs">{r.jenis_pemeliharaan || '—'}</Td>
+                    <Td>{Number(r.volume)} <span className="text-[11px] text-[var(--color-ink-soft)]">{r.satuan}</span></Td>
+                    <Td>{formatRupiah(r.harga_satuan)}</Td>
+                    <Td className="font-medium">{formatRupiah(r.jumlah_biaya)}</Td>
                     {canEditItems && (
                       <Td>
                         <div className="flex justify-end gap-1.5">
-                          <button onClick={() => { setEditingItem(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
-                          <button onClick={() => deleteItem(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                          <button onClick={() => { setEditingPemel(r); setPemelOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
+                          <button onClick={() => deletePemel(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
                         </div>
                       </Td>
                     )}
                   </Tr>
-                )
-              })}
-            </Table>
-          </div>
-        )}
-      </SectionCard>
+                ))}
+              </Table>
+            </div>
+          )}
+        </SectionCard>
+      )}
 
       <DkaItemModal
         open={formOpen}
@@ -1034,7 +1102,164 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
         onClose={() => { setFormOpen(false); setEditingItem(null) }}
         onSaved={() => { setFormOpen(false); setEditingItem(null); load() }}
       />
+      <DkaPemeliharaanModal
+        open={pemelOpen}
+        usulan={usulan}
+        schoolId={schoolId}
+        editingItem={editingPemel}
+        onClose={() => { setPemelOpen(false); setEditingPemel(null) }}
+        onSaved={() => { setPemelOpen(false); setEditingPemel(null); load() }}
+      />
     </div>
+  )
+}
+
+// Form Rencana Kebutuhan Pemeliharaan — menunjuk aset dari Inventaris
+// (BI/KIA/KIR sbg dokumen sumber); data & kondisi aset tertarik otomatis.
+function DkaPemeliharaanModal({ open, usulan, schoolId, editingItem, onClose, onSaved }) {
+  const [f, setF] = useState({})
+  const [asetList, setAsetList] = useState([])
+  const [q, setQ] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const isEdit = !!editingItem
+
+  useEffect(() => {
+    if (!open) return
+    setError(''); setQ('')
+    if (editingItem) {
+      setF({
+        aset_id: editingItem.aset_id || '', kode_aset: editingItem.kode_aset || '', nama_aset: editingItem.nama_aset || '',
+        jumlah_aset: String(editingItem.jumlah_aset ?? '1'), lokasi: editingItem.lokasi || '', kondisi: editingItem.kondisi || 'baik',
+        nama_kegiatan: editingItem.nama_kegiatan || '', jenis_pemeliharaan: editingItem.jenis_pemeliharaan || '', volume: String(editingItem.volume ?? '0'),
+        satuan: editingItem.satuan || 'unit', harga_satuan: String(editingItem.harga_satuan ?? '0'), sumber_anggaran: editingItem.sumber_anggaran || '', keterangan: editingItem.keterangan || '',
+      })
+    } else {
+      setF({ aset_id: '', kode_aset: '', nama_aset: '', jumlah_aset: '1', lokasi: '', kondisi: 'baik', nama_kegiatan: '', jenis_pemeliharaan: '', volume: '1', satuan: 'unit', harga_satuan: '0', sumber_anggaran: '', keterangan: '' })
+    }
+  }, [open, editingItem])
+
+  useEffect(() => {
+    if (!open || !schoolId) return
+    supabase.from('aset').select('id, kode_aset, nama, jumlah, satuan, kondisi, ruangan(nama)').eq('school_id', schoolId).eq('status', 'aktif').order('created_at', { ascending: false })
+      .then(({ data }) => setAsetList(data || []))
+  }, [open, schoolId])
+
+  const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }))
+
+  const pilihAset = (a) => {
+    setF((prev) => ({
+      ...prev, aset_id: a.id, kode_aset: a.kode_aset || '', nama_aset: a.nama || '',
+      jumlah_aset: String(a.jumlah ?? 1), satuan: a.satuan || prev.satuan, lokasi: a.ruangan?.nama || '', kondisi: a.kondisi || 'baik',
+    }))
+  }
+  const lepasAset = () => setF((prev) => ({ ...prev, aset_id: '', kode_aset: '' }))
+
+  const results = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    const base = asetList.filter((a) => !s || (a.nama || '').toLowerCase().includes(s) || (a.kode_aset || '').includes(s))
+    return base.slice(0, 20)
+  }, [q, asetList])
+
+  const jumlahBiaya = Number(f.volume || 0) * Number(f.harga_satuan || 0)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    if (!f.nama_aset?.trim()) { setError('Pilih aset dari Inventaris atau isi nama aset.'); return }
+    setSaving(true)
+    const payload = {
+      usulan_id: usulan.id,
+      aset_id: f.aset_id || null,
+      kode_aset: f.kode_aset || null,
+      nama_aset: f.nama_aset.trim(),
+      jumlah_aset: Number(f.jumlah_aset) || 0,
+      lokasi: f.lokasi?.trim() || null,
+      kondisi: f.kondisi,
+      nama_kegiatan: f.nama_kegiatan?.trim() || null,
+      jenis_pemeliharaan: f.jenis_pemeliharaan || null,
+      volume: Number(f.volume) || 0,
+      satuan: f.satuan?.trim() || 'unit',
+      harga_satuan: Number(f.harga_satuan) || 0,
+      sumber_anggaran: f.sumber_anggaran || null,
+      keterangan: f.keterangan?.trim() || null,
+    }
+    const query = isEdit ? supabase.from('dka_pemeliharaan_item').update(payload).eq('id', editingItem.id) : supabase.from('dka_pemeliharaan_item').insert(payload)
+    const { error: err } = await query
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onSaved()
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Ubah Item Pemeliharaan' : 'Tambah Item Pemeliharaan'} width="max-w-2xl">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <div>
+          <label className="mb-1 block text-[13px] font-medium text-[var(--color-ink)]">Aset dari Inventaris (dokumen sumber BI/KIA/KIR)</label>
+          {f.aset_id ? (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-paper)] px-3 py-2">
+              <span className="text-sm text-[var(--color-ink)]"><span className="font-mono text-[var(--color-navy)]">{f.kode_aset || '—'}</span> — {f.nama_aset} {f.lokasi && <span className="text-[var(--color-ink-soft)]">· 📍 {f.lokasi}</span>}</span>
+              <button type="button" onClick={lepasAset} className="text-xs text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]">ganti</button>
+            </div>
+          ) : (
+            <div className="relative">
+              <div className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-3">
+                <Search className="h-4 w-4 text-[var(--color-ink-soft)]" />
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari aset yang akan dipelihara…" className="w-full bg-transparent py-2 text-sm outline-none" />
+              </div>
+              {results.length > 0 && (
+                <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-[var(--color-border)] bg-white shadow-lg">
+                  {results.map((a) => (
+                    <button key={a.id} type="button" onClick={() => pilihAset(a)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--color-navy-50)]">
+                      <span className="font-mono text-xs text-[var(--color-navy)]">{a.kode_aset || '—'}</span>
+                      <span className="text-[var(--color-ink)]">{a.nama}</span>
+                      {a.ruangan?.nama && <span className="text-[11px] text-[var(--color-ink-soft)]">· {a.ruangan.nama}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="mt-1 text-[11px] text-[var(--color-ink-soft)]">Tak ada di daftar? Isi manual nama aset di bawah (mis. aset lama belum terinventaris).</p>
+            </div>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Nama Aset" required value={f.nama_aset || ''} onChange={(e) => set('nama_aset', e.target.value)} />
+          <Input label="Nama Proker/Kegiatan" value={f.nama_kegiatan || ''} onChange={(e) => set('nama_kegiatan', e.target.value)} />
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <Input label="Jumlah Aset" type="number" value={f.jumlah_aset ?? ''} onChange={(e) => set('jumlah_aset', e.target.value)} />
+          <Input label="Lokasi" value={f.lokasi || ''} onChange={(e) => set('lokasi', e.target.value)} />
+          <Select label="Kondisi" value={f.kondisi || 'baik'} onChange={(e) => set('kondisi', e.target.value)}>
+            {KONDISI_OPTIONS.map((k) => <option key={k} value={k}>{KONDISI_LABEL[k]}</option>)}
+          </Select>
+        </div>
+        <div className="grid grid-cols-4 gap-3">
+          <Select label="Jenis Pemeliharaan" value={f.jenis_pemeliharaan || ''} onChange={(e) => set('jenis_pemeliharaan', e.target.value)}>
+            <option value="">—</option>
+            {JENIS_PEMELIHARAAN_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </Select>
+          <Input label="Volume" type="number" value={f.volume ?? ''} onChange={(e) => set('volume', e.target.value)} />
+          <Input label="Satuan" value={f.satuan || ''} onChange={(e) => set('satuan', e.target.value)} />
+          <Input label="Harga Satuan (Rp)" type="number" value={f.harga_satuan ?? ''} onChange={(e) => set('harga_satuan', e.target.value)} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Select label="Sumber Anggaran" value={f.sumber_anggaran || ''} onChange={(e) => set('sumber_anggaran', e.target.value)}>
+            <option value="">—</option>
+            {SUMBER_ANGGARAN_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </Select>
+          <div>
+            <label className="mb-1 block text-[13px] font-medium text-[var(--color-ink)]">Jumlah Biaya</label>
+            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-paper)] px-3 py-2 text-sm font-medium">{formatRupiah(jumlahBiaya)}</div>
+          </div>
+        </div>
+        <Textarea label="Keterangan / Uraian Pemeliharaan (opsional)" rows={2} value={f.keterangan || ''} onChange={(e) => set('keterangan', e.target.value)} />
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 
