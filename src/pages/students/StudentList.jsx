@@ -9,8 +9,14 @@ import StudentFormModal from './StudentFormModal'
 import { useAutoRefresh } from '../../lib/useAutoRefresh'
 
 export default function StudentList() {
-  const { isManager, hasFullAccess, managedSchoolIds, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, managedSchoolIds, can, permsReady, loading: authLoading } = useAuth()
   const navigate = useNavigate()
+
+  // Izin per-aksi modul 'siswa' (Fase 2). Sebelum migrasi izin dijalankan
+  // (permsReady=false), jatuh ke perilaku lama berbasis isManager.
+  const bolehLihat = permsReady ? can('siswa', 'lihat') : isManager
+  const bolehTambah = permsReady ? can('siswa', 'tambah') : isManager
+  const bolehHapus = permsReady ? can('siswa', 'hapus') : isManager
 
   // Admin Sekolah / Kepala Sekolah (isManager tapi bukan lintas-yayasan)
   // dikunci ke satuan pendidikannya sendiri. Admin Yayasan/HR (hasFullAccess)
@@ -56,12 +62,12 @@ export default function StudentList() {
 
   if (authLoading || loading) return <FullPageSpinner />
 
-  if (!isManager) {
+  if (!bolehLihat) {
     return (
       <EmptyState
         icon={GraduationCap}
-        title="Data siswa belum tersedia"
-        description="Halaman ini hanya dapat diakses oleh Admin Yayasan, HR, Admin Sekolah, atau Kepala Sekolah."
+        title="Akses terbatas"
+        description="Peran Anda tidak memiliki izin melihat Data Siswa. Hubungi Admin Yayasan bila ini keliru."
       />
     )
   }
@@ -87,11 +93,11 @@ export default function StudentList() {
       <PageHeader
         title="Data Siswa"
         description={lockedSchoolId ? `${siswa.length} siswa tercatat di unit Anda` : `${siswa.length} siswa tercatat di seluruh unit yayasan`}
-        actions={
+        actions={bolehTambah && (
           <Button onClick={() => setFormOpen(true)}>
             <Plus className="h-4 w-4" /> Tambah Siswa
           </Button>
-        }
+        )}
       />
 
       {loadError && (
@@ -140,9 +146,11 @@ export default function StudentList() {
                   <Td>{s.schools ? `${s.schools.jenjang} — ${s.schools.nama}` : '—'}</Td>
                   <Td><Badge color={STATUS_BADGE_COLOR[s.status]}>{SISWA_STATUS_LABELS[s.status] || s.status}</Badge></Td>
                   <Td className="text-right">
-                    <button onClick={(ev) => handleDelete(ev, s)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus siswa">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    {bolehHapus && (
+                      <button onClick={(ev) => handleDelete(ev, s)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus siswa">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </Td>
                 </Tr>
               ))}

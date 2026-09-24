@@ -9,6 +9,8 @@ export function AuthProvider({ children }) {
   const [roles, setRoles] = useState([])
   const [employee, setEmployee] = useState(null)
   const [waliKelasRombel, setWaliKelasRombel] = useState([])
+  const [perms, setPerms] = useState(() => new Set()) // "modul:aksi" yang diizinkan
+  const [permsReady, setPermsReady] = useState(false) // true bila RPC izin berhasil (migrasi 0055 sudah ada)
   const [loadingContext, setLoadingContext] = useState(true)
   // ID pengguna yang konteksnya sudah dimuat. Dipakai untuk MENGABAIKAN
   // event auth berulang (TOKEN_REFRESHED / SIGNED_IN ulang) yang dipancarkan
@@ -22,13 +24,15 @@ export function AuthProvider({ children }) {
       setRoles([])
       setEmployee(null)
       setWaliKelasRombel([])
+      setPerms(new Set())
+      setPermsReady(false)
       setLoadingContext(false)
       return
     }
     setLoadingContext(true)
     const [{ data: profileData }, { data: roleData }, { data: employeeData }] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
-      supabase.from('user_roles').select('*, schools!school_id(nama, jenjang)').eq('user_id', userId),
+      supabase.from('user_roles').select('*, schools!school_id(nama, jenjang), roles!role_id(id, nama, kode, tingkat_akses, is_admin_yayasan)').eq('user_id', userId),
       supabase.from('employees').select('*, schools!school_id(nama, jenjang)').eq('user_id', userId).maybeSingle(),
     ])
     setProfile(profileData || null)
@@ -77,6 +81,18 @@ export function AuthProvider({ children }) {
       setWaliKelasRombel([])
     }
 
+    // Izin per-modul × per-aksi (Fase 2, RBAC). Dihitung server-side
+    // (my_permissions) agar konsisten dengan penegakan RLS. Bila RPC belum
+    // ada (migrasi 0055 belum dijalankan), diamkan — kontrol menu jatuh ke
+    // perilaku lama (halaman tetap dijaga guard & RLS).
+    try {
+      const { data: permRows, error: permErr } = await supabase.rpc('my_permissions')
+      if (permErr) { setPerms(new Set()); setPermsReady(false) }
+      else { setPerms(new Set((permRows || []).map((p) => `${p.modul}:${p.aksi}`))); setPermsReady(true) }
+    } catch {
+      setPerms(new Set()); setPermsReady(false)
+    }
+
     setLoadingContext(false)
   }, [])
 
@@ -101,14 +117,24 @@ export function AuthProvider({ children }) {
     return () => listener.subscription.unsubscribe()
   }, [loadContext])
 
-  const roleNames = useMemo(() => roles.map((r) => r.role), [roles])
-  const isAdminYayasan = roleNames.includes('admin_yayasan')
-  const isHr = roleNames.includes('hr')
-  const isManager = isAdminYayasan || isHr || roleNames.includes('admin_sekolah') || roleNames.includes('kepala_sekolah')
-  const hasFullAccess = isAdminYayasan || isHr
-  const isBendahara = roleNames.includes('bendahara')
+  // Nama peran untuk tampilan (Topbar): enum lama ATAU nama peran dinamis.
+  const roleNames = useMemo(() => roles.map((r) => r.role || r.roles?.nama).filter(Boolean), [roles])
+  // Tingkat akses dari peran dinamis (jembatan model peran per jabatan, 0054).
+  const levels = useMemo(() => roles.map((r) => r.roles?.tingkat_akses).filter(Boolean), [roles])
+  // Peran enum lama (untuk pemeriksaan spesifik yang masih berbasis enum).
+  const enumRoles = useMemo(() => roles.map((r) => r.role).filter(Boolean), [roles])
+
+  const isAdminYayasan = enumRoles.includes('admin_yayasan') || roles.some((r) => r.roles?.is_admin_yayasan)
+  const isHr = enumRoles.includes('hr')
+  const hasFullAccess = isAdminYayasan || isHr || levels.includes('yayasan_penuh')
+  const isManager = hasFullAccess || enumRoles.includes('admin_sekolah') || enumRoles.includes('kepala_sekolah') || levels.includes('manajer_unit')
+  const isBendahara = enumRoles.includes('bendahara') || levels.includes('bendahara')
   const managedSchoolIds = roles.filter((r) => r.school_id).map((r) => r.school_id)
   const isWaliKelas = waliKelasRombel.length > 0
+
+  // can(modul, aksi) — izin per-modul × per-aksi (Fase 2). Super admin &
+  // jembatan enum/waka sudah diperhitungkan server-side (my_permissions).
+  const can = useCallback((modul, aksi) => perms.has(`${modul}:${aksi}`), [perms])
 
   const value = {
     session,
@@ -125,6 +151,9 @@ export function AuthProvider({ children }) {
     managedSchoolIds,
     waliKelasRombel,
     isWaliKelas,
+    perms,
+    permsReady,
+    can,
     loading: session === undefined || loadingContext,
     refreshContext: () => loadContext(session?.user?.id),
     signOut: () => supabase.auth.signOut(),

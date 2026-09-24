@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Building2, Plus, Pencil, Trash2, CalendarClock, Clock, ClipboardList, Star, Check, X } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, SectionCard, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
-import { formatRupiah, ROLE_LABELS } from '../../lib/format'
+import { formatRupiah } from '../../lib/format'
 
 const TABS = ['Unit Sekolah', 'Unit Kerja', 'Jabatan', 'Tugas Tambahan', 'Jenis Cuti & Izin', 'Jam Kerja', 'KPI']
 
@@ -227,7 +227,7 @@ function DepartmentsTab({ departments, schools, reload }) {
   )
 }
 
-const emptyPositionForm = { nama: '', department_id: '', jenis: 'struktural', tunjangan_jenis: '', tunjangan_nominal: '', jp_ekuivalensi: '', default_role: '' }
+const emptyPositionForm = { nama: '', department_id: '', jenis: 'struktural', tunjangan_jenis: '', tunjangan_nominal: '', jp_ekuivalensi: '' }
 
 function PositionsTab({ positions, departments, reload }) {
   const [modalOpen, setModalOpen] = useState(false)
@@ -242,7 +242,7 @@ function PositionsTab({ positions, departments, reload }) {
     setForm({
       nama: p.nama || '', department_id: p.department_id || '', jenis: p.jenis || 'struktural',
       tunjangan_jenis: p.tunjangan_jenis || '', tunjangan_nominal: p.tunjangan_nominal || '',
-      jp_ekuivalensi: p.jp_ekuivalensi || '', default_role: p.default_role || '',
+      jp_ekuivalensi: p.jp_ekuivalensi || '',
     })
     setError('')
     setModalOpen(true)
@@ -257,7 +257,6 @@ function PositionsTab({ positions, departments, reload }) {
       tunjangan_jenis: form.tunjangan_jenis || null,
       tunjangan_nominal: form.tunjangan_jenis ? Number(form.tunjangan_nominal) || 0 : 0,
       jp_ekuivalensi: form.tunjangan_jenis === 'struktural' ? Number(form.jp_ekuivalensi) || 0 : 0,
-      default_role: form.default_role || null,
     }
     const query = editingId ? supabase.from('positions').update(payload).eq('id', editingId) : supabase.from('positions').insert(payload)
     const { error: err } = await query
@@ -313,13 +312,9 @@ function PositionsTab({ positions, departments, reload }) {
             <option value="">— Tidak terikat unit —</option>
             {departments.map((d) => <option key={d.id} value={d.id}>{d.nama}</option>)}
           </Select>
-          <div>
-            <Select label="Peran Login dari Jabatan ini (opsional)" value={form.default_role} onChange={(e) => setForm((s) => ({ ...s, default_role: e.target.value }))}>
-              <option value="">— Tidak memberi peran otomatis —</option>
-              {Object.entries(ROLE_LABELS).map(([val, lbl]) => <option key={val} value={val}>{lbl}</option>)}
-            </Select>
-            <p className="mt-1 text-xs text-[var(--color-ink-soft)]">Dipakai tombol <strong>Sinkronkan Peran dari Jabatan</strong> di halaman Pengguna &amp; Peran untuk membuat peran login pegawai yang memangku jabatan ini. Peran unit (Admin/Kepala Sekolah, Guru) otomatis terikat ke satuan pendidikan pegawai.</p>
-          </div>
+          <p className="rounded-md bg-[var(--color-navy-50)] px-3 py-2 text-xs text-[var(--color-ink-soft)]">
+            Setiap jabatan otomatis memiliki <strong>perannya sendiri</strong>. Atur tingkat akses peran ini, dan tetapkan ke pengguna, di menu <strong>Pengguna &amp; Peran</strong> (tombol <em>Sinkronkan Peran dari Jabatan</em> membuatkan peran login pegawai yang memangkunya).
+          </p>
           <div className="grid grid-cols-2 gap-4">
             <Select label="Jenis Tunjangan Jabatan" value={form.tunjangan_jenis} onChange={(e) => setForm((s) => ({ ...s, tunjangan_jenis: e.target.value }))}>
               <option value="">— Tidak ada —</option>
