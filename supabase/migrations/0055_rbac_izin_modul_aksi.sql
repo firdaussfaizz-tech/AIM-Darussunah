@@ -103,7 +103,7 @@ create or replace function public.roles_tingkat_default(p_tingkat text, p_modul 
 returns boolean language sql immutable set search_path = public as $$
   select case
     when p_tingkat = 'yayasan_penuh' then true
-    when p_tingkat = 'manajer_unit' then p_modul not in ('pengguna', 'log', 'notifikasi', 'struktur')
+    when p_tingkat = 'manajer_unit' then p_modul not in ('penggajian', 'pengguna', 'log', 'notifikasi', 'struktur')
     when p_tingkat = 'bendahara' then p_modul in ('spp', 'keuangan')
     else false
   end;

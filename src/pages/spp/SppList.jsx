@@ -9,16 +9,17 @@ import { useAutoRefresh } from '../../lib/useAutoRefresh'
 const TABS = ['Tagihan & Pembayaran', 'Rekap & Tunggakan', 'Tarif SPP']
 
 export default function SppList() {
-  const { isManager, isBendahara, hasFullAccess, managedSchoolIds, employee, loading: authLoading } = useAuth()
+  const { isManager, isBendahara, hasFullAccess, managedSchoolIds, employee, can, permsReady, loading: authLoading } = useAuth()
   const [tab, setTab] = useState('Tagihan & Pembayaran')
 
   if (authLoading) return <FullPageSpinner />
-  if (!isManager && !isBendahara) {
+  const bolehLihat = permsReady ? can('spp', 'lihat') : (isManager || isBendahara)
+  if (!bolehLihat) {
     return (
       <EmptyState
         icon={ShieldAlert}
         title="Akses terbatas"
-        description="Halaman SPP hanya dapat diakses oleh Bendahara, Admin Yayasan, HR, Admin Sekolah, atau Kepala Sekolah."
+        description="Peran Anda tidak memiliki izin melihat modul SPP. Hubungi Admin Yayasan bila ini keliru."
       />
     )
   }

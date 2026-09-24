@@ -28,9 +28,11 @@ function usePayrollSettings() {
 }
 
 export default function PayrollList() {
-  const { hasFullAccess, employee, loading: authLoading } = useAuth()
+  const { hasFullAccess, can, permsReady, employee, loading: authLoading } = useAuth()
   const [sp] = useSearchParams()
-  const asManager = hasFullAccess && sp.get('me') !== '1'
+  // Kelola penggajian bila punya izin modul 'penggajian' (fallback: hasFullAccess).
+  const bolehKelola = permsReady ? can('penggajian', 'lihat') : hasFullAccess
+  const asManager = bolehKelola && sp.get('me') !== '1'
   if (authLoading) return <FullPageSpinner />
   return (
     <div>

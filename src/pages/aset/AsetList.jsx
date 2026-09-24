@@ -92,7 +92,7 @@ function PenghapusanRekap({ onOpen }) {
 // Tiap area = satu halaman /aset/:area (menu dropdown di Sidebar). Konten
 // dipilih dari SARPRAS_AREAS berdasarkan slug pada URL.
 export default function AsetList() {
-  const { isManager, hasFullAccess, roles, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, roles, can, permsReady, loading: authLoading } = useAuth()
   const { area } = useParams()
   const [sopOpen, setSopOpen] = useState(false)
 
@@ -107,8 +107,9 @@ export default function AsetList() {
   }, [roles])
 
   if (authLoading) return <FullPageSpinner />
-  if (!isManager) {
-    return <EmptyState icon={ShieldAlert} title="Akses terbatas" description="Halaman Sarana & Prasarana hanya untuk manajemen (Admin Yayasan/HR, Admin Sekolah, Kepala Sekolah)." />
+  const bolehLihat = permsReady ? can('sarpras', 'lihat') : isManager
+  if (!bolehLihat) {
+    return <EmptyState icon={ShieldAlert} title="Akses terbatas" description="Peran Anda tidak memiliki izin melihat Sarana & Prasarana." />
   }
 
   const active = SARPRAS_AREAS.find((a) => a.slug === area)

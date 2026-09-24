@@ -9,8 +9,10 @@ import EmployeeFormModal from './EmployeeFormModal'
 import { useAutoRefresh } from '../../lib/useAutoRefresh'
 
 export default function EmployeeList() {
-  const { isManager, hasFullAccess, employee, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, can, permsReady, employee, loading: authLoading } = useAuth()
   const navigate = useNavigate()
+  // Direktori pegawai butuh izin 'pegawai:lihat' (fallback: isManager).
+  const bolehLihat = permsReady ? can('pegawai', 'lihat') : isManager
   const [loading, setLoading] = useState(true)
   const [employees, setEmployees] = useState([])
   const [schools, setSchools] = useState([])
@@ -46,14 +48,14 @@ export default function EmployeeList() {
 
   // Non-manager: langsung arahkan ke profil sendiri, jangan tampilkan direktori.
   useEffect(() => {
-    if (!authLoading && !isManager && employee?.id) {
+    if (!authLoading && !bolehLihat && employee?.id) {
       navigate(`/pegawai/${employee.id}`, { replace: true })
     }
-  }, [authLoading, isManager, employee, navigate])
+  }, [authLoading, bolehLihat, employee, navigate])
 
   if (authLoading || loading) return <FullPageSpinner />
 
-  if (!isManager) {
+  if (!bolehLihat) {
     return (
       <EmptyState
         icon={Users}

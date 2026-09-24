@@ -68,10 +68,11 @@ function authorityLabel(row) {
 }
 
 export default function LeaveList() {
-  const { isManager, hasFullAccess, employee, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, can, permsReady, employee, loading: authLoading } = useAuth()
   const [sp] = useSearchParams()
   const personal = sp.get('me') === '1' // mode "diri sendiri" (Menu Pribadi)
-  const asManager = isManager && !personal
+  const bolehKelola = permsReady ? can('cuti', 'lihat') : isManager
+  const asManager = bolehKelola && !personal
   const [tab, setTab] = useState(asManager ? 'Approval / Persetujuan' : 'Pengajuan')
   const [leaveTypes, setLeaveTypes] = useState([])
   const [rows, setRows] = useState([])

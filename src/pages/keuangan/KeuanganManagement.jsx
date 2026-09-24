@@ -36,7 +36,7 @@ function useUnitFilter(canSeeAllUnits, mySchools) {
 }
 
 export default function KeuanganManagement() {
-  const { isManager, hasFullAccess, isBendahara, roles, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, isBendahara, roles, can, permsReady, loading: authLoading } = useAuth()
   const { area } = useParams()
 
   const mySchools = useMemo(() => {
@@ -50,8 +50,9 @@ export default function KeuanganManagement() {
   }, [roles])
 
   if (authLoading) return <FullPageSpinner />
-  if (!isManager && !isBendahara) {
-    return <EmptyState icon={ShieldAlert} title="Akses terbatas" description="Halaman Manajemen Keuangan hanya untuk manajemen (Admin Yayasan/HR, Admin Sekolah, Kepala Sekolah) atau Bendahara." />
+  const bolehLihat = permsReady ? can('keuangan', 'lihat') : (isManager || isBendahara)
+  if (!bolehLihat) {
+    return <EmptyState icon={ShieldAlert} title="Akses terbatas" description="Peran Anda tidak memiliki izin melihat Manajemen Keuangan. Hubungi Admin Yayasan bila ini keliru." />
   }
 
   const canSeeAllUnits = hasFullAccess || isBendahara

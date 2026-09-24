@@ -14,9 +14,10 @@ const STATUS_OPTIONS = ['hadir', 'izin', 'sakit', 'alpa', 'dinas_luar', 'cuti']
 const STATUS_LABELS = { hadir: 'Hadir', izin: 'Izin', sakit: 'Sakit', alpa: 'Alpa', dinas_luar: 'Dinas Luar', cuti: 'Cuti' }
 
 export default function AttendanceList() {
-  const { isManager, employee, loading: authLoading } = useAuth()
+  const { isManager, can, permsReady, employee, loading: authLoading } = useAuth()
   const [sp] = useSearchParams()
-  const asManager = isManager && sp.get('me') !== '1'
+  const bolehKelola = permsReady ? can('presensi', 'lihat') : isManager
+  const asManager = bolehKelola && sp.get('me') !== '1'
   if (authLoading) return <FullPageSpinner />
   return (
     <div>

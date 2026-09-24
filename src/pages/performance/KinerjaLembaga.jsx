@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Target, Gauge, LineChart } from 'lucide-react'
-import { PageHeader } from '../../components/ui'
+import { Target, Gauge, LineChart, ShieldAlert } from 'lucide-react'
+import { PageHeader, EmptyState, FullPageSpinner } from '../../components/ui'
+import { useAuth } from '../../context/AuthContext'
 import { OkrPanel } from './OkrList'
 import { KpiLembagaPanel, LembagaDashboard } from './KpiLembaga'
 
@@ -17,7 +18,14 @@ const TABS = [
 ]
 
 export default function KinerjaLembaga() {
+  const { isManager, can, permsReady, loading: authLoading } = useAuth()
   const [tab, setTab] = useState('okr')
+
+  if (authLoading) return <FullPageSpinner />
+  const bolehLihat = permsReady ? can('okr_kpi', 'lihat') : isManager
+  if (!bolehLihat) {
+    return <EmptyState icon={ShieldAlert} title="Akses terbatas" description="Peran Anda tidak memiliki izin melihat OKR & KPI Lembaga." />
+  }
 
   return (
     <div>
