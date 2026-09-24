@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabaseClient'
 import { Card, Button, Badge, Modal } from './ui'
 import { formatRupiah } from '../lib/format'
 
-export default function TugasTambahanSection({ employeeId, canManage }) {
+export default function TugasTambahanSection({ employeeId, canManage, isStruktural = false }) {
   const [master, setMaster] = useState([])
   const [assignedIds, setAssignedIds] = useState([])
   const [loading, setLoading] = useState(true)
@@ -52,7 +52,10 @@ export default function TugasTambahanSection({ employeeId, canManage }) {
     .filter((m) => assignedIds.includes(m.id))
     .slice()
     .sort((a, b) => Number(b.tunjangan_nominal || 0) - Number(a.tunjangan_nominal || 0) || a.nama.localeCompare(b.nama))
-  const dibayarId = assigned[0]?.id || null
+  // Bila pegawai sudah menerima Tunjangan Struktural, TIDAK ada Tunjangan
+  // Fungsional yang dibayarkan (tugas tambahan tetap dicatat untuk Beban
+  // Kerja). Selaras dgn lib/payroll.js.
+  const dibayarId = isStruktural ? null : (assigned[0]?.id || null)
 
   if (loading) return null
 
@@ -72,7 +75,12 @@ export default function TugasTambahanSection({ employeeId, canManage }) {
               ))}
             </div>
           )}
-          {assigned.length > 1 && (
+          {isStruktural && assigned.length > 0 && (
+            <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
+              Pegawai menerima Tunjangan Struktural — Tunjangan Fungsional dari tugas tambahan TIDAK dibayarkan (tetap dicatat untuk Beban Kerja).
+            </p>
+          )}
+          {!isStruktural && assigned.length > 1 && (
             <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
               Mengemban {assigned.length} tugas tambahan — hanya nominal tertinggi yang dibayarkan sebagai Tunjangan Fungsional.
             </p>

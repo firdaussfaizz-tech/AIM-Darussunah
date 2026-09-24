@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { CalendarCheck, UploadCloud } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Select, Input, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner } from '../../components/ui'
 import { STATUS_BADGE_COLOR, formatDate } from '../../lib/format'
 import FingerprintImportModal from './FingerprintImportModal'
+import { useAutoRefresh } from '../../lib/useAutoRefresh'
 
 const LATE_THRESHOLD = '06:55:00' // Pasal 8 ayat (1) SK 01.014/SK-YDC/IX/26
 
@@ -26,9 +27,25 @@ export default function AttendanceList() {
 }
 
 function ManagerAttendance() {
+  const { hasFullAccess, roles } = useAuth()
+  // Unit yang benar-benar dikelola pengguna tingkat sekolah (Admin/Kepala
+  // Sekolah). Admin Yayasan/HR (hasFullAccess) melihat semua unit; manajer
+  // sekolah HANYA boleh mengatur presensi unitnya sendiri (#6). RLS sudah
+  // menegakkan ini di server; pembatasan dropdown ini mencegah kebingungan
+  // (memilih unit lain lalu kosong) & menegaskan cakupan wewenang.
+  const mySchools = useMemo(() => {
+    const seen = new Map()
+    for (const r of roles || []) {
+      if (['admin_sekolah', 'kepala_sekolah'].includes(r.role) && r.school_id && !seen.has(r.school_id)) {
+        seen.set(r.school_id, { id: r.school_id, nama: r.schools?.nama, jenjang: r.schools?.jenjang })
+      }
+    }
+    return Array.from(seen.values())
+  }, [roles])
+
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [schools, setSchools] = useState([])
-  const [schoolFilter, setSchoolFilter] = useState('')
+  const [schoolFilter, setSchoolFilter] = useState(!hasFullAccess && mySchools.length === 1 ? mySchools[0].id : '')
   const [employees, setEmployees] = useState([])
   const [attendanceMap, setAttendanceMap] = useState({})
   const [loading, setLoading] = useState(true)
@@ -38,7 +55,9 @@ function ManagerAttendance() {
   const load = useCallback(async () => {
     setLoading(true)
     const [{ data: sch }, empQuery] = await Promise.all([
-      supabase.from('schools').select('id, nama, jenjang').order('jenjang'),
+      hasFullAccess
+        ? supabase.from('schools').select('id, nama, jenjang').order('jenjang')
+        : Promise.resolve({ data: mySchools }),
       (() => {
         let q = supabase.from('employees').select('id, nama, schools!school_id(nama, jenjang)').eq('status', 'aktif').order('nama')
         if (schoolFilter) q = q.eq('school_id', schoolFilter)
@@ -57,9 +76,10 @@ function ManagerAttendance() {
       setAttendanceMap({})
     }
     setLoading(false)
-  }, [date, schoolFilter])
+  }, [date, schoolFilter, hasFullAccess, mySchools])
 
   useEffect(() => { load() }, [load])
+  useAutoRefresh('attendance', load)
 
   const setStatus = async (employeeId, status) => {
     setSaving((s) => ({ ...s, [employeeId]: true }))
@@ -86,8 +106,10 @@ function ManagerAttendance() {
       <Card className="mb-4" padded={false}>
         <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
           <Input type="date" containerClassName="sm:w-48" value={date} onChange={(e) => setDate(e.target.value)} />
-          <Select containerClassName="sm:w-56" value={schoolFilter} onChange={(e) => setSchoolFilter(e.target.value)}>
-            <option value="">Semua Unit</option>
+          <Select containerClassName="sm:w-56" value={schoolFilter} onChange={(e) => setSchoolFilter(e.target.value)} disabled={!hasFullAccess && schools.length <= 1}>
+            {/* Admin Yayasan/HR boleh 'Semua Unit'; manajer sekolah dikunci ke unitnya. */}
+            {hasFullAccess && <option value="">Semua Unit</option>}
+            {!hasFullAccess && schools.length !== 1 && <option value="">— Pilih Unit —</option>}
             {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
           </Select>
         </div>

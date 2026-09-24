@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
-import { UserCog, Plus, Trash2, Link2 } from 'lucide-react'
+import { UserCog, Plus, Trash2, Link2, RefreshCw } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
-import { PageHeader, Card, SectionCard, Button, Table, Tr, Td, Badge, Modal, Select, EmptyState, FullPageSpinner } from '../../components/ui'
+import { PageHeader, SectionCard, Button, Table, Tr, Td, Badge, Modal, Select, EmptyState, FullPageSpinner } from '../../components/ui'
 import { ROLE_OPTIONS, ROLE_LABELS } from '../../lib/format'
 
 export default function UserRoles() {
@@ -30,9 +30,27 @@ export default function UserRoles() {
 
   useEffect(() => { load() }, [load])
 
+  const [syncing, setSyncing] = useState(false)
+
   const removeRole = async (roleId) => {
     if (!confirm('Hapus peran ini dari pengguna?')) return
     await supabase.from('user_roles').delete().eq('id', roleId)
+    load()
+  }
+
+  // #7: buat peran login pegawai dari jabatannya (positions.default_role).
+  // Hanya MENAMBAH peran yang belum ada — tidak menghapus peran manual.
+  const syncPeranDariJabatan = async () => {
+    if (!confirm(
+      'Sinkronkan peran login dari jabatan pegawai?\n\n' +
+      'Untuk setiap pegawai aktif yang sudah punya akun login, sistem akan MEMBUAT peran sesuai "Peran Login dari Jabatan" pada jabatannya ' +
+      '(diatur di Struktur Organisasi > Jabatan). Peran yang sudah ada tidak diubah/dihapus. Lanjutkan?'
+    )) return
+    setSyncing(true)
+    const { data, error } = await supabase.rpc('sinkron_peran_dari_jabatan')
+    setSyncing(false)
+    if (error) { alert('Gagal menyinkronkan: ' + error.message); return }
+    alert(data > 0 ? `${data} peran baru dibuat dari jabatan pegawai.` : 'Tidak ada peran baru — semua pegawai yang punya akun & jabatan sudah memiliki perannya (atau jabatannya belum diberi "Peran Login").')
     load()
   }
 
@@ -67,7 +85,11 @@ export default function UserRoles() {
 
   return (
     <div>
-      <PageHeader title="Pengguna & Peran" description="Kelola akses masuk dan peran setiap pengguna aplikasi." />
+      <PageHeader
+        title="Pengguna & Peran"
+        description="Kelola akses masuk dan peran setiap pengguna aplikasi."
+        actions={<Button variant="outline" onClick={syncPeranDariJabatan} disabled={syncing}><RefreshCw className="h-4 w-4" /> {syncing ? 'Menyinkronkan…' : 'Sinkronkan Peran dari Jabatan'}</Button>}
+      />
 
       <SectionCard title="Daftar Pengguna Terdaftar" description={`${profiles.length} akun terdaftar`}>
         {profiles.length === 0 ? (
@@ -127,7 +149,7 @@ export default function UserRoles() {
   )
 }
 
-function RoleModal({ profile, schools, employees, onClose, onSaved }) {
+function RoleModal({ profile, schools, onClose, onSaved }) {
   const [role, setRole] = useState('staff')
   const [schoolId, setSchoolId] = useState('')
   const [employeeId, setEmployeeId] = useState('')

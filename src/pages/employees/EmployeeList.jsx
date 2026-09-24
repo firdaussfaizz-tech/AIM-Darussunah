@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Users, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
-import { PageHeader, Card, Button, Input, Select, Table, Tr, Td, Badge, EmptyState, FullPageSpinner } from '../../components/ui'
+import { PageHeader, Card, Button, Select, Table, Tr, Td, Badge, EmptyState, FullPageSpinner } from '../../components/ui'
 import { STATUS_BADGE_COLOR } from '../../lib/format'
 import EmployeeFormModal from './EmployeeFormModal'
+import { useAutoRefresh } from '../../lib/useAutoRefresh'
 
 export default function EmployeeList() {
   const { isManager, hasFullAccess, employee, loading: authLoading } = useAuth()
@@ -40,6 +41,8 @@ export default function EmployeeList() {
   useEffect(() => {
     if (!authLoading) load()
   }, [authLoading, load])
+
+  useAutoRefresh('employees', load)
 
   // Non-manager: langsung arahkan ke profil sendiri, jangan tampilkan direktori.
   useEffect(() => {

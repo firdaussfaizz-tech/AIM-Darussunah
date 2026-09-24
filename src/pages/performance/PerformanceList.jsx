@@ -6,6 +6,23 @@ import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Select, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner, Modal, Input, Textarea } from '../../components/ui'
 import { STATUS_BADGE_COLOR } from '../../lib/format'
 import { kategoriFromSkor, defaultPeriodeKinerja } from '../../lib/remunerasi'
+import { kehadiranSkorPegawai, kpiLembagaSkorUnit } from '../../lib/kpiAuto'
+
+// Label sumber otomatis skor KPI penilaian pegawai (#4).
+const SKOR_SUMBER_LABEL = {
+  kehadiran_pegawai: 'Otomatis: Indeks Kehadiran',
+  kpi_lembaga_unit: 'Otomatis: KPI Lembaga unit',
+}
+
+// Rentang tanggal periode kinerja dari tahun + semester (1=Ganjil Jul–Des,
+// 2=Genap Jan–Jun). Dipakai menghitung skor kehadiran otomatis.
+function rentangPeriode(p) {
+  const y = p?.tahun
+  if (!y) return null
+  if (p.semester === 1) return { d1: `${y}-07-01`, d2: `${y}-12-31` }
+  if (p.semester === 2) return { d1: `${y}-01-01`, d2: `${y}-06-30` }
+  return { d1: `${y}-01-01`, d2: `${y}-12-31` }
+}
 
 const TABS = ['Pengajuan', 'Verifikasi Yayasan', 'Rekap & Histori']
 
@@ -379,7 +396,10 @@ function KpiScoreModal({ open, editingRow, onClose, onSaved, periods, kpiIndicat
   const [periodeGajiSelesai, setPeriodeGajiSelesai] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [autoBusy, setAutoBusy] = useState(false)
+  const [autoNote, setAutoNote] = useState('')
   const isEdit = !!editingRow
+  const adaSumberOtomatis = kpiIndicators.some((k) => k.sumber_otomatis && k.sumber_otomatis !== 'manual')
 
   useEffect(() => {
     if (open) {
@@ -403,7 +423,7 @@ function KpiScoreModal({ open, editingRow, onClose, onSaved, periods, kpiIndicat
         setStatus('draft')
         setScores({})
       }
-      supabase.from('employees').select('id, nama, is_manager_role:employees_is_manager_role').eq('status', 'aktif').order('nama')
+      supabase.from('employees').select('id, nama, school_id, is_manager_role:employees_is_manager_role').eq('status', 'aktif').order('nama')
         .then(({ data }) => setEmployees(data || []))
     }
   }, [open, editingRow])
@@ -417,6 +437,45 @@ function KpiScoreModal({ open, editingRow, onClose, onSaved, periods, kpiIndicat
   const statusOptions = hasFullAccess ? ['draft', 'diajukan', 'final'] : ['draft', 'diajukan']
   const visibleEmployees = employees.filter((e) => hasFullAccess || !e.is_manager_role || e.id === editingRow?.employee_id)
   const nilaiAkhir = computeNilaiAkhir(kpiIndicators, scores)
+
+  // #4: isi skor indikator ber-sumber otomatis dari modul (Indeks Kehadiran
+  // pegawai) & KPI Lembaga unit; manajer tetap meninjau/menyesuaikan lalu
+  // menyimpan — tidak ada penyimpanan diam-diam.
+  const hitungOtomatis = async () => {
+    const emp = employees.find((x) => x.id === employeeId)
+    const period = periods.find((x) => x.id === periodId)
+    if (!emp || !period) { setError('Pilih pegawai dan periode lebih dulu.'); return }
+    const rentang = rentangPeriode(period)
+    setAutoBusy(true); setError(''); setAutoNote('')
+    try {
+      const next = { ...scores }
+      const terisi = []
+      const dilewati = []
+      let kehadiran = null
+      let kpiUnit = null
+      for (const k of kpiIndicators) {
+        const sumber = k.sumber_otomatis
+        if (sumber === 'kehadiran_pegawai') {
+          if (!rentang) { dilewati.push(`${k.nama} (periode tak punya rentang tanggal)`); continue }
+          kehadiran = kehadiran || await kehadiranSkorPegawai(emp.id, emp.school_id, rentang.d1, rentang.d2)
+          if (kehadiran.skor != null) { next[k.id] = String(kehadiran.skor); terisi.push(`${k.nama} = ${kehadiran.skor}`) }
+          else dilewati.push(`${k.nama} (${kehadiran.catatan})`)
+        } else if (sumber === 'kpi_lembaga_unit') {
+          kpiUnit = kpiUnit || await kpiLembagaSkorUnit(emp.school_id, period.tahun_ajaran_id)
+          if (kpiUnit.skor != null) { next[k.id] = String(kpiUnit.skor); terisi.push(`${k.nama} = ${kpiUnit.skor}`) }
+          else dilewati.push(`${k.nama} (${kpiUnit.catatan})`)
+        }
+      }
+      setScores(next)
+      const pesan = []
+      if (terisi.length) pesan.push(`Terisi otomatis: ${terisi.join('; ')}.`)
+      if (dilewati.length) pesan.push(`Belum bisa diisi: ${dilewati.join('; ')}.`)
+      setAutoNote(pesan.join(' ') || 'Tidak ada indikator bersumber otomatis untuk dihitung.')
+    } catch (err) {
+      setError(err.message)
+    }
+    setAutoBusy(false)
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -488,13 +547,30 @@ function KpiScoreModal({ open, editingRow, onClose, onSaved, periods, kpiIndicat
           </p>
         ) : (
           <div className="rounded-[12px] border border-[var(--color-border)] p-4">
-            <p className="mb-3 text-[13px] font-medium text-[var(--color-ink)]">Skor per Indikator KPI</p>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[13px] font-medium text-[var(--color-ink)]">Skor per Indikator KPI</p>
+              {adaSumberOtomatis && (
+                <Button type="button" size="sm" variant="outline" onClick={hitungOtomatis} disabled={autoBusy || !employeeId || !periodId}>
+                  <Lightbulb className="h-4 w-4" /> {autoBusy ? 'Menghitung…' : 'Hitung Otomatis'}
+                </Button>
+              )}
+            </div>
+            {adaSumberOtomatis && (
+              <p className="mb-3 text-xs text-[var(--color-ink-soft)]">
+                Sebagian indikator bisa diisi otomatis dari data (Indeks Kehadiran pegawai / KPI Lembaga unit) untuk mengurangi subjektivitas. Klik <strong>Hitung Otomatis</strong> setelah memilih pegawai &amp; periode, lalu tinjau sebelum menyimpan.
+              </p>
+            )}
             <div className="flex flex-col gap-3">
               {kpiIndicators.map((k) => (
                 <div key={k.id} className="grid grid-cols-3 items-center gap-3">
                   <div className="col-span-2">
                     <p className="text-sm text-[var(--color-ink)]">{k.nama}</p>
-                    <p className="text-xs text-[var(--color-ink-soft)]">Bobot {k.bobot}%</p>
+                    <p className="text-xs text-[var(--color-ink-soft)]">
+                      Bobot {k.bobot}%
+                      {k.sumber_otomatis && k.sumber_otomatis !== 'manual' && (
+                        <span className="ml-1"><Badge color="navy">{SKOR_SUMBER_LABEL[k.sumber_otomatis] || 'Otomatis'}</Badge></span>
+                      )}
+                    </p>
                   </div>
                   <Input
                     type="number" min="0" max="100" step="0.01"
@@ -505,6 +581,7 @@ function KpiScoreModal({ open, editingRow, onClose, onSaved, periods, kpiIndicat
                 </div>
               ))}
             </div>
+            {autoNote && <p className="mt-3 rounded-md bg-[var(--color-navy-50)] px-3 py-2 text-xs text-[var(--color-ink)]">{autoNote}</p>}
             <p className="mt-4 text-sm font-medium text-[var(--color-ink)]">Nilai Akhir (pratinjau): {nilaiAkhir ?? '—'}</p>
           </div>
         )}

@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Button, Select, Table, Tr, Td, Badge, EmptyState, FullPageSpinner } from '../../components/ui'
 import { STATUS_BADGE_COLOR, SISWA_STATUS_LABELS } from '../../lib/format'
 import StudentFormModal from './StudentFormModal'
+import { useAutoRefresh } from '../../lib/useAutoRefresh'
 
 export default function StudentList() {
   const { isManager, hasFullAccess, managedSchoolIds, loading: authLoading } = useAuth()
@@ -46,6 +47,8 @@ export default function StudentList() {
   useEffect(() => {
     if (!authLoading) load()
   }, [authLoading, load])
+
+  useAutoRefresh('siswa', load)
 
   useEffect(() => {
     if (lockedSchoolId) setSchoolFilter(lockedSchoolId)

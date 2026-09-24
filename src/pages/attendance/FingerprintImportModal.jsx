@@ -1,8 +1,30 @@
 import { useState } from 'react'
 import Papa from 'papaparse'
-import { Upload, ArrowRight, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Upload, ArrowRight, CheckCircle2, AlertTriangle, Download } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
-import { Modal, Button, Select, EmptyState } from '../../components/ui'
+import { Modal, Button, Select } from '../../components/ui'
+
+// Template CSV contoh — kolom & format yang dikenali importir. Dua baris
+// contoh (satu pegawai, tap masuk & pulang) supaya admin tahu bentuk yang
+// benar sebelum menyalin dari ekspor mesin fingerprint.
+function unduhTemplateCsv() {
+  const isi = [
+    'PIN,Tanggal,Jam,Jenis',
+    '101,2026-09-24,06:45,Masuk',
+    '101,2026-09-24,15:10,Pulang',
+    '102,2026-09-24,06:52,Masuk',
+    '102,2026-09-24,15:05,Pulang',
+  ].join('\n')
+  const blob = new Blob(['﻿' + isi], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'template-impor-presensi.csv'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
 
 const DATE_FORMATS = [
   { value: 'YYYY-MM-DD', label: '2026-09-17' },
@@ -168,14 +190,37 @@ export default function FingerprintImportModal({ open, onClose, onImported }) {
       {step === 'upload' && (
         <div className="flex flex-col gap-4">
           <p className="text-sm text-[var(--color-ink-soft)]">
-            Unduh data presensi dari dashboard cloud Solution Anda sebagai file <strong>CSV</strong>, lalu unggah di sini.
-            Kalau hasil unduhannya berupa Excel, buka lalu simpan ulang (Save As) sebagai CSV terlebih dahulu.
+            Unduh data presensi dari dashboard cloud mesin fingerprint Anda sebagai file <strong>CSV</strong>, lalu unggah di sini.
+            Kalau hasil unduhannya berupa Excel, buka lalu simpan ulang (Save As) sebagai CSV terlebih dahulu. Kolom boleh
+            beda nama — nanti Anda cocokkan di langkah berikutnya.
           </p>
+
+          <div className="flex items-start gap-3 rounded-[var(--radius-card)] bg-[var(--color-navy-50)] p-4">
+            <Download className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-navy)]" />
+            <div className="text-sm text-[var(--color-ink)]">
+              <p className="font-medium">Belum punya file, atau ingin format yang pasti terbaca?</p>
+              <p className="mt-0.5 text-[var(--color-ink-soft)]">Unduh template CSV berisi kolom <strong>PIN, Tanggal, Jam, Jenis</strong> beserta contoh baris, lalu isi sesuai data mesin Anda.</p>
+              <Button size="sm" variant="outline" className="mt-2" onClick={unduhTemplateCsv}>
+                <Download className="h-4 w-4" /> Unduh Template CSV
+              </Button>
+            </div>
+          </div>
+
           <label className="flex cursor-pointer flex-col items-center gap-2 rounded-[var(--radius-card)] border-2 border-dashed border-[var(--color-border)] p-10 text-center hover:border-[var(--color-navy)]">
             <Upload className="h-8 w-8 text-[var(--color-ink-soft)]" />
             <span className="text-sm font-medium text-[var(--color-ink)]">{fileName || 'Klik untuk pilih file CSV'}</span>
             <input type="file" accept=".csv" className="hidden" onChange={handleFile} />
           </label>
+
+          <div className="rounded-[var(--radius-card)] bg-[var(--color-gold-soft)] px-4 py-3 text-xs text-[var(--color-gold)]">
+            <p className="font-medium">Sebelum impor, pastikan:</p>
+            <ul className="mt-1 list-inside list-disc space-y-0.5">
+              <li>Kolom <strong>PIN Mesin Fingerprint</strong> tiap pegawai sudah diisi di menu <strong>Data Pegawai</strong> — PIN pada file harus sama persis dengan yang di sana, kalau tidak baris itu terlewat.</li>
+              <li>Format tanggal &amp; jam konsisten (mis. 2026-09-24 dan 06:45).</li>
+              <li>Mengimpor ulang file yang sama aman — data diperbarui, tidak dobel.</li>
+            </ul>
+          </div>
+
           {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         </div>
       )}

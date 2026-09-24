@@ -102,15 +102,21 @@ export function hitungKomponenGaji({
   const nilaiJabatan = scaleRow?.nilai_jabatan ?? 0
   const tunjanganStruktural = isStruktural ? Number(position.tunjangan_nominal) : 0
 
-  // Tugas Tambahan diurutkan dari nominal tertinggi — hanya baris pertama
-  // (dibayarkan=true) yang masuk ke Tunjangan Fungsional; sisanya tetap
-  // dicatat (untuk Beban Kerja) tapi tidak dibayarkan.
+  // Tugas Tambahan diurutkan dari nominal tertinggi. Aturan pembayaran
+  // Tunjangan Fungsional (disepakati 2026-09-24):
+  //   (a) Bila pegawai SUDAH menerima Tunjangan Struktural (jabatan
+  //       formal), Tunjangan Fungsional TIDAK dibayarkan sama sekali —
+  //       tugas tambahan tetap DICATAT (untuk Beban Kerja) tapi dibayar 0.
+  //       Tanggung jawab tambahan dianggap sudah terkompensasi Struktural,
+  //       konsisten dgn aturan Honor Lembur (Pasal 9 ayat 5).
+  //   (b) Bila TIDAK ada Struktural, dibayar SATU tugas tambahan dgn
+  //       nominal PALING TINGGI; sisanya dicatat tapi tidak dibayar.
   const rincianFungsional = (tugasTambahanList || [])
     .map((t) => ({ nama: t.nama, nominal: Number(t.tunjangan_nominal) || 0 }))
     .sort((a, b) => b.nominal - a.nominal || a.nama.localeCompare(b.nama))
-    .map((t, i) => ({ ...t, dibayarkan: i === 0 }))
-  const tunjanganFungsional = rincianFungsional[0]?.nominal || 0
-  const tunjanganFungsionalSumber = rincianFungsional[0]?.nama || null
+    .map((t, i) => ({ ...t, dibayarkan: !isStruktural && i === 0 }))
+  const tunjanganFungsional = isStruktural ? 0 : (rincianFungsional[0]?.nominal || 0)
+  const tunjanganFungsionalSumber = isStruktural ? null : (rincianFungsional[0]?.nama || null)
   const transportMakan = Number(settings.transport_makan_nominal) || 0
 
   const totalP1 = gajiPokok + tunjanganStruktural + tunjanganFungsional + transportMakan

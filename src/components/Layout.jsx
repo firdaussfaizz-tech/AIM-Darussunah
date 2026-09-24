@@ -40,7 +40,7 @@ const KEUANGAN_ICONS = {
 // di masa depan tanpa membuat Sidebar penuh sesak. Item "lintas modul"
 // (Pengguna & Peran, Log Aktivitas, Notifikasi Email) sengaja TIDAK ikut
 // masuk grup ini karena berlaku untuk seluruh aplikasi, bukan cuma SDM.
-function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, employeeId }) {
+function navGroupsFor({ isManager, hasFullAccess, employeeId }) {
   const kepegawaian = [{ to: '/', label: 'Dasbor', icon: LayoutDashboard, end: true }]
   kepegawaian.push({ to: '/pegawai', label: isManager ? 'Data Pegawai' : 'Profil Saya', icon: Users })
   kepegawaian.push({ to: '/presensi', label: isManager ? 'Presensi' : 'Presensi Saya', icon: CalendarCheck })
@@ -63,52 +63,41 @@ function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, empl
   // Siswa JUGA dibuka untuk Wali Kelas biasa (guru) — akses ke rombel
   // yang diampunya sendiri, sesuai keputusan "Wali Kelas login sendiri".
   // Siswa sendiri tidak login ke sistem ini (notifikasi lewat email saja).
-  const kesiswaan = []
-  if (isManager) {
-    kesiswaan.push({ to: '/kesiswaan', label: 'Dashboard Kesiswaan', icon: LayoutDashboard })
-    kesiswaan.push({ to: '/siswa', label: 'Data Siswa', icon: Contact })
-    kesiswaan.push({ to: '/akademik', label: 'Kelas & Tahun Ajaran', icon: CalendarRange })
-  }
-  if (isManager || isWaliKelas) {
-    kesiswaan.push({ to: '/presensi-siswa', label: 'Presensi Siswa', icon: ClipboardCheck })
-  }
-  // SPP dibuka untuk manajemen ATAU Bendahara (role finansial terpisah,
-  // TIDAK termasuk isManager — lihat keputusan scoping "Perlu role
-  // Bendahara terpisah" & RLS di migrasi 0024_kesiswaan_tahap4_spp.sql).
-  if (isManager || isBendahara) {
-    kesiswaan.push({ to: '/spp', label: 'SPP', icon: ReceiptText })
-  }
-  if (isManager || isWaliKelas) {
-    kesiswaan.push({ to: '/nilai-rapor', label: 'Nilai & Rapor', icon: NotebookText })
-  }
+  // Keputusan 2026-09-24: SEMUA pegawai melihat seluruh grup modul di
+  // Sidebar (transparansi fitur yang tersedia), namun AKSES tetap dibatasi
+  // di tiap halaman — setiap halaman modul ini sudah menampilkan pesan
+  // "Akses terbatas" bila pengguna tak berwenang, dan data tetap dijaga
+  // RLS. Karena itu penyusunan menu di bawah tidak lagi digate isManager.
+  // Label yang adaptif (mode "saya") tetap ditangani di grup Kepegawaian.
+  const kesiswaan = [
+    { to: '/kesiswaan', label: 'Dashboard Kesiswaan', icon: LayoutDashboard },
+    { to: '/siswa', label: 'Data Siswa', icon: Contact },
+    { to: '/akademik', label: 'Kelas & Tahun Ajaran', icon: CalendarRange },
+    { to: '/presensi-siswa', label: 'Presensi Siswa', icon: ClipboardCheck },
+    { to: '/spp', label: 'SPP', icon: ReceiptText },
+    { to: '/nilai-rapor', label: 'Nilai & Rapor', icon: NotebookText },
+  ]
 
-  // Modul Academic Management (Pembelajaran) — manajemen untuk semua area,
-  // guru pengampu untuk jadwal/jurnal/perangkat miliknya sendiri.
-  const akademik = []
-  if (isManager) {
-    for (const a of ACADEMIC_AREAS) akademik.push({ to: `/pembelajaran/${a.slug}`, label: a.label, icon: ACAD_ICONS[a.slug] || CalendarRange })
-  } else if (employeeId) {
-    for (const a of ACADEMIC_AREAS.filter((a) => a.scope === 'all')) akademik.push({ to: `/pembelajaran/${a.slug}`, label: a.labelGuru || a.label, icon: ACAD_ICONS[a.slug] || CalendarRange })
-  }
+  // Modul Academic Management (Pembelajaran) — semua area ditampilkan;
+  // halaman AcademicManagement membatasi akses (manajemen = semua area,
+  // guru pengampu = area miliknya, selain itu "Akses terbatas").
+  const akademik = ACADEMIC_AREAS.map((a) => ({
+    to: `/pembelajaran/${a.slug}`,
+    label: (!isManager && employeeId && a.labelGuru) ? a.labelGuru : a.label,
+    icon: ACAD_ICONS[a.slug] || CalendarRange,
+  }))
 
-  // Modul Sarana & Prasarana (Manajemen Aset) — untuk manajemen sekolah &
-  // Yayasan (per-unit lewat RLS). Tiap area siklus (juknis) jadi sub-menu
-  // tersendiri di dropdown, seperti Kepegawaian & Kesiswaan.
-  const sarpras = []
-  if (isManager) {
-    for (const a of SARPRAS_AREAS) {
-      if (a.fullAccessOnly && !hasFullAccess) continue
-      sarpras.push({ to: `/aset/${a.slug}`, label: a.label, icon: SARPRAS_ICONS[a.slug] || Boxes })
-    }
-  }
+  // Modul Sarana & Prasarana (Manajemen Aset) — semua area ditampilkan;
+  // AsetList membatasi akses (isManager). Area khusus Yayasan (kodefikasi)
+  // tetap hanya untuk hasFullAccess supaya tidak memancing klik yang
+  // pasti tertolak untuk area yang bahkan tak relevan bagi manajer sekolah.
+  const sarpras = SARPRAS_AREAS
+    .filter((a) => !a.fullAccessOnly || hasFullAccess)
+    .map((a) => ({ to: `/aset/${a.slug}`, label: a.label, icon: SARPRAS_ICONS[a.slug] || Boxes }))
 
-  // Modul Manajemen Keuangan (RKAS, Buku Kas, Laporan) — dibuka untuk
-  // manajemen ATAU Bendahara (peran finansial lintas unit), sama pola
-  // dengan menu SPP di atas.
-  const keuangan = []
-  if (isManager || isBendahara) {
-    for (const a of KEUANGAN_AREAS) keuangan.push({ to: `/keuangan/${a.slug}`, label: a.label, icon: KEUANGAN_ICONS[a.slug] || Wallet })
-  }
+  // Modul Manajemen Keuangan (RKAS, Buku Kas, Laporan) — semua area
+  // ditampilkan; KeuanganManagement membatasi akses (isManager || Bendahara).
+  const keuangan = KEUANGAN_AREAS.map((a) => ({ to: `/keuangan/${a.slug}`, label: a.label, icon: KEUANGAN_ICONS[a.slug] || Wallet }))
 
   // MENU PRIBADI: manajer tingkat SEKOLAH (Admin/Kepala Sekolah & Waka) juga
   // seorang PEGAWAI — mereka butuh akses data pribadinya sendiri (profil,

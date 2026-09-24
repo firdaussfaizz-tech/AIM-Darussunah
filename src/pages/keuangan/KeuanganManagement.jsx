@@ -14,6 +14,7 @@ import {
   isTransaksiOtomatis, hitungSaldoBerjalan,
   KEUANGAN_AREAS, KEUANGAN_DEFAULT,
 } from '../../lib/keuangan'
+import { useAutoRefresh } from '../../lib/useAutoRefresh'
 
 // Unit yang dikelola pengguna (school manager) + pemilihan unit aktif.
 // canSeeAllUnits = true untuk Yayasan (hasFullAccess) maupun Bendahara
@@ -769,6 +770,7 @@ function BukuKasLedger({ schoolId, canInput }) {
   }, [schoolId])
 
   useEffect(() => { load() }, [load])
+  useAutoRefresh('buku_kas_transaksi', load)
 
   const deleteTrx = async (t) => {
     if (!confirm(`Hapus transaksi "${t.uraian}"?`)) return

@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Input, Select, EmptyState, FullPageSpinner, StatCard } from '../../components/ui'
 import { BULAN, formatRupiah, formatDate, STATUS_BADGE_COLOR, SPP_TAGIHAN_STATUS_LABELS } from '../../lib/format'
+import { useAutoRefresh } from '../../lib/useAutoRefresh'
 
 const TABS = ['Tagihan & Pembayaran', 'Rekap & Tunggakan', 'Tarif SPP']
 
@@ -103,6 +104,7 @@ function TagihanTab({ employeeId, lockedSchoolId }) {
   }, [tahunAjaranId, bulan, tahun])
 
   useEffect(() => { loadTagihan() }, [loadTagihan])
+  useAutoRefresh(['spp_tagihan', 'spp_pembayaran'], loadTagihan)
 
   const handleGenerate = async () => {
     if (!tahunAjaranId) return

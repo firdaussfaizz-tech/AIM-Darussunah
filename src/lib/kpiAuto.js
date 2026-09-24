@@ -90,6 +90,52 @@ async function kehadiranPegawai(schoolId, d1, d2) {
   }
 }
 
+// Skor kehadiran SATU pegawai (0-100) untuk penilaian kinerja per-pegawai
+// (#4). Memakai ulang mesin hitungIH per bulan lalu = Hari Hadir Efektif /
+// Hari Kerja Wajib × 100 — persis aturan Indeks Kehadiran yang sudah ada.
+export async function kehadiranSkorPegawai(employeeId, schoolId, d1, d2) {
+  if (!employeeId) throw new Error('Pegawai belum dipilih.')
+  if (!d1 || !d2) throw new Error('Periode tidak memiliki rentang tanggal.')
+  const holQuery = schoolId
+    ? supabase.from('school_holidays').select('tanggal').or(`school_id.is.null,school_id.eq.${schoolId}`).gte('tanggal', d1).lte('tanggal', d2)
+    : supabase.from('school_holidays').select('tanggal').is('school_id', null).gte('tanggal', d1).lte('tanggal', d2)
+  const [{ data: att, error: e1 }, { data: hol }] = await Promise.all([
+    supabase
+      .from('attendance')
+      .select('employee_id, tanggal, status, jam_masuk, jam_pulang, leave_request_id, leave_requests(dokumen_terlampir, durasi_jam, leave_types(kode, nama, nilai_hari_hadir, hitung_hari_kerja_wajib, jatah_per_bulan, batas_kejadian_per_bulan, pengurangan_ih_setelah_batas))')
+      .eq('employee_id', employeeId)
+      .gte('tanggal', d1)
+      .lte('tanggal', d2),
+    holQuery,
+  ])
+  if (e1) throw new Error(e1.message)
+  const holidayDates = (hol || []).map((h) => h.tanggal)
+  const rows = att || []
+  let sumHadir = 0
+  let sumWajib = 0
+  for (const { tahun, bulan } of monthsBetween(d1, d2)) {
+    const monthRows = rows.filter((r) => {
+      const dt = new Date(r.tanggal)
+      return dt.getFullYear() === tahun && dt.getMonth() + 1 === bulan
+    })
+    const ih = hitungIH({ attendanceRows: monthRows, tahun, bulan, holidayDates })
+    sumHadir += ih.hariHadirPenuh
+    sumWajib += ih.hariKerjaWajib
+  }
+  if (sumWajib <= 0) return { skor: null, catatan: 'Belum ada hari kerja wajib pada periode ini.' }
+  return { skor: round2((sumHadir / sumWajib) * 100), catatan: `${sumHadir}/${sumWajib} hari (aturan Indeks Kehadiran).` }
+}
+
+// Skor KPI Lembaga unit (0-100) untuk penilaian kinerja per-pegawai (#4).
+export async function kpiLembagaSkorUnit(schoolId, tahunAjaranId) {
+  if (!schoolId || !tahunAjaranId) return { skor: null, catatan: 'Unit / Tahun Ajaran tidak diketahui.' }
+  const { data, error } = await supabase.rpc('kinerja_skor_kpi_lembaga_unit', {
+    p_school_id: schoolId, p_tahun_ajaran_id: tahunAjaranId,
+  })
+  if (error) throw new Error(error.message)
+  return { skor: data == null ? null : round2(data), catatan: data == null ? 'Belum ada realisasi KPI Lembaga unit pada periode ini.' : 'Rata-rata capaian KPI Lembaga unit.' }
+}
+
 // Sumber berbasis SQL — dihitung server-side lewat RPC.
 async function viaRpc(indikatorId, d1, d2) {
   const { data, error } = await supabase.rpc('kpi_hitung_otomatis', {

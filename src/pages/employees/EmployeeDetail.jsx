@@ -116,7 +116,7 @@ export default function EmployeeDetail() {
       {tab === 'Biodata' && (
         <div className="flex flex-col gap-5">
           <BiodataTab employee={employee} />
-          {canViewSalary && <TugasTambahanSection employeeId={employee.id} canManage={canManage} />}
+          {canViewSalary && <TugasTambahanSection employeeId={employee.id} canManage={canManage} isStruktural={employee.positions?.tunjangan_jenis === 'struktural'} />}
         </div>
       )}
       {tab === 'Pendidikan' && (
