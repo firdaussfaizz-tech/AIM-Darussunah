@@ -6,11 +6,13 @@ import {
   History, Mail, ChevronRight, BookOpen, Contact, CalendarRange, ClipboardCheck,
   ReceiptText, NotebookText, Target, Boxes,
   ClipboardList, ShoppingCart, Truck, UserCheck, DoorOpen, Wrench, Trash2, Tag, ShieldCheck, FileText, Package, CalendarDays, UserPlus, Library,
+  FileBarChart,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/format'
 import { SARPRAS_AREAS } from '../lib/sarpras'
 import { ACADEMIC_AREAS } from '../lib/academic'
+import { KEUANGAN_AREAS } from '../lib/keuangan'
 
 // Ikon per area Academic (dipetakan dari slug).
 const ACAD_ICONS = {
@@ -25,6 +27,11 @@ const SARPRAS_ICONS = {
   penggunaan: UserCheck, inventaris: Boxes, ruangan: DoorOpen, 'habis-pakai': Package,
   inventarisasi: ClipboardCheck, pemeliharaan: Wrench, penghapusan: Trash2,
   kodefikasi: Tag, dokumen: FileText, kebijakan: ShieldCheck,
+}
+
+// Ikon per area Keuangan (dipetakan dari slug agar lib/keuangan bebas ikon).
+const KEUANGAN_ICONS = {
+  dashboard: LayoutDashboard, rkas: ClipboardList, 'buku-kas': Wallet, laporan: FileBarChart,
 }
 
 // Fitur modul Kepegawaian (Dasbor s/d Struktur Organisasi) dikelompokkan
@@ -95,6 +102,14 @@ function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, empl
     }
   }
 
+  // Modul Manajemen Keuangan (RKAS, Buku Kas, Laporan) — dibuka untuk
+  // manajemen ATAU Bendahara (peran finansial lintas unit), sama pola
+  // dengan menu SPP di atas.
+  const keuangan = []
+  if (isManager || isBendahara) {
+    for (const a of KEUANGAN_AREAS) keuangan.push({ to: `/keuangan/${a.slug}`, label: a.label, icon: KEUANGAN_ICONS[a.slug] || Wallet })
+  }
+
   // MENU PRIBADI: manajer tingkat SEKOLAH (Admin/Kepala Sekolah & Waka) juga
   // seorang PEGAWAI — mereka butuh akses data pribadinya sendiri (profil,
   // presensi, cuti, slip, kinerja, beban kerja, pelatihan). Menu manajemen
@@ -120,7 +135,7 @@ function navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, empl
     lainnya.push({ to: '/notifikasi-email', label: 'Notifikasi Email', icon: Mail })
   }
 
-  return { kepegawaian, kesiswaan, akademik, sarpras, pribadi, lainnya }
+  return { kepegawaian, kesiswaan, akademik, sarpras, keuangan, pribadi, lainnya }
 }
 
 function NavItem({ to, label, icon: Icon, end, onClick }) {
@@ -185,7 +200,7 @@ function NavGroup({ storageKey, label, icon: Icon, defaultOpen = true, children 
 
 function Sidebar({ open, onClose }) {
   const { isManager, hasFullAccess, isWaliKelas, isBendahara, employee } = useAuth()
-  const { kepegawaian, kesiswaan, akademik, sarpras, pribadi, lainnya } = navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, employeeId: employee?.id })
+  const { kepegawaian, kesiswaan, akademik, sarpras, keuangan, pribadi, lainnya } = navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, employeeId: employee?.id })
 
   return (
     <aside
@@ -233,6 +248,14 @@ function Sidebar({ open, onClose }) {
         {sarpras.length > 0 && (
           <NavGroup storageKey="simpeg_nav_sarpras_open" label="Sarana & Prasarana" icon={Boxes} defaultOpen>
             {sarpras.map(({ to, label, icon, end }) => (
+              <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
+            ))}
+          </NavGroup>
+        )}
+
+        {keuangan.length > 0 && (
+          <NavGroup storageKey="simpeg_nav_keuangan_open" label="Manajemen Keuangan" icon={Wallet} defaultOpen>
+            {keuangan.map(({ to, label, icon, end }) => (
               <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
             ))}
           </NavGroup>

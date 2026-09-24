@@ -30,6 +30,7 @@ import KesiswaanDashboard from './pages/kesiswaan/KesiswaanDashboard'
 import AsetList from './pages/aset/AsetList'
 import DokumenCetak from './pages/aset/DokumenCetak'
 import AcademicManagement from './pages/academic/AcademicManagement'
+import KeuanganManagement from './pages/keuangan/KeuanganManagement'
 
 export default function App() {
   return (
@@ -80,6 +81,8 @@ export default function App() {
             <Route path="aset/:area" element={<AsetList />} />
             <Route path="pembelajaran" element={<Navigate to="/pembelajaran/jadwal" replace />} />
             <Route path="pembelajaran/:area" element={<AcademicManagement />} />
+            <Route path="keuangan" element={<Navigate to="/keuangan/dashboard" replace />} />
+            <Route path="keuangan/:area" element={<KeuanganManagement />} />
           </Route>
         </Routes>
       </BrowserRouter>
