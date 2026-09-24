@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { NotebookText, Plus, Trash2, Printer, ShieldAlert, BookOpen } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
-import { PageHeader, SectionCard, Card, Button, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
+import { PageHeader, SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
 import { SEMESTER_OPTIONS, NILAI_SIKAP_OPTIONS } from '../../lib/format'
 
 const TABS = ['Input Nilai & Rapor', 'Mata Pelajaran']
@@ -10,6 +10,40 @@ const TABS = ['Input Nilai & Rapor', 'Mata Pelajaran']
 // Semester berjalan ditebak dari bulan saat ini — Juli s/d Desember
 // dianggap semester ganjil, Januari s/d Juni semester genap. Hanya nilai
 // default awal, admin/guru tetap bisa mengganti lewat dropdown.
+// KKM per mapel dari Kurikulum & KKM (modul Akademik). Dipilih entri paling
+// spesifik: tingkat rombel & semester & tahun ajaran yang cocok diutamakan.
+function useKkmMap(schoolId, tahunAjaranId, semester, tingkat) {
+  const [map, setMap] = useState({})
+  useEffect(() => {
+    if (!schoolId) return
+    supabase.from('kurikulum_kkm').select('mata_pelajaran_id, tingkat, tahun_ajaran_id, semester, kkm').eq('school_id', schoolId).not('kkm', 'is', null)
+      .then(({ data }) => {
+        const best = {}
+        for (const k of data || []) {
+          if (k.tingkat && tingkat != null && String(k.tingkat).trim() !== String(tingkat).trim()) continue
+          if (k.semester && semester && k.semester.toLowerCase() !== String(semester).toLowerCase()) continue
+          if (k.tahun_ajaran_id && tahunAjaranId && k.tahun_ajaran_id !== tahunAjaranId) continue
+          const skor = (k.tingkat ? 4 : 0) + (k.semester ? 2 : 0) + (k.tahun_ajaran_id ? 1 : 0)
+          if (!best[k.mata_pelajaran_id] || skor > best[k.mata_pelajaran_id].skor) best[k.mata_pelajaran_id] = { kkm: Number(k.kkm), skor }
+        }
+        setMap(Object.fromEntries(Object.entries(best).map(([id, v]) => [id, v.kkm])))
+      })
+  }, [schoolId, tahunAjaranId, semester, tingkat])
+  return map
+}
+
+// Nilai akhir = rata-rata nilai pengetahuan & keterampilan yang terisi.
+function nilaiAkhir(p, k) {
+  const arr = [p, k].filter((x) => x !== '' && x != null && !Number.isNaN(Number(x))).map(Number)
+  return arr.length ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 100) / 100 : null
+}
+function statusTuntas(p, k, kkm) {
+  if (kkm == null) return null
+  const na = nilaiAkhir(p, k)
+  if (na == null) return null
+  return na >= kkm ? 'Tuntas' : 'Belum Tuntas'
+}
+
 function tebakSemester() {
   const bulan = new Date().getMonth() + 1
   return bulan >= 7 ? 'ganjil' : 'genap'
@@ -233,6 +267,7 @@ function NilaiModal({ siswa, rombel, tahunAjaranId, semester, employeeId, onClos
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const kkmMap = useKkmMap(rombel.school_id, tahunAjaranId, semester, rombel.tingkat)
 
   useEffect(() => {
     const load = async () => {
@@ -299,7 +334,10 @@ function NilaiModal({ siswa, rombel, tahunAjaranId, semester, employeeId, onClos
                 const v = nilaiMap[mapel.id] || { pengetahuan: '', keterampilan: '', sikap: '', catatan: '' }
                 return (
                   <div key={mapel.id} className="rounded-md border border-[var(--color-border)] p-3">
-                    <p className="mb-2 text-sm font-semibold text-[var(--color-ink)]">{mapel.nama}</p>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-[var(--color-ink)]">{mapel.nama}</p>
+                      <TuntasBadge kkm={kkmMap[mapel.id]} p={v.pengetahuan} k={v.keterampilan} />
+                    </div>
                     <div className="grid grid-cols-3 gap-2">
                       <Input label="Pengetahuan" type="number" min="0" max="100" value={v.pengetahuan} onChange={(e) => setField(mapel.id, 'pengetahuan', e.target.value)} />
                       <Input label="Keterampilan" type="number" min="0" max="100" value={v.keterampilan} onChange={(e) => setField(mapel.id, 'keterampilan', e.target.value)} />
@@ -332,6 +370,7 @@ function RaporModal({ siswa, rombel, tahunAjaranId, semester, onClose }) {
   const [catatan, setCatatan] = useState(null)
   const [presensiRecap, setPresensiRecap] = useState(null)
   const [tahunAjaran, setTahunAjaran] = useState(null)
+  const kkmMap = useKkmMap(rombel.school_id, tahunAjaranId, semester, rombel.tingkat)
 
   useEffect(() => {
     const load = async () => {
@@ -361,14 +400,20 @@ function RaporModal({ siswa, rombel, tahunAjaranId, semester, onClose }) {
   const handlePrint = () => {
     const semesterLabel = SEMESTER_OPTIONS.find((s) => s.value === semester)?.label || semester
     const rowsHtml = nilai.length === 0
-      ? '<tr><td colspan="4" style="padding:8px;color:#777;">Belum ada nilai tercatat.</td></tr>'
-      : nilai.map((n) => `
+      ? '<tr><td colspan="6" style="padding:8px;color:#777;">Belum ada nilai tercatat.</td></tr>'
+      : nilai.map((n) => {
+        const kkm = kkmMap[n.mata_pelajaran_id]
+        const st = statusTuntas(n.nilai_pengetahuan, n.nilai_keterampilan, kkm)
+        return `
         <tr>
           <td style="padding:6px 8px;border-bottom:1px solid #eee;">${n.mata_pelajaran?.nama || '-'}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;">${kkm ?? '-'}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;">${n.nilai_pengetahuan ?? '-'}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;">${n.nilai_keterampilan ?? '-'}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;">${n.nilai_sikap || '-'}</td>
-        </tr>`).join('')
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;${st === 'Belum Tuntas' ? 'color:#b91c1c;font-weight:600;' : ''}">${st || '-'}</td>
+        </tr>`
+      }).join('')
 
     const presensiHtml = presensiRecap
       ? `<p style="margin:14px 0 4px;font-weight:600;">Rekap Presensi (${tahunAjaran?.nama || ''})</p>
@@ -393,7 +438,7 @@ function RaporModal({ siswa, rombel, tahunAjaranId, semester, onClose }) {
     <div>Tahun Ajaran ${tahunAjaran?.nama || '-'} — ${semesterLabel}</div>
   </div>
   <table>
-    <thead><tr><th>Mata Pelajaran</th><th style="text-align:center;">Pengetahuan</th><th style="text-align:center;">Keterampilan</th><th style="text-align:center;">Sikap</th></tr></thead>
+    <thead><tr><th>Mata Pelajaran</th><th style="text-align:center;">KKM</th><th style="text-align:center;">Pengetahuan</th><th style="text-align:center;">Keterampilan</th><th style="text-align:center;">Sikap</th><th style="text-align:center;">Ketuntasan</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
   ${presensiHtml}
@@ -415,16 +460,21 @@ function RaporModal({ siswa, rombel, tahunAjaranId, semester, onClose }) {
           {nilai.length === 0 ? (
             <p className="text-sm text-[var(--color-ink-soft)]">Belum ada nilai tercatat untuk semester ini.</p>
           ) : (
-            <Table columns={['Mata Pelajaran', 'Pengetahuan', 'Keterampilan', 'Sikap']}>
+            <Table columns={['Mata Pelajaran', 'KKM', 'Pengetahuan', 'Keterampilan', 'Sikap', 'Ketuntasan']}>
               {nilai.map((n) => (
                 <Tr key={n.id}>
                   <Td className="font-medium">{n.mata_pelajaran?.nama || '—'}</Td>
+                  <Td>{kkmMap[n.mata_pelajaran_id] ?? '—'}</Td>
                   <Td>{n.nilai_pengetahuan ?? '—'}</Td>
                   <Td>{n.nilai_keterampilan ?? '—'}</Td>
                   <Td>{n.nilai_sikap || '—'}</Td>
+                  <Td><TuntasBadge kkm={kkmMap[n.mata_pelajaran_id]} p={n.nilai_pengetahuan} k={n.nilai_keterampilan} /></Td>
                 </Tr>
               ))}
             </Table>
+          )}
+          {nilai.length > 0 && Object.keys(kkmMap).length === 0 && (
+            <p className="text-xs text-[var(--color-ink-soft)]">KKM belum diatur untuk unit ini — atur di Akademik › Kurikulum &amp; KKM agar status ketuntasan tampil otomatis.</p>
           )}
           {presensiRecap && (
             <p className="text-xs text-[var(--color-ink-soft)]">
@@ -543,4 +593,10 @@ function MataPelajaranTab({ lockedSchoolId }) {
       </Modal>
     </SectionCard>
   )
+}
+
+function TuntasBadge({ kkm, p, k }) {
+  const st = statusTuntas(p, k, kkm)
+  if (!st) return kkm != null ? <span className="text-xs text-[var(--color-ink-soft)]">KKM {kkm}</span> : <span className="text-xs text-[var(--color-ink-soft)]">—</span>
+  return <Badge color={st === 'Tuntas' ? 'success' : 'danger'}>{st} (KKM {kkm})</Badge>
 }

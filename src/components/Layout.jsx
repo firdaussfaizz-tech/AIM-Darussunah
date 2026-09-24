@@ -5,7 +5,7 @@ import {
   GraduationCap, Building2, UserCog, LogOut, Menu, X, Activity, CalendarOff,
   History, Mail, ChevronRight, BookOpen, Contact, CalendarRange, ClipboardCheck,
   ReceiptText, NotebookText, Target, Boxes,
-  ClipboardList, ShoppingCart, Truck, UserCheck, DoorOpen, Wrench, Trash2, Tag, ShieldCheck, FileText, Package,
+  ClipboardList, ShoppingCart, Truck, UserCheck, DoorOpen, Wrench, Trash2, Tag, ShieldCheck, FileText, Package, CalendarDays, UserPlus, Library,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS } from '../lib/format'
@@ -14,8 +14,9 @@ import { ACADEMIC_AREAS } from '../lib/academic'
 
 // Ikon per area Academic (dipetakan dari slug).
 const ACAD_ICONS = {
-  dashboard: LayoutDashboard, mapel: BookOpen, penugasan: GraduationCap, jadwal: CalendarRange,
-  jurnal: NotebookText, kurikulum: BookOpen, ekstrakurikuler: Star, perangkat: FileText,
+  dashboard: LayoutDashboard, kalender: CalendarDays, mapel: Library, penugasan: GraduationCap, jadwal: CalendarRange,
+  jurnal: NotebookText, 'rekap-kbm': ClipboardCheck, kurikulum: BookOpen, ekstrakurikuler: Star, perangkat: FileText,
+  ppdb: UserPlus,
 }
 
 // Ikon per area Sarpras (dipetakan dari slug agar lib/sarpras bebas ikon).

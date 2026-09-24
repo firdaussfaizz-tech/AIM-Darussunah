@@ -19,6 +19,7 @@ export const SUMBER_OTOMATIS_LABEL = {
   kehadiran_siswa: 'Kehadiran siswa (Presensi Siswa)',
   tunggakan_spp: 'Tunggakan SPP',
   rata_nilai_kinerja: 'Rata-rata nilai kinerja',
+  kehadiran_mengajar: 'Kehadiran mengajar guru (Jurnal KBM)',
 }
 
 // Daftar {tahun, bulan} dari d1..d2 (inklusif per bulan kalender).
@@ -117,5 +118,5 @@ export async function hitungKpiOtomatis({ indikator, d1, d2 }) {
 
 // Apakah sumber ini butuh rentang tanggal (vs berbasis Tahun Ajaran)?
 export function butuhRentangTanggal(sumber) {
-  return sumber === 'kehadiran_pegawai' || sumber === 'kehadiran_siswa'
+  return sumber === 'kehadiran_pegawai' || sumber === 'kehadiran_siswa' || sumber === 'kehadiran_mengajar'
 }

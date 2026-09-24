@@ -40,6 +40,8 @@ export default function App() {
           {/* Halaman cetak dokumen — di luar Layout (tanpa sidebar) agar siap print/PDF. */}
           <Route path="/aset/cetak/:jenis" element={<RequireAuth><DokumenCetak /></RequireAuth>} />
           <Route path="/aset/cetak/:jenis/:id" element={<RequireAuth><DokumenCetak /></RequireAuth>} />
+          <Route path="/cetak/:jenis" element={<RequireAuth><DokumenCetak /></RequireAuth>} />
+          <Route path="/cetak/:jenis/:id" element={<RequireAuth><DokumenCetak /></RequireAuth>} />
           <Route
             path="/"
             element={

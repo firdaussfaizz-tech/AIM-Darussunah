@@ -154,8 +154,8 @@ export function Tr({ children, onClick }) {
   )
 }
 
-export function Td({ children, className = '' }) {
-  return <td className={`px-3 py-3 first:pl-0 last:pr-0 ${className}`}>{children}</td>
+export function Td({ children, className = '', ...props }) {
+  return <td className={`px-3 py-3 first:pl-0 last:pr-0 ${className}`} {...props}>{children}</td>
 }
 
 export function EmptyState({ icon: Icon, title, description, action }) {

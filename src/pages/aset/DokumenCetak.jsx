@@ -1,31 +1,49 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { Printer, ArrowLeft } from 'lucide-react'
 import { KOP, loadDokumen, buildDokumen, DOKUMEN_BY_JENIS } from '../../lib/dokumenSarpras'
+import { loadDokumenAkd, buildDokumenAkd, DOKUMEN_AKD_BY_JENIS } from '../../lib/dokumenAkademik'
 
-// Halaman cetak dokumen kerja Sarpras — standalone (tanpa sidebar), siap
+// Halaman cetak dokumen kerja Sarpras & Akademik — standalone (tanpa sidebar), siap
 // di-print / disimpan sebagai PDF lewat dialog print browser.
 export default function DokumenCetak() {
   const { jenis, id } = useParams()
+  const [sp] = useSearchParams()
   const navigate = useNavigate()
   const [def, setDef] = useState(null)
   const [loading, setLoading] = useState(true)
-  const meta = DOKUMEN_BY_JENIS[jenis]
+  const [err, setErr] = useState('')
+  const isAkd = !!DOKUMEN_AKD_BY_JENIS[jenis]
+  const meta = DOKUMEN_AKD_BY_JENIS[jenis] || DOKUMEN_BY_JENIS[jenis]
+  const qsKey = sp.toString()
 
   useEffect(() => {
     let alive = true
-    setLoading(true)
+    if (!DOKUMEN_AKD_BY_JENIS[jenis] && !DOKUMEN_BY_JENIS[jenis]) return
+    setLoading(true); setErr('')
     ;(async () => {
-      const data = await loadDokumen(jenis, id)
+      let built
+      try {
+        const qs = Object.fromEntries(new URLSearchParams(qsKey))
+        built = isAkd
+          ? buildDokumenAkd(jenis, await loadDokumenAkd(jenis, id, qs))
+          : buildDokumen(jenis, await loadDokumen(jenis, id))
+      } catch (e) {
+        if (alive) { setErr(e?.message || String(e)); setLoading(false) }
+        return
+      }
       if (!alive) return
-      setDef(buildDokumen(jenis, data))
+      setDef(built)
       setLoading(false)
-      setTimeout(() => { document.title = (DOKUMEN_BY_JENIS[jenis]?.label || 'Dokumen') }, 0)
+      setTimeout(() => { document.title = (DOKUMEN_AKD_BY_JENIS[jenis] || DOKUMEN_BY_JENIS[jenis])?.label || 'Dokumen' }, 0)
     })()
     return () => { alive = false }
-  }, [jenis, id])
+  }, [jenis, id, qsKey, isAkd])
+
+  const landscape = def?.orientasi === 'landscape'
 
   if (!meta) return <div style={{ padding: 40, fontFamily: 'serif' }}>Jenis dokumen tidak dikenal: {jenis}</div>
+  if (err) return <div style={{ padding: 40, fontFamily: 'serif' }}>Gagal memuat dokumen: {err}</div>
   if (loading || !def) return <div style={{ padding: 40, fontFamily: 'serif' }}>Memuat dokumen…</div>
 
   return (
@@ -43,7 +61,7 @@ export default function DokumenCetak() {
         .doc-kop .a { font-size: 9.5pt; color: #333; }
         .doc-title { text-align: center; margin: 14px 0 4px; }
         .doc-title h1 { font-size: 13pt; font-weight: 700; text-transform: uppercase; text-decoration: underline; margin: 0; }
-        .doc-title .no { font-size: 11pt; }
+        .doc-title .no { font-size: 11pt; white-space: pre-line; }
         .doc-tt { text-align: right; margin: 10px 0 6px; }
         .doc-meta { margin: 8px 0; }
         .doc-meta div { display: flex; }
@@ -51,7 +69,9 @@ export default function DokumenCetak() {
         .doc-meta .s { width: 10px; }
         .doc-intro, .doc-narasi p { margin: 8px 0; text-align: justify; }
         table.doc-tbl { width: 100%; border-collapse: collapse; margin: 8px 0 4px; }
-        table.doc-tbl th, table.doc-tbl td { border: 1px solid #111; padding: 4px 6px; font-size: 10.5pt; vertical-align: top; }
+        table.doc-tbl th, table.doc-tbl td { border: 1px solid #111; padding: 4px 6px; font-size: 10.5pt; vertical-align: top; white-space: pre-line; }
+        .doc-page.land { width: 297mm; min-height: 210mm; }
+        .doc-page.land table.doc-tbl th, .doc-page.land table.doc-tbl td { font-size: 9.5pt; }
         table.doc-tbl th { background: #eef2f7; text-align: left; }
         .doc-tbl-title { font-weight: 700; margin: 10px 0 2px; font-size: 11pt; }
         .doc-ttd { display: flex; justify-content: space-between; gap: 40px; margin-top: 32px; }
@@ -63,16 +83,16 @@ export default function DokumenCetak() {
           .doc-root { background: #fff; padding: 0; }
           .doc-bar { display: none; }
           .doc-page { width: auto; min-height: auto; margin: 0; padding: 12mm 14mm; box-shadow: none; }
-          @page { size: A4; margin: 8mm; }
+          @page { size: A4 ${landscape ? 'landscape' : 'portrait'}; margin: 8mm; }
         }
       `}</style>
 
       <div className="doc-bar">
-        <button onClick={() => navigate(-1)}><ArrowLeft size={16} /> Kembali</button>
+        <button onClick={() => { if (window.history.length > 1) navigate(-1); else window.close() }}><ArrowLeft size={16} /> Kembali</button>
         <button className="primary" onClick={() => window.print()}><Printer size={16} /> Cetak / Simpan PDF</button>
       </div>
 
-      <div className="doc-page">
+      <div className={`doc-page${landscape ? ' land' : ''}`}>
         <div className="doc-kop">
           <img className="doc-logo" src="/logo-yayasan.png" alt="" onError={(e) => { e.currentTarget.style.display = 'none' }} />
           <div className="y">{KOP.yayasan}</div>
