@@ -186,7 +186,13 @@ export default function UserRoles() {
                     : <Button size="sm" variant="outline" onClick={() => setPermModalRole(r)}>Atur Izin per Modul</Button>}
                 </Td>
                 <Td className="text-xs text-[var(--color-ink-soft)]">
-                  {roles.filter((ur) => ur.role_id === r.id).length} pengguna
+                  {roles.filter((ur) =>
+                    // Peran dinamis (role_id) ATAU penetapan enum lama yang setara
+                    // (kode peran sama, atau labelnya cocok dengan nama peran) —
+                    // agar akun yang belum dimigrasi ke role_id tetap terhitung.
+                    ur.role_id === r.id ||
+                    (!ur.role_id && (ur.role === r.kode || (ROLE_LABELS[ur.role] || ur.role) === r.nama))
+                  ).length} pengguna
                 </Td>
               </Tr>
             ))}
