@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { AlertTriangle, Info } from 'lucide-react'
+import { AlertTriangle, Info, Pencil, Trash2 } from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
-import { Card, Input, Select, Button, Badge, FullPageSpinner, StatCard } from './ui'
+import { Card, Input, Select, Button, Badge, FullPageSpinner, StatCard, Modal } from './ui'
 import { formatRupiah, formatDate } from '../lib/format'
 import { hitungIH, hitungRuang, hitungRemunerasi, ambilSkalaGaji, kategoriFromSkor, defaultPeriodeKinerja, IK_TABLE } from '../lib/remunerasi'
 
 const HARI_TO_DOW = {
   minggu: 0, senin: 1, selasa: 2, rabu: 3, kamis: 4, jumat: 5, "jum'at": 5, sabtu: 6,
 }
+
+const STATUS_OPTIONS = ['hadir', 'izin', 'sakit', 'alpa', 'dinas_luar', 'cuti']
+const STATUS_LABELS = { hadir: 'Hadir', izin: 'Izin', sakit: 'Sakit', alpa: 'Alpa', dinas_luar: 'Dinas Luar', cuti: 'Cuti' }
 
 function buildScheduleByDay(rows) {
   const map = {}
@@ -31,6 +34,10 @@ export default function IndeksKehadiranSection({ employee, canManage }) {
   const [holidayDates, setHolidayDates] = useState([])
   const [ikForm, setIkForm] = useState({ open: false, skor: '', kategori: 'A' })
   const [savingIk, setSavingIk] = useState(false)
+  // Koreksi presensi hasil klarifikasi pegawai (edit/hapus per hari).
+  const [editRow, setEditRow] = useState(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [busyDate, setBusyDate] = useState(null)
 
   const [tahun, bulan] = month.split('-').map(Number)
 
@@ -86,6 +93,61 @@ export default function IndeksKehadiranSection({ employee, canManage }) {
     if (!ih || !scaleRow || !performanceIndex) return null
     return hitungRemunerasi(scaleRow.nilai_jabatan, performanceIndex.indeks_kinerja, ih.ihFinal)
   }, [ih, scaleRow, performanceIndex])
+
+  // Peta baris `attendance` per tanggal — dipakai untuk mengoreksi (edit/hapus)
+  // hari yang muncul di "Rincian Hari Tidak Hadir Penuh / Bermasalah".
+  const attendanceByDate = useMemo(() => {
+    const m = {}
+    attendanceRows.forEach((r) => { m[r.tanggal] = r })
+    return m
+  }, [attendanceRows])
+
+  const openEditPresensi = (d) => {
+    const att = attendanceByDate[d.tanggal]
+    if (!att) return
+    setEditRow({
+      id: att.id,
+      tanggal: d.tanggal,
+      status: att.status || 'hadir',
+      jam_masuk: att.jam_masuk ? att.jam_masuk.slice(0, 5) : '',
+      jam_pulang: att.jam_pulang ? att.jam_pulang.slice(0, 5) : '',
+      keterangan: att.keterangan || '',
+      hadLeave: !!att.leave_request_id,
+    })
+  }
+
+  const saveEditPresensi = async () => {
+    setSavingEdit(true)
+    const upd = {
+      status: editRow.status,
+      jam_masuk: editRow.jam_masuk || null,
+      jam_pulang: editRow.jam_pulang || null,
+      keterangan: editRow.keterangan?.trim() || null,
+    }
+    // Bila hari ini tertaut pengajuan cuti/izin, lepas tautannya agar koreksi
+    // manual (hasil klarifikasi) yang dipakai perhitungan — pengajuan di menu
+    // Cuti tidak ikut terhapus.
+    if (editRow.hadLeave) upd.leave_request_id = null
+    const { error } = await supabase.from('attendance').update(upd).eq('id', editRow.id)
+    setSavingEdit(false)
+    if (error) { alert('Gagal menyimpan perubahan presensi: ' + error.message); return }
+    setEditRow(null)
+    load()
+  }
+
+  const deletePresensi = async (d) => {
+    const att = attendanceByDate[d.tanggal]
+    if (!att) return
+    const extra = att.leave_request_id
+      ? '\n\nCatatan: tautan ke pengajuan cuti/izin hari ini ikut dilepas (data pengajuan di menu Cuti tetap ada). Hari ini akan kembali dihitung Hadir Penuh kecuali dicatat ulang.'
+      : '\n\nHari ini akan kembali dihitung Hadir Penuh kecuali dicatat ulang di menu Presensi.'
+    if (!confirm(`Hapus catatan presensi ${formatDate(d.tanggal)}?${extra}`)) return
+    setBusyDate(d.tanggal)
+    const { error } = await supabase.from('attendance').delete().eq('id', att.id)
+    setBusyDate(null)
+    if (error) { alert('Gagal menghapus catatan presensi: ' + error.message); return }
+    load()
+  }
 
   const openIkForm = () => {
     const periode = defaultPeriodeKinerja(tahun, bulan)
@@ -208,22 +270,65 @@ export default function IndeksKehadiranSection({ employee, canManage }) {
 
       {nonHadirPenuh.length > 0 && (
         <Card>
-          <p className="mb-3 text-[13px] font-medium text-[var(--color-ink-soft)]">Rincian Hari Tidak Hadir Penuh / Bermasalah</p>
-          <div className="scroll-thin max-h-80 overflow-y-auto">
-            {nonHadirPenuh.map((d) => (
-              <div key={d.tanggal} className="flex items-center justify-between border-b border-[var(--color-border)] py-2 text-sm last:border-0">
-                <span className="text-[var(--color-ink)]">{formatDate(d.tanggal)}</span>
-                <span className="text-[var(--color-ink-soft)]">
-                  {d.jenis === 'alpa' ? 'Alpa' : d.jenis === 'leave' ? d.nama : d.jenis}
-                  {d.catatan && ` · ${d.catatan}`}
-                  {d.terlambat && ' · Terlambat'}
-                  {d.pulangAwal && ' · Pulang awal'}
-                  {d.belumTertaut && ' · belum tertaut pengajuan'}
-                </span>
-              </div>
-            ))}
+          <p className="text-[13px] font-medium text-[var(--color-ink-soft)]">Rincian Hari Tidak Hadir Penuh / Bermasalah</p>
+          {canManage && (
+            <p className="mb-3 mt-0.5 text-xs text-[var(--color-ink-soft)]">Gunakan ikon Ubah/Hapus untuk mengoreksi catatan sesuai hasil klarifikasi pegawai.</p>
+          )}
+          <div className={`scroll-thin max-h-80 overflow-y-auto ${canManage ? '' : 'mt-3'}`}>
+            {nonHadirPenuh.map((d) => {
+              const att = attendanceByDate[d.tanggal]
+              return (
+                <div key={d.tanggal} className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] py-2 text-sm last:border-0">
+                  <span className="shrink-0 text-[var(--color-ink)]">{formatDate(d.tanggal)}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-right text-[var(--color-ink-soft)]">
+                      {d.jenis === 'alpa' ? 'Alpa' : d.jenis === 'leave' ? d.nama : d.jenis}
+                      {d.catatan && ` · ${d.catatan}`}
+                      {d.terlambat && ' · Terlambat'}
+                      {d.pulangAwal && ' · Pulang awal'}
+                      {d.belumTertaut && ' · belum tertaut pengajuan'}
+                    </span>
+                    {canManage && att && (
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button type="button" title="Ubah presensi" onClick={() => openEditPresensi(d)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]">
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button type="button" title="Hapus catatan" disabled={busyDate === d.tanggal} onClick={() => deletePresensi(d)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)] disabled:opacity-50">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </Card>
+      )}
+
+      {editRow && (
+        <Modal open={!!editRow} onClose={() => setEditRow(null)} title={`Ubah Presensi — ${formatDate(editRow.tanggal)}`}>
+          <div className="flex flex-col gap-3">
+            <Select label="Status" value={editRow.status} onChange={(e) => setEditRow((s) => ({ ...s, status: e.target.value }))}>
+              {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+            </Select>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Jam Masuk" type="time" value={editRow.jam_masuk} onChange={(e) => setEditRow((s) => ({ ...s, jam_masuk: e.target.value }))} />
+              <Input label="Jam Pulang" type="time" value={editRow.jam_pulang} onChange={(e) => setEditRow((s) => ({ ...s, jam_pulang: e.target.value }))} />
+            </div>
+            <Input label="Keterangan (opsional)" value={editRow.keterangan} onChange={(e) => setEditRow((s) => ({ ...s, keterangan: e.target.value }))} placeholder="mis. hasil klarifikasi: hadir, surat menyusul" />
+            {editRow.hadLeave && (
+              <p className="flex items-start gap-1.5 rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-xs text-[var(--color-gold)]">
+                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Hari ini tertaut ke pengajuan cuti/izin. Menyimpan akan melepas tautannya agar koreksi manual ini yang dipakai — data pengajuan di menu Cuti tetap ada.
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setEditRow(null)}>Batal</Button>
+              <Button type="button" onClick={saveEditPresensi} disabled={savingEdit}>{savingEdit ? 'Menyimpan…' : 'Simpan'}</Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   )
