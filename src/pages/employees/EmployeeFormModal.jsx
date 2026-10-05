@@ -8,6 +8,7 @@ const emptyForm = {
   alamat: '', no_hp: '', email: '', school_id: '', department_id: '', position_id: '',
   status_kepegawaian: 'Kontrak', status: 'aktif', tanggal_masuk: '', pendidikan_terakhir: '', pin_fingerprint: '',
   golongan: '',
+  bank_nama: 'Bank Muamalat Indonesia', rekening_nomor: '', rekening_atas_nama: '',
 }
 
 const DRAFT_KEY = 'draft:tambah_pegawai'
@@ -99,6 +100,9 @@ export default function EmployeeFormModal({ open, onClose, onSaved, schools, ini
       nip: form.nip || null,
       pin_fingerprint: form.pin_fingerprint || null,
       golongan: form.golongan || null,
+      bank_nama: form.bank_nama?.trim() || null,
+      rekening_nomor: form.rekening_nomor?.trim() || null,
+      rekening_atas_nama: form.rekening_atas_nama?.trim() || null,
     }
     const query = initialData
       ? supabase.from('employees').update(payload).eq('id', initialData.id)
@@ -176,6 +180,11 @@ export default function EmployeeFormModal({ open, onClose, onSaved, schools, ini
           {EMPLOYEE_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
         </Select>
 
+        <p className="sm:col-span-2 mt-1 text-[13px] font-semibold text-[var(--color-ink)]">Rekening Gaji</p>
+        <Input label="Bank" value={form.bank_nama} onChange={update('bank_nama')} placeholder="Bank Muamalat Indonesia" />
+        <Input label="Nomor Rekening" value={form.rekening_nomor} onChange={update('rekening_nomor')} placeholder="mis. 1234567890" />
+        <Input label="Atas Nama (pemilik rekening)" value={form.rekening_atas_nama} onChange={update('rekening_atas_nama')} placeholder="Sesuai buku tabungan" containerClassName="sm:col-span-2" />
+
         {error && <p className="sm:col-span-2 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
 
         <div className="flex justify-end gap-2 sm:col-span-2">
@@ -196,5 +205,6 @@ function mapInitial(d) {
     status_kepegawaian: d.status_kepegawaian || 'Kontrak', status: d.status || 'aktif',
     tanggal_masuk: d.tanggal_masuk || '', pendidikan_terakhir: d.pendidikan_terakhir || '', pin_fingerprint: d.pin_fingerprint || '',
     golongan: d.golongan || '',
+    bank_nama: d.bank_nama || 'Bank Muamalat Indonesia', rekening_nomor: d.rekening_nomor || '', rekening_atas_nama: d.rekening_atas_nama || '',
   }
 }

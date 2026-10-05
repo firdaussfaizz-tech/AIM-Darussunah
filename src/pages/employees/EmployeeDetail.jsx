@@ -207,6 +207,7 @@ function BiodataTab({ employee }) {
     ['PIN Mesin Fingerprint', employee.pin_fingerprint],
     ['Tanggal Masuk Kerja', formatDate(employee.tanggal_masuk)],
     ['Golongan / Ruang', employee.golongan ? `Golongan ${employee.golongan} / Ruang ${hitungRuang(employee.tanggal_masuk) || '—'}` : 'Belum ditentukan'],
+    ['Rekening Gaji', employee.rekening_nomor ? `${employee.bank_nama || 'Bank Muamalat Indonesia'} · ${employee.rekening_nomor}${employee.rekening_atas_nama ? ` a.n. ${employee.rekening_atas_nama}` : ''}` : 'Belum diisi'],
   ]
   return (
     <Card>
