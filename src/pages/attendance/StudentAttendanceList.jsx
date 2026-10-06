@@ -11,9 +11,12 @@ import { PRESENSI_SISWA_STATUS_OPTIONS, PRESENSI_SISWA_STATUS_LABELS, STATUS_BAD
 // PERTAMA di modul Kesiswaan yang dibuka untuk pegawai non-manajemen,
 // sesuai keputusan scoping "Wali Kelas login sendiri".
 export default function StudentAttendanceList() {
-  const { isManager, isWaliKelas, waliKelasRombel, hasFullAccess, managedSchoolIds, employee, loading: authLoading } = useAuth()
+  const { isManager, isWaliKelas, waliKelasRombel, hasFullAccess, managedSchoolIds, employee, can, permsReady, loading: authLoading } = useAuth()
+  // Aditif: selain manajemen & Wali Kelas, peran yang dicentang
+  // 'presensi_siswa:lihat' di matriks izin juga boleh membuka halaman ini.
+  const bolehLihat = isManager || isWaliKelas || (permsReady && can('presensi_siswa', 'lihat'))
   if (authLoading) return <FullPageSpinner />
-  if (!isManager && !isWaliKelas) {
+  if (!bolehLihat) {
     return (
       <EmptyState
         icon={ClipboardCheck}

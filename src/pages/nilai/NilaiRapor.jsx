@@ -50,11 +50,15 @@ function tebakSemester() {
 }
 
 export default function NilaiRapor() {
-  const { isManager, isWaliKelas, waliKelasRombel, hasFullAccess, managedSchoolIds, employee, loading: authLoading } = useAuth()
+  const { isManager, isWaliKelas, waliKelasRombel, hasFullAccess, managedSchoolIds, employee, can, permsReady, loading: authLoading } = useAuth()
   const [tab, setTab] = useState('Input Nilai & Rapor')
 
+  // Aditif: selain manajemen & Wali Kelas, peran yang dicentang
+  // 'nilai_rapor:lihat' di matriks izin juga boleh membuka halaman ini.
+  const bolehLihat = isManager || isWaliKelas || (permsReady && can('nilai_rapor', 'lihat'))
+
   if (authLoading) return <FullPageSpinner />
-  if (!isManager && !isWaliKelas) {
+  if (!bolehLihat) {
     return (
       <EmptyState
         icon={ShieldAlert}

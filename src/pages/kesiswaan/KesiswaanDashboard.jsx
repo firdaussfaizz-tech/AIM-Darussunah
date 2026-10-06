@@ -14,10 +14,15 @@ function tebakSemester() {
 }
 
 export default function KesiswaanDashboard() {
-  const { isManager, hasFullAccess, managedSchoolIds, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, managedSchoolIds, can, permsReady, loading: authLoading } = useAuth()
+  // Hormati matriks izin per-modul lebih dulu (aditif): peran mana pun yang
+  // dicentang 'siswa:lihat' lewat Pengguna & Peran kini bisa membuka Dashboard
+  // Kesiswaan. Fallback ke gerbang peran lama bila RPC izin belum siap (DB
+  // lama). Data tetap dibatasi RLS has_school_access.
+  const bolehLihat = permsReady ? can('siswa', 'lihat') : isManager
 
   if (authLoading) return <FullPageSpinner />
-  if (!isManager) {
+  if (!bolehLihat) {
     return (
       <EmptyState
         icon={LayoutDashboard}

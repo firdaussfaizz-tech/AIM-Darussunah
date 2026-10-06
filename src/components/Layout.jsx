@@ -40,22 +40,31 @@ const KEUANGAN_ICONS = {
 // di masa depan tanpa membuat Sidebar penuh sesak. Item "lintas modul"
 // (Pengguna & Peran, Log Aktivitas, Notifikasi Email) sengaja TIDAK ikut
 // masuk grup ini karena berlaku untuk seluruh aplikasi, bukan cuma SDM.
-function navGroupsFor({ isManager, hasFullAccess, employeeId }) {
+function navGroupsFor({ isManager, hasFullAccess, employeeId, can, permsReady }) {
+  // Mode "kelola" per modul: hormati MATRIKS IZIN per-modul (Pengguna & Peran,
+  // Fase 2) lebih dulu. Bila RPC izin (my_permissions) belum siap — mis. DB
+  // lama tanpa migrasi 0055 — jatuh ke gerbang peran lama agar tidak ada
+  // yang kehilangan akses. Bersifat ADITIF: peran manajerial/akses-penuh
+  // tetap melihat menunya; mencentang modul untuk peran lain (mis. Guru) kini
+  // benar-benar memunculkan menunya. Penegakan sebenarnya tetap di RLS + guard
+  // tiap halaman.
+  const mgrOf = (modul) => isManager || (permsReady && can(modul, 'lihat'))
+  const fullOf = (modul) => hasFullAccess || (permsReady && can(modul, 'lihat'))
+
   const kepegawaian = [{ to: '/', label: 'Dasbor', icon: LayoutDashboard, end: true }]
-  kepegawaian.push({ to: '/pegawai', label: isManager ? 'Data Pegawai' : 'Profil Saya', icon: Users })
-  kepegawaian.push({ to: '/presensi', label: isManager ? 'Presensi' : 'Presensi Saya', icon: CalendarCheck })
-  kepegawaian.push({ to: '/cuti', label: isManager ? 'Cuti' : 'Cuti Saya', icon: CalendarClock })
-  kepegawaian.push({ to: '/penggajian', label: isManager ? 'Penggajian' : 'Slip Gaji', icon: Wallet })
-  kepegawaian.push({ to: '/kinerja', label: isManager ? 'Kinerja' : 'Kinerja Saya', icon: Star })
-  // OKR & KPI kini digabung dalam satu menu tingkat satuan pendidikan
-  // (KinerjaLembaga.jsx). Keduanya milik sekolah, bukan pegawai
-  // perorangan — hanya manajemen (Kepala/Admin Sekolah & Yayasan) yang
-  // mengakses, jadi menu ini disembunyikan dari pegawai biasa.
-  if (isManager) kepegawaian.push({ to: '/kinerja-lembaga', label: 'OKR & KPI', icon: Target })
-  kepegawaian.push({ to: '/beban-kerja', label: isManager ? 'Beban Kerja' : 'Beban Kerja Saya', icon: Activity })
-  kepegawaian.push({ to: '/pelatihan', label: isManager ? 'Pelatihan' : 'Pelatihan Saya', icon: GraduationCap })
-  if (isManager) kepegawaian.push({ to: '/kalender-libur', label: 'Kalender Libur', icon: CalendarOff })
-  if (hasFullAccess) kepegawaian.push({ to: '/struktur', label: 'Struktur Organisasi', icon: Building2 })
+  kepegawaian.push({ to: '/pegawai', label: mgrOf('pegawai') ? 'Data Pegawai' : 'Profil Saya', icon: Users })
+  kepegawaian.push({ to: '/presensi', label: mgrOf('presensi') ? 'Presensi' : 'Presensi Saya', icon: CalendarCheck })
+  kepegawaian.push({ to: '/cuti', label: mgrOf('cuti') ? 'Cuti' : 'Cuti Saya', icon: CalendarClock })
+  kepegawaian.push({ to: '/penggajian', label: mgrOf('penggajian') ? 'Penggajian' : 'Slip Gaji', icon: Wallet })
+  kepegawaian.push({ to: '/kinerja', label: mgrOf('kinerja') ? 'Kinerja' : 'Kinerja Saya', icon: Star })
+  // OKR & KPI tingkat satuan pendidikan (KinerjaLembaga.jsx) — milik sekolah,
+  // bukan pegawai perorangan; tak ada versi "saya". Tampil bila manajemen
+  // ATAU peran diberi izin modul 'okr_kpi' lewat matriks.
+  if (mgrOf('okr_kpi')) kepegawaian.push({ to: '/kinerja-lembaga', label: 'OKR & KPI', icon: Target })
+  kepegawaian.push({ to: '/beban-kerja', label: mgrOf('beban_kerja') ? 'Beban Kerja' : 'Beban Kerja Saya', icon: Activity })
+  kepegawaian.push({ to: '/pelatihan', label: mgrOf('pelatihan') ? 'Pelatihan' : 'Pelatihan Saya', icon: GraduationCap })
+  if (mgrOf('kalender_libur')) kepegawaian.push({ to: '/kalender-libur', label: 'Kalender Libur', icon: CalendarOff })
+  if (fullOf('struktur')) kepegawaian.push({ to: '/struktur', label: 'Struktur Organisasi', icon: Building2 })
 
   // Modul Kesiswaan (Student Information Management) — dikelompokkan
   // terpisah dari Kepegawaian. Data Siswa & Kelas/Tahun Ajaran hanya untuk
@@ -117,12 +126,12 @@ function navGroupsFor({ isManager, hasFullAccess, employeeId }) {
     pribadi.push({ to: '/pelatihan?me=1', label: 'Pelatihan Saya', icon: GraduationCap })
   }
 
+  // Modul sistem (lintas aplikasi). Default hanya akses-penuh (Admin Yayasan/
+  // HR), tapi kini juga tampil bila peran diberi izin modulnya lewat matriks.
   const lainnya = []
-  if (hasFullAccess) {
-    lainnya.push({ to: '/pengguna', label: 'Pengguna & Peran', icon: UserCog })
-    lainnya.push({ to: '/log-aktivitas', label: 'Log Aktivitas', icon: History })
-    lainnya.push({ to: '/notifikasi-email', label: 'Notifikasi Email', icon: Mail })
-  }
+  if (fullOf('pengguna')) lainnya.push({ to: '/pengguna', label: 'Pengguna & Peran', icon: UserCog })
+  if (fullOf('log')) lainnya.push({ to: '/log-aktivitas', label: 'Log Aktivitas', icon: History })
+  if (fullOf('notifikasi')) lainnya.push({ to: '/notifikasi-email', label: 'Notifikasi Email', icon: Mail })
 
   return { kepegawaian, kesiswaan, akademik, sarpras, keuangan, pribadi, lainnya }
 }
@@ -188,8 +197,8 @@ function NavGroup({ storageKey, label, icon: Icon, defaultOpen = true, children 
 }
 
 function Sidebar({ open, onClose }) {
-  const { isManager, hasFullAccess, isWaliKelas, isBendahara, employee } = useAuth()
-  const { kepegawaian, kesiswaan, akademik, sarpras, keuangan, pribadi, lainnya } = navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, employeeId: employee?.id })
+  const { isManager, hasFullAccess, isWaliKelas, isBendahara, employee, can, permsReady } = useAuth()
+  const { kepegawaian, kesiswaan, akademik, sarpras, keuangan, pribadi, lainnya } = navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, employeeId: employee?.id, can, permsReady })
 
   return (
     <aside

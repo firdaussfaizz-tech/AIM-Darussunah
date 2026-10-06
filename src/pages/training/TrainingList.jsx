@@ -7,10 +7,14 @@ import { PageHeader, Card, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpi
 import { STATUS_BADGE_COLOR, formatDate } from '../../lib/format'
 
 export default function TrainingList() {
-  const { hasFullAccess, employee, loading: authLoading } = useAuth()
+  const { hasFullAccess, can, permsReady, employee, loading: authLoading } = useAuth()
   const navigate = useNavigate()
   const [sp] = useSearchParams()
-  const asManager = hasFullAccess && sp.get('me') !== '1'
+  // Mode "kelola" bila akses penuh ATAU peran dicentang 'pelatihan:lihat' di
+  // matriks izin (aditif) — konsisten dengan menu (mgrOf) & gerbang rute
+  // /pelatihan/:id (RequireFullAccess modul="pelatihan"). Tanda ?me=1 tetap
+  // memaksa tampilan pribadi.
+  const asManager = (hasFullAccess || (permsReady && can('pelatihan', 'lihat'))) && sp.get('me') !== '1'
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [formOpen, setFormOpen] = useState(false)

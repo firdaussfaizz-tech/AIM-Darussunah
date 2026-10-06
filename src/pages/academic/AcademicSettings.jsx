@@ -7,7 +7,11 @@ import { PageHeader, SectionCard, Button, Badge, Table, Tr, Td, Modal, Input, Se
 const TABS = ['Tahun Ajaran', 'Rombel / Kelas', 'Kenaikan Kelas']
 
 export default function AcademicSettings() {
-  const { isManager, hasFullAccess, managedSchoolIds, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, managedSchoolIds, can, permsReady, loading: authLoading } = useAuth()
+  // Aditif: peran yang dicentang 'kelas_ta:lihat' di matriks izin juga boleh
+  // membuka halaman Kelas & Tahun Ajaran. Fallback ke peran lama bila RPC
+  // izin belum siap. Data tetap dibatasi RLS has_school_access.
+  const bolehLihat = permsReady ? can('kelas_ta', 'lihat') : isManager
   const [tab, setTab] = useState('Tahun Ajaran')
   const [tahunAjaran, setTahunAjaran] = useState([])
   const [schools, setSchools] = useState([])
@@ -53,7 +57,7 @@ export default function AcademicSettings() {
 
   if (authLoading || loading) return <FullPageSpinner />
 
-  if (!isManager) {
+  if (!bolehLihat) {
     return (
       <EmptyState
         icon={CalendarRange}

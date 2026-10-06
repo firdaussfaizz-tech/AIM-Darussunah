@@ -57,19 +57,19 @@ export default function App() {
             <Route path="presensi" element={<AttendanceList />} />
             <Route path="cuti" element={<LeaveList />} />
             <Route path="penggajian" element={<PayrollList />} />
-            <Route path="penggajian/:id" element={<RequireFullAccess><PayrollRunDetail /></RequireFullAccess>} />
+            <Route path="penggajian/:id" element={<RequireFullAccess modul="penggajian"><PayrollRunDetail /></RequireFullAccess>} />
             <Route path="kinerja" element={<PerformanceList />} />
             <Route path="kinerja-lembaga" element={<KinerjaLembaga />} />
             {/* Alias lama: /okr kini bagian dari menu gabungan OKR & KPI. */}
             <Route path="okr" element={<KinerjaLembaga />} />
             <Route path="beban-kerja" element={<WorkloadList />} />
             <Route path="pelatihan" element={<TrainingList />} />
-            <Route path="pelatihan/:id" element={<RequireFullAccess><TrainingDetail /></RequireFullAccess>} />
+            <Route path="pelatihan/:id" element={<RequireFullAccess modul="pelatihan"><TrainingDetail /></RequireFullAccess>} />
             <Route path="kalender-libur" element={<HolidayList />} />
-            <Route path="struktur" element={<RequireFullAccess><OrgStructure /></RequireFullAccess>} />
-            <Route path="pengguna" element={<RequireFullAccess><UserRoles /></RequireFullAccess>} />
-            <Route path="log-aktivitas" element={<RequireFullAccess><ActivityLog /></RequireFullAccess>} />
-            <Route path="notifikasi-email" element={<RequireFullAccess><NotificationSettings /></RequireFullAccess>} />
+            <Route path="struktur" element={<RequireFullAccess modul="struktur"><OrgStructure /></RequireFullAccess>} />
+            <Route path="pengguna" element={<RequireFullAccess modul="pengguna"><UserRoles /></RequireFullAccess>} />
+            <Route path="log-aktivitas" element={<RequireFullAccess modul="log"><ActivityLog /></RequireFullAccess>} />
+            <Route path="notifikasi-email" element={<RequireFullAccess modul="notifikasi"><NotificationSettings /></RequireFullAccess>} />
             <Route path="kesiswaan" element={<KesiswaanDashboard />} />
             <Route path="siswa" element={<StudentList />} />
             <Route path="siswa/:id" element={<StudentDetail />} />

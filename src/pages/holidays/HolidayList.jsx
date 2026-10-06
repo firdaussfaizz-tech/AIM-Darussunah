@@ -12,7 +12,13 @@ import { formatDate } from '../../lib/format'
 // libur berbasis kalender Hijriah/lunar (Idul Fitri, Idul Adha, dst.) dan
 // libur semester ditambahkan manual oleh admin di sini.
 export default function HolidayList() {
-  const { isManager, hasFullAccess, managedSchoolIds, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, managedSchoolIds, can, permsReady, loading: authLoading } = useAuth()
+  // Hormati MATRIKS IZIN per-modul (Pengguna & Peran) lebih dulu: peran mana
+  // pun yang dicentang 'kalender_libur:lihat' kini benar-benar bisa membuka
+  // halaman ini. Bila RPC izin belum siap (DB lama), jatuh ke gerbang peran
+  // lama (isManager) agar tidak ada yang kehilangan akses. Aditif — manajemen
+  // tetap masuk seperti biasa.
+  const bolehKelola = permsReady ? can('kalender_libur', 'lihat') : isManager
   const [rows, setRows] = useState([])
   const [schools, setSchools] = useState([])
   const [loading, setLoading] = useState(true)
@@ -36,10 +42,10 @@ export default function HolidayList() {
     setLoading(false)
   }, [year])
 
-  useEffect(() => { if (isManager) load() }, [isManager, load])
+  useEffect(() => { if (bolehKelola) load() }, [bolehKelola, load])
 
   if (authLoading) return <FullPageSpinner />
-  if (!isManager) {
+  if (!bolehKelola) {
     return (
       <EmptyState
         icon={ShieldAlert}

@@ -14,7 +14,11 @@ import { PageHeader, Card, Button, Input, FullPageSpinner, EmptyState } from '..
 // tempat mengisi API Key & alamat pengirim, karena keduanya tersimpan di
 // tabel app_settings yang dibatasi RLS khusus Admin Yayasan/HR.
 export default function NotificationSettings() {
-  const { hasFullAccess, loading: authLoading } = useAuth()
+  const { hasFullAccess, can, permsReady, loading: authLoading } = useAuth()
+  // Aditif & konsisten dengan gerbang rute (RequireFullAccess modul="notifikasi"):
+  // Admin Yayasan/HR, ATAU peran yang dicentang 'notifikasi:lihat' di matriks
+  // izin. Penyimpanan API key tetap dijaga RLS app_settings di DB.
+  const bolehLihat = hasFullAccess || (permsReady && can('notifikasi', 'lihat'))
   const [loading, setLoading] = useState(true)
   const [row, setRow] = useState(null)
   const [apiKeyInput, setApiKeyInput] = useState('')
@@ -36,10 +40,10 @@ export default function NotificationSettings() {
     setLoading(false)
   }
 
-  useEffect(() => { if (hasFullAccess) load() }, [hasFullAccess])
+  useEffect(() => { if (bolehLihat) load() }, [bolehLihat])
 
   if (authLoading) return <FullPageSpinner />
-  if (!hasFullAccess) {
+  if (!bolehLihat) {
     return (
       <EmptyState
         icon={ShieldAlert}
