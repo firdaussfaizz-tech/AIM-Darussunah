@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Papa from 'papaparse'
-import { ArrowLeft, PlayCircle, Lock, Pencil, RefreshCw, Download } from 'lucide-react'
+import { ArrowLeft, PlayCircle, Lock, Pencil, RefreshCw, Download, Landmark } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner, Modal, Input, Textarea } from '../../components/ui'
 import { STATUS_BADGE_COLOR, formatRupiah, BULAN } from '../../lib/format'
 import { hitungIH } from '../../lib/remunerasi'
 import { hitungKomponenGaji } from '../../lib/payroll'
+import BankMuamalatExport from './BankMuamalatExport'
 
 export default function PayrollRunDetail() {
   const { id } = useParams()
@@ -20,6 +21,7 @@ export default function PayrollRunDetail() {
   const [recomputingId, setRecomputingId] = useState(null)
   const [recomputingAll, setRecomputingAll] = useState(false)
   const [editRow, setEditRow] = useState(null)
+  const [bankOpen, setBankOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -301,6 +303,11 @@ export default function PayrollRunDetail() {
                 <Download className="h-4 w-4" /> Ekspor CSV
               </Button>
             )}
+            {run.status === 'final' && details.length > 0 && (
+              <Button variant="outline" onClick={() => setBankOpen(true)}>
+                <Landmark className="h-4 w-4" /> File Bank Muamalat
+              </Button>
+            )}
             <Badge color={STATUS_BADGE_COLOR[run.status]}>{run.status}</Badge>
           </div>
         }
@@ -354,6 +361,8 @@ export default function PayrollRunDetail() {
       </p>
 
       <EditSlipModal row={editRow} settings={settings} onSave={persistEditedSlip} onClose={() => setEditRow(null)} onSaved={() => { setEditRow(null); load() }} />
+
+      <BankMuamalatExport open={bankOpen} onClose={() => setBankOpen(false)} run={run} details={details} />
     </div>
   )
 }
