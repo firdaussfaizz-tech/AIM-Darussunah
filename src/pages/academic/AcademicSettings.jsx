@@ -40,16 +40,24 @@ export default function AcademicSettings() {
       // Jumlah siswa per rombel dihitung di sisi klien (bukan lewat embed
       // `relation(count)` PostgREST) supaya tidak bergantung pada fitur
       // agregat PostgREST yang belum tentu aktif di semua proyek Supabase.
-      supabase.from('riwayat_siswa').select('rombel_id'),
+      // Jenis kelamin ikut diambil agar bisa dipecah siswa (L) vs siswi (P).
+      supabase.from('riwayat_siswa').select('rombel_id, siswa!siswa_id(jenis_kelamin)'),
     ])
-    const jumlahPerRombel = {}
+    const perRombel = {}
     for (const e of enrollments || []) {
-      jumlahPerRombel[e.rombel_id] = (jumlahPerRombel[e.rombel_id] || 0) + 1
+      const g = perRombel[e.rombel_id] || { total: 0, L: 0, P: 0 }
+      g.total += 1
+      if (e.siswa?.jenis_kelamin === 'L') g.L += 1
+      else if (e.siswa?.jenis_kelamin === 'P') g.P += 1
+      perRombel[e.rombel_id] = g
     }
     setTahunAjaran(ta || [])
     setSchools(s || [])
     setEmployees(emp || [])
-    setRombel((r || []).map((row) => ({ ...row, jumlah_siswa: jumlahPerRombel[row.id] || 0 })))
+    setRombel((r || []).map((row) => {
+      const g = perRombel[row.id] || { total: 0, L: 0, P: 0 }
+      return { ...row, jumlah_siswa: g.total, jumlah_siswa_l: g.L, jumlah_siswa_p: g.P }
+    }))
     setLoading(false)
   }, [])
 
@@ -311,7 +319,10 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedScho
               <Td>{r.tingkat}</Td>
               <Td className="font-medium">{r.nama_rombel}</Td>
               <Td className="text-[var(--color-ink-soft)]">{r.employees?.nama || '—'}</Td>
-              <Td>{r.jumlah_siswa}{r.kapasitas ? ` / ${r.kapasitas}` : ''}</Td>
+              <Td>
+                <span className="font-medium">{r.jumlah_siswa}{r.kapasitas ? ` / ${r.kapasitas}` : ''}</span>
+                <span className="block text-[11px] text-[var(--color-ink-soft)]">{r.jumlah_siswa_l} siswa · {r.jumlah_siswa_p} siswi</span>
+              </Td>
               <Td className="text-right">
                 <div className="flex justify-end gap-2">
                   <button onClick={() => setRosterRombel(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Kelola Siswa" title="Kelola Siswa">

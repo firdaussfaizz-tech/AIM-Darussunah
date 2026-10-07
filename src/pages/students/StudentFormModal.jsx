@@ -17,17 +17,61 @@ const emptyForm = {
 // kosong) kalau tidak diisi, supaya tidak ditolak Postgres.
 const NUMERIC_OR_DATE_FIELDS = ['tanggal_lahir', 'anak_ke', 'jumlah_saudara', 'tahun_lahir_ayah', 'tahun_lahir_ibu']
 
+const DRAFT_KEY = 'draft:tambah_siswa'
+
+function readDraft() {
+  try {
+    const saved = sessionStorage.getItem(DRAFT_KEY)
+    return saved ? { ...emptyForm, ...JSON.parse(saved) } : emptyForm
+  } catch {
+    return emptyForm
+  }
+}
+
+function writeDraft(form) {
+  try {
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(form))
+  } catch {
+    // penyimpanan penuh/diblokir browser — abaikan, form tetap berfungsi normal
+  }
+}
+
+function clearDraft() {
+  try {
+    sessionStorage.removeItem(DRAFT_KEY)
+  } catch {
+    // abaikan
+  }
+}
+
 export default function StudentFormModal({ open, onClose, onSaved, schools, initialData = null }) {
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [draftRestored, setDraftRestored] = useState(false)
 
   useEffect(() => {
     if (open) {
-      setForm(initialData ? mapInitial(initialData) : emptyForm)
+      if (initialData) {
+        setForm(mapInitial(initialData))
+        setDraftRestored(false)
+      } else {
+        // Siswa baru: pulihkan draft tersimpan (jika ada) agar isian tidak
+        // hilang kalau tab sempat di-reload oleh browser atau berpindah tab.
+        const draft = readDraft()
+        setForm(draft)
+        setDraftRestored(draft.nama_lengkap !== '' || draft.nisn !== '' || draft.nik !== '')
+      }
       setError('')
     }
   }, [open, initialData])
+
+  // Simpan draft setiap kali isian berubah, hanya untuk form "tambah baru"
+  // (form "ubah data" tidak disimpan sebagai draft agar tidak tertukar dengan
+  // data siswa lain saat modal ini dibuka lagi untuk siswa berbeda).
+  useEffect(() => {
+    if (open && !initialData) writeDraft(form)
+  }, [form, open, initialData])
 
   const update = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }))
 
@@ -56,12 +100,25 @@ export default function StudentFormModal({ open, onClose, onSaved, schools, init
       )
       return
     }
+    if (!initialData) clearDraft()
     onSaved()
   }
 
   return (
     <Modal open={open} onClose={onClose} title={initialData ? 'Ubah Data Siswa' : 'Tambah Siswa Baru'} width="max-w-3xl">
       <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {draftRestored && (
+          <p className="sm:col-span-2 flex items-center justify-between gap-3 rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-sm text-[var(--color-gold)]">
+            Isian sebelumnya yang belum tersimpan berhasil dipulihkan.
+            <button
+              type="button"
+              onClick={() => { clearDraft(); setForm(emptyForm); setDraftRestored(false) }}
+              className="shrink-0 font-medium underline hover:no-underline"
+            >
+              Kosongkan form
+            </button>
+          </p>
+        )}
         <p className="sm:col-span-2 text-[13px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">Data Siswa</p>
         <Input label="Nama Lengkap" required value={form.nama_lengkap} onChange={update('nama_lengkap')} containerClassName="sm:col-span-2" />
         <Input label="Nama Panggilan" value={form.nama_panggilan} onChange={update('nama_panggilan')} />
