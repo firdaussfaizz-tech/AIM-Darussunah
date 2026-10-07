@@ -235,6 +235,17 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedScho
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [rosterRombel, setRosterRombel] = useState(null)
+  const [search, setSearch] = useState('')
+
+  // Pencarian rombel: cocokkan terhadap nama rombel, tingkat, unit sekolah,
+  // wali kelas, dan tahun ajaran. Urutan asli (by tingkat) dipertahankan.
+  const q = search.trim().toLowerCase()
+  const rombelTampil = q
+    ? rombel.filter((r) => [
+        r.nama_rombel, r.tingkat, r.schools?.nama, r.schools?.jenjang,
+        r.employees?.nama, r.tahun_ajaran?.nama,
+      ].some((v) => String(v ?? '').toLowerCase().includes(q)))
+    : rombel
 
   const tahunAktif = tahunAjaran.find((t) => t.status === 'aktif')
 
@@ -311,8 +322,18 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedScho
       actions={<Button size="sm" variant="outline" onClick={openAdd} disabled={!tahunAktif}><Plus className="h-4 w-4" /> Tambah Rombel</Button>}
     >
       {rombel.length === 0 ? <EmptyState icon={School} title="Belum ada rombel" /> : (
+        <>
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Cari rombel: nama, tingkat, unit, atau wali kelas…"
+            containerClassName="mb-4 max-w-sm"
+          />
+          {rombelTampil.length === 0 ? (
+            <EmptyState icon={School} title="Rombel tidak ditemukan" description={`Tidak ada rombel yang cocok dengan "${search}".`} />
+          ) : (
         <Table columns={['Tahun Ajaran', 'Unit', 'Tingkat', 'Nama Rombel', 'Wali Kelas', 'Jumlah Siswa', '']}>
-          {rombel.map((r) => (
+          {rombelTampil.map((r) => (
             <Tr key={r.id}>
               <Td className="text-[var(--color-ink-soft)]">{r.tahun_ajaran?.nama || '—'}</Td>
               <Td>{r.schools ? `${r.schools.jenjang} — ${r.schools.nama}` : '—'}</Td>
@@ -335,6 +356,8 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedScho
             </Tr>
           ))}
         </Table>
+          )}
+        </>
       )}
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'Ubah Rombel' : 'Tambah Rombel'}>

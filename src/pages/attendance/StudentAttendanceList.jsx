@@ -78,23 +78,42 @@ function ManagerView({ employeeId, lockedSchoolId }) {
   return (
     <div>
       <Card className="mb-4" padded={false}>
-        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-4 p-4">
           {!lockedSchoolId && (
-            <Select containerClassName="sm:w-56" value={schoolFilter} onChange={(e) => { setSchoolFilter(e.target.value); setRombelId('') }}>
+            <Select label="Unit Sekolah" containerClassName="sm:w-72" value={schoolFilter} onChange={(e) => { setSchoolFilter(e.target.value); setRombelId('') }}>
               <option value="">Semua Unit</option>
               {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
             </Select>
           )}
-          <Select containerClassName="sm:w-56" value={rombelId} onChange={(e) => setRombelId(e.target.value)}>
-            <option value="">— Pilih Rombel —</option>
-            {filteredRombel.map((r) => <option key={r.id} value={r.id}>{r.tingkat} {r.nama_rombel}</option>)}
-          </Select>
+          <div>
+            <p className="mb-2 text-sm font-medium text-[var(--color-ink)]">Pilih Rombel</p>
+            {filteredRombel.length === 0 ? (
+              <p className="text-sm text-[var(--color-ink-soft)]">Belum ada rombel pada tahun ajaran aktif{!lockedSchoolId && !schoolFilter ? '' : ' untuk unit ini'}.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {filteredRombel.map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => setRombelId(r.id)}
+                    className={`rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                      rombelId === r.id
+                        ? 'border-[var(--color-navy)] bg-[var(--color-navy)] text-white'
+                        : 'border-[var(--color-border)] text-[var(--color-ink)] hover:bg-black/[0.04]'
+                    }`}
+                  >
+                    {r.tingkat} {r.nama_rombel}{!schoolFilter && r.schools ? ` · ${r.schools.jenjang}` : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </Card>
       {rombelId ? (
         <RombelAttendanceBoard rombelId={rombelId} tahunAjaranId={tahunAktif.id} employeeId={employeeId} />
       ) : (
-        <EmptyState icon={ClipboardCheck} title="Pilih rombel" description="Pilih unit dan rombel untuk mulai mencatat presensi." />
+        <EmptyState icon={ClipboardCheck} title="Pilih rombel" description="Pilih rombel di atas untuk mulai mencatat presensi." />
       )}
     </div>
   )
