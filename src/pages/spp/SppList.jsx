@@ -179,10 +179,10 @@ function TagihanTab({ employeeId, lockedSchoolId }) {
       </Card>
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-3">
-          <StatCard label="Total Tagihan" value={formatRupiah(totalTagihan)} />
-          <StatCard label="Sudah Lunas" value={`${jumlahLunas} siswa`} />
-          <StatCard label="Belum Lunas" value={`${jumlahBelum} siswa`} />
+        <div className="grid w-full min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-3">
+          <StatCard label="Total Tagihan" value={formatRupiah(totalTagihan)} accent="navy" />
+          <StatCard label="Sudah Lunas" value={`${jumlahLunas} siswa`} accent="success" />
+          <StatCard label="Belum Lunas" value={`${jumlahBelum} siswa`} accent="danger" />
         </div>
         <Button onClick={handleGenerate} disabled={generating || !tahunAjaranId} className="shrink-0">
           <PlayCircle className="h-4 w-4" /> {generating ? 'Memproses…' : 'Generate Tagihan Bulanan'}

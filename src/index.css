@@ -164,6 +164,28 @@ html {
   animation: page-fade-in 320ms var(--ease-smooth);
 }
 
+/* Kartu ringkasan (StatCard): animasi masuk halus + efek "angkat" saat hover.
+   Tidak memakai fill-mode supaya transform kembali ke none setelah animasi
+   (alasan sama dengan page-fade-in di atas — hindari containing-block baru). */
+@keyframes stat-card-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.stat-card {
+  animation: stat-card-in 360ms var(--ease-smooth);
+  transition: transform 200ms var(--ease-smooth), box-shadow 200ms var(--ease-smooth), border-color 200ms var(--ease-smooth);
+  will-change: transform;
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px -12px rgba(0, 0, 0, 0.22);
+  border-color: var(--color-navy-50);
+}
+@media (prefers-reduced-motion: reduce) {
+  .stat-card { animation: none; }
+  .stat-card:hover { transform: none; }
+}
+
 body {
   background-color: var(--color-paper);
   background-image:

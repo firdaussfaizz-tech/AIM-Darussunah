@@ -169,12 +169,38 @@ export function EmptyState({ icon: Icon, title, description, action }) {
   )
 }
 
-export function StatCard({ label, value, sub }) {
+// Warna aksen opsional — menambah strip tipis di sisi kiri kartu. Memakai
+// token warna yang sudah ada agar konsisten dengan sisa aplikasi.
+const STAT_ACCENTS = {
+  navy: 'var(--color-navy)',
+  gold: 'var(--color-gold)',
+  success: 'var(--color-success)',
+  danger: 'var(--color-danger)',
+}
+
+// StatCard — kartu ringkasan angka.
+// - `min-w-0` + `break-words` + ukuran font responsif (clamp) mencegah nilai
+//   panjang (mis. "Rp 1.305.000") meluber keluar kartu saat berada di dalam
+//   grid/flex yang sempit (bug tampilan yang pernah dilaporkan).
+// - Kelas `.stat-card` (index.css) menambah animasi masuk + efek angkat saat
+//   hover, dan menghormati prefers-reduced-motion.
+export function StatCard({ label, value, sub, accent, icon: Icon }) {
+  const accentColor = STAT_ACCENTS[accent]
   return (
-    <Card>
-      <p className="text-[13px] font-medium text-[var(--color-ink-soft)]">{label}</p>
-      <p className="mt-2 font-[family-name:var(--font-display)] text-[34px] font-semibold leading-none tracking-tight text-[var(--color-ink)]">{value}</p>
-      {sub && <p className="mt-2 text-[13px] text-[var(--color-ink-soft)]">{sub}</p>}
+    <Card className="stat-card group relative min-w-0 overflow-hidden">
+      {accentColor && (
+        <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: accentColor }} aria-hidden="true" />
+      )}
+      <div className="flex items-start justify-between gap-2">
+        <p className="min-w-0 text-[13px] font-medium text-[var(--color-ink-soft)]">{label}</p>
+        {Icon && (
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--color-navy-50)] text-[var(--color-navy)] transition-transform duration-200 group-hover:scale-110">
+            <Icon className="h-4 w-4" />
+          </span>
+        )}
+      </div>
+      <p className="mt-2 break-words font-[family-name:var(--font-display)] text-[clamp(22px,4.5vw,32px)] font-semibold leading-tight tracking-tight tabular-nums text-[var(--color-ink)]">{value}</p>
+      {sub && <p className="mt-2 text-[13px] leading-snug text-[var(--color-ink-soft)]">{sub}</p>}
     </Card>
   )
 }
