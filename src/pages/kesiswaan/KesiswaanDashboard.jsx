@@ -56,6 +56,7 @@ function DashboardBody({ lockedSchoolId }) {
   const [tahunAktif, setTahunAktif] = useState(null)
   const [sppRows, setSppRows] = useState([])
   const [nilaiSiswaIds, setNilaiSiswaIds] = useState([])
+  const [rombelRows, setRombelRows] = useState([])
 
   useEffect(() => {
     const load = async () => {
@@ -74,15 +75,18 @@ function DashboardBody({ lockedSchoolId }) {
 
       if (ta) {
         const semester = tebakSemester()
-        const [{ data: spp }, { data: nilai }] = await Promise.all([
+        const [{ data: spp }, { data: nilai }, { data: rombel }] = await Promise.all([
           supabase.from('spp_tagihan').select('status, nominal_tagihan').eq('tahun_ajaran_id', ta.id).eq('bulan', now.getMonth() + 1).eq('tahun', now.getFullYear()),
           supabase.from('nilai_siswa').select('siswa_id').eq('tahun_ajaran_id', ta.id).eq('semester', semester),
+          supabase.from('rombel').select('id, tingkat, school_id, schools!school_id(nama, jenjang)').eq('tahun_ajaran_id', ta.id),
         ])
         setSppRows(spp || [])
         setNilaiSiswaIds([...new Set((nilai || []).map((n) => n.siswa_id))])
+        setRombelRows(rombel || [])
       } else {
         setSppRows([])
         setNilaiSiswaIds([])
+        setRombelRows([])
       }
       setLoading(false)
     }
@@ -117,6 +121,21 @@ function DashboardBody({ lockedSchoolId }) {
     return { total: sppRows.length, lunas, belum, totalNominal }
   }, [sppRows])
 
+  const rombelStats = useMemo(() => {
+    const byJenjang = {}
+    const unitSet = new Set()
+    for (const r of rombelRows) {
+      const jenjang = r.schools?.jenjang || '—'
+      byJenjang[jenjang] = (byJenjang[jenjang] || 0) + 1
+      if (r.school_id) unitSet.add(r.school_id)
+    }
+    const byJenjangLabel = Object.entries(byJenjang)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([jenjang, jumlah]) => `${jenjang} ${jumlah}`)
+      .join(' · ')
+    return { total: rombelRows.length, unit: unitSet.size, byJenjangLabel }
+  }, [rombelRows])
+
   const semester = tebakSemester()
   const semesterLabel = SEMESTER_OPTIONS.find((s) => s.value === semester)?.label || semester
   // Dibatasi maksimal 100% — penyebut hanya siswa yang status-nya aktif
@@ -132,8 +151,17 @@ function DashboardBody({ lockedSchoolId }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Siswa Aktif" value={siswaStats.totalAktif} sub={`${siswaRows.length} total tercatat (termasuk lulus/pindah/keluar)`} />
+        <StatCard
+          label={`Rombel${tahunAktif ? ` — ${tahunAktif.nama}` : ''}`}
+          value={tahunAktif ? rombelStats.total : '—'}
+          sub={tahunAktif
+            ? (rombelStats.total > 0
+                ? (lockedSchoolId ? 'rombel di unit Anda' : (rombelStats.byJenjangLabel || `di ${rombelStats.unit} unit`))
+                : 'Belum ada rombel pada TA aktif')
+            : 'Belum ada tahun ajaran aktif'}
+        />
         <StatCard
           label="Presensi Hari Ini"
           value={presensiStats.total > 0 ? `${presensiStats.hadir} Hadir` : '—'}
