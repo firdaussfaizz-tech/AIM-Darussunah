@@ -33,7 +33,10 @@ export function OkrPanel() {
   const mySchools = useMemo(() => {
     const seen = new Map()
     for (const r of roles) {
-      if (['admin_sekolah', 'kepala_sekolah'].includes(r.role) && r.school_id && !seen.has(r.school_id)) {
+      // Enum lama ATAU peran dinamis manajer_unit (0054) — agar Kepala
+      // Sekolah berperan dinamis tetap bisa menyusun/mengajukan OKR unitnya.
+      const manajerUnit = ['admin_sekolah', 'kepala_sekolah'].includes(r.role) || r.roles?.tingkat_akses === 'manajer_unit'
+      if (manajerUnit && r.school_id && !seen.has(r.school_id)) {
         seen.set(r.school_id, { id: r.school_id, nama: r.schools?.nama, jenjang: r.schools?.jenjang })
       }
     }

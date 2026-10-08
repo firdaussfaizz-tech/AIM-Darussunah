@@ -120,7 +120,12 @@ export function KpiLembagaPanel() {
   const mySchools = useMemo(() => {
     const seen = new Map()
     for (const r of roles) {
-      if (['admin_sekolah', 'kepala_sekolah'].includes(r.role) && r.school_id && !seen.has(r.school_id)) {
+      // Kenali Kepala Sekolah/Admin Sekolah dari enum lama MAUPUN peran
+      // dinamis (tingkat_akses 'manajer_unit', model 0054) — tanpa ini,
+      // Kepala Sekolah berperan dinamis tak terdeteksi punya unit sehingga
+      // tombol "Tambah/Ajukan Indikator" tak muncul (bug yang dilaporkan).
+      const manajerUnit = ['admin_sekolah', 'kepala_sekolah'].includes(r.role) || r.roles?.tingkat_akses === 'manajer_unit'
+      if (manajerUnit && r.school_id && !seen.has(r.school_id)) {
         seen.set(r.school_id, { id: r.school_id, nama: r.schools?.nama, jenjang: r.schools?.jenjang })
       }
     }
@@ -865,7 +870,12 @@ export function LembagaDashboard() {
   const mySchools = useMemo(() => {
     const seen = new Map()
     for (const r of roles) {
-      if (['admin_sekolah', 'kepala_sekolah'].includes(r.role) && r.school_id && !seen.has(r.school_id)) {
+      // Kenali Kepala Sekolah/Admin Sekolah dari enum lama MAUPUN peran
+      // dinamis (tingkat_akses 'manajer_unit', model 0054) — tanpa ini,
+      // Kepala Sekolah berperan dinamis tak terdeteksi punya unit sehingga
+      // tombol "Tambah/Ajukan Indikator" tak muncul (bug yang dilaporkan).
+      const manajerUnit = ['admin_sekolah', 'kepala_sekolah'].includes(r.role) || r.roles?.tingkat_akses === 'manajer_unit'
+      if (manajerUnit && r.school_id && !seen.has(r.school_id)) {
         seen.set(r.school_id, { id: r.school_id, nama: r.schools?.nama, jenjang: r.schools?.jenjang })
       }
     }

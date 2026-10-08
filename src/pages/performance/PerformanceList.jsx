@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Star, Plus, Info, Pencil, Trash2, Send, Check, Undo2, Lightbulb } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
@@ -398,6 +398,7 @@ function KpiScoreModal({ open, editingRow, onClose, onSaved, periods, kpiIndicat
   const [error, setError] = useState('')
   const [autoBusy, setAutoBusy] = useState(false)
   const [autoNote, setAutoNote] = useState('')
+  const autoRanRef = useRef('')
   const isEdit = !!editingRow
   const adaSumberOtomatis = kpiIndicators.some((k) => k.sumber_otomatis && k.sumber_otomatis !== 'manual')
 
@@ -408,6 +409,8 @@ function KpiScoreModal({ open, editingRow, onClose, onSaved, periods, kpiIndicat
       setPeriodeGajiMulai(pg.mulai)
       setPeriodeGajiSelesai(pg.selesai)
       setError('')
+      setAutoNote('')
+      autoRanRef.current = ''
       if (editingRow) {
         setEmployeeId(editingRow.employee_id)
         setPeriodId(editingRow.period_id)
@@ -476,6 +479,21 @@ function KpiScoreModal({ open, editingRow, onClose, onSaved, periods, kpiIndicat
     }
     setAutoBusy(false)
   }
+
+  // #2: KPI Individu terisi OTOMATIS — begitu Pegawai & Periode dipilih
+  // (penilaian BARU, bukan ubah), skor indikator bersumber otomatis langsung
+  // dihitung tanpa perlu klik tombol. Indikator manual tetap bisa diisi/ubah,
+  // dan hasilnya tetap ditinjau manusia sebelum Simpan (tak ada simpan diam2).
+  useEffect(() => {
+    if (!open || isEdit) return
+    if (!employeeId || !periodId) return
+    if (!adaSumberOtomatis || employees.length === 0) return
+    const key = `${employeeId}|${periodId}`
+    if (autoRanRef.current === key) return
+    autoRanRef.current = key
+    hitungOtomatis()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isEdit, employeeId, periodId, adaSumberOtomatis, employees.length])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -557,7 +575,7 @@ function KpiScoreModal({ open, editingRow, onClose, onSaved, periods, kpiIndicat
             </div>
             {adaSumberOtomatis && (
               <p className="mb-3 text-xs text-[var(--color-ink-soft)]">
-                Sebagian indikator bisa diisi otomatis dari data (Indeks Kehadiran pegawai / KPI Lembaga unit) untuk mengurangi subjektivitas. Klik <strong>Hitung Otomatis</strong> setelah memilih pegawai &amp; periode, lalu tinjau sebelum menyimpan.
+                Skor indikator bersumber otomatis <strong>terisi sendiri</strong> begitu Pegawai &amp; Periode dipilih (dari Indeks Kehadiran pegawai / KPI Lembaga unit) — tanpa input manual. Tombol <strong>Hitung Otomatis</strong> hanya untuk menghitung ulang. Tinjau sebelum menyimpan.
               </p>
             )}
             <div className="flex flex-col gap-3">
@@ -567,6 +585,7 @@ function KpiScoreModal({ open, editingRow, onClose, onSaved, periods, kpiIndicat
                     <p className="text-sm text-[var(--color-ink)]">{k.nama}</p>
                     <p className="text-xs text-[var(--color-ink-soft)]">
                       Bobot {k.bobot}%
+                      {k.target != null && k.target !== '' && <> · Target {k.target}{k.satuan || ''}</>}
                       {k.sumber_otomatis && k.sumber_otomatis !== 'manual' && (
                         <span className="ml-1"><Badge color="navy">{SKOR_SUMBER_LABEL[k.sumber_otomatis] || 'Otomatis'}</Badge></span>
                       )}
@@ -691,11 +710,13 @@ function KpiProposalModal({ open, schoolId, onClose, onSaved }) {
   const [nama, setNama] = useState('')
   const [deskripsi, setDeskripsi] = useState('')
   const [bobot, setBobot] = useState('')
+  const [target, setTarget] = useState('')
+  const [satuan, setSatuan] = useState('%')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (open) { setNama(''); setDeskripsi(''); setBobot(''); setError('') }
+    if (open) { setNama(''); setDeskripsi(''); setBobot(''); setTarget(''); setSatuan('%'); setError('') }
   }, [open])
 
   const handleSubmit = async (e) => {
@@ -707,6 +728,7 @@ function KpiProposalModal({ open, schoolId, onClose, onSaved }) {
     setError('')
     const { error: err } = await supabase.from('kpi_indicators').insert({
       nama: nama.trim(), deskripsi: deskripsi || null, bobot: Number(bobot),
+      target: target === '' ? null : Number(target), satuan: satuan || '%',
       status: 'diajukan', status_aktif: false, diajukan_oleh_school_id: schoolId,
     })
     setSaving(false)
@@ -720,7 +742,11 @@ function KpiProposalModal({ open, schoolId, onClose, onSaved }) {
         <p className="text-xs text-[var(--color-ink-soft)]">Usulan ini akan ditinjau Yayasan (bobot final bisa disesuaikan) sebelum aktif dipakai menilai.</p>
         <Input label="Nama Indikator" required value={nama} onChange={(e) => setNama(e.target.value)} placeholder="Contoh: Keterlibatan dalam Ekstrakurikuler" />
         <Textarea label="Deskripsi (opsional)" rows={3} value={deskripsi} onChange={(e) => setDeskripsi(e.target.value)} />
-        <Input label="Usulan Bobot (%)" type="number" min="0.01" max="100" step="0.01" required value={bobot} onChange={(e) => setBobot(e.target.value)} />
+        <div className="grid grid-cols-3 gap-3">
+          <Input label="Usulan Bobot (%)" containerClassName="col-span-1" type="number" min="0.01" max="100" step="0.01" required value={bobot} onChange={(e) => setBobot(e.target.value)} />
+          <Input label="Target" containerClassName="col-span-1" type="number" step="0.01" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="mis. 90" />
+          <Input label="Satuan" containerClassName="col-span-1" value={satuan} onChange={(e) => setSatuan(e.target.value)} placeholder="%" />
+        </div>
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Batal</Button>

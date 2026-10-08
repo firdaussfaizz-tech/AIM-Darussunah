@@ -700,7 +700,7 @@ function WorkScheduleTab({ schedules, reload }) {
   )
 }
 
-const emptyKpiForm = { nama: '', deskripsi: '', bobot: '', status_aktif: true, urutan: '', sumber_otomatis: 'manual' }
+const emptyKpiForm = { nama: '', deskripsi: '', bobot: '', target: '', satuan: '%', status_aktif: true, urutan: '', sumber_otomatis: 'manual' }
 
 function KpiIndicatorsTab({ kpiIndicators, reload }) {
   const [modalOpen, setModalOpen] = useState(false)
@@ -726,7 +726,7 @@ function KpiIndicatorsTab({ kpiIndicators, reload }) {
   }
   const openEdit = (k) => {
     setEditingId(k.id)
-    setForm({ nama: k.nama || '', deskripsi: k.deskripsi || '', bobot: k.bobot ?? '', status_aktif: k.status_aktif, urutan: k.urutan ?? '', sumber_otomatis: k.sumber_otomatis || 'manual' })
+    setForm({ nama: k.nama || '', deskripsi: k.deskripsi || '', bobot: k.bobot ?? '', target: k.target ?? '', satuan: k.satuan || '%', status_aktif: k.status_aktif, urutan: k.urutan ?? '', sumber_otomatis: k.sumber_otomatis || 'manual' })
     setError('')
     setModalOpen(true)
   }
@@ -738,6 +738,8 @@ function KpiIndicatorsTab({ kpiIndicators, reload }) {
     setError('')
     const payload = {
       nama: form.nama, deskripsi: form.deskripsi || null, bobot: Number(form.bobot),
+      target: form.target === '' || form.target == null ? null : Number(form.target),
+      satuan: form.satuan || '%',
       status_aktif: form.status_aktif, urutan: Number(form.urutan) || 0,
       sumber_otomatis: form.sumber_otomatis || 'manual',
     }
@@ -795,6 +797,7 @@ function KpiIndicatorsTab({ kpiIndicators, reload }) {
                   <Td>
                     <p className="font-medium text-[var(--color-ink)]">{k.nama}</p>
                     {k.deskripsi && <p className="mt-0.5 text-[13px] text-[var(--color-ink-soft)]">{k.deskripsi}</p>}
+                    {k.target != null && k.target !== '' && <p className="mt-0.5 text-xs text-[var(--color-ink-soft)]">Target: {k.target}{k.satuan || ''}</p>}
                   </Td>
                   <Td className="font-medium">{k.bobot}%</Td>
                   <Td>{k.status_aktif ? <Badge color="success">Aktif</Badge> : <Badge color="neutral">Nonaktif</Badge>}</Td>
@@ -820,6 +823,10 @@ function KpiIndicatorsTab({ kpiIndicators, reload }) {
             <div className="grid grid-cols-2 gap-4">
               <Input label="Bobot (%)" type="number" min="0.01" max="100" step="0.01" required value={form.bobot} onChange={(e) => setForm((s) => ({ ...s, bobot: e.target.value }))} />
               <Input label="Urutan Tampil" type="number" min="1" value={form.urutan} onChange={(e) => setForm((s) => ({ ...s, urutan: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Target" type="number" step="0.01" value={form.target} onChange={(e) => setForm((s) => ({ ...s, target: e.target.value }))} placeholder="mis. 90" />
+              <Input label="Satuan" value={form.satuan} onChange={(e) => setForm((s) => ({ ...s, satuan: e.target.value }))} placeholder="%" />
             </div>
             <Select label="Status" value={form.status_aktif ? 'aktif' : 'nonaktif'} onChange={(e) => setForm((s) => ({ ...s, status_aktif: e.target.value === 'aktif' }))}>
               <option value="aktif">Aktif — dipakai saat menilai</option>
