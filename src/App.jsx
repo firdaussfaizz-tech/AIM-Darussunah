@@ -1,41 +1,50 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { RequireAuth, RequireFullAccess } from './components/RouteGuards'
+import { FullPageSpinner } from './components/ui'
 import Layout from './components/Layout'
 import Login from './pages/auth/Login'
-import Dashboard from './pages/Dashboard'
-import EmployeeList from './pages/employees/EmployeeList'
-import EmployeeDetail from './pages/employees/EmployeeDetail'
-import AttendanceList from './pages/attendance/AttendanceList'
-import StudentAttendanceList from './pages/attendance/StudentAttendanceList'
-import LeaveList from './pages/leave/LeaveList'
-import PayrollList from './pages/payroll/PayrollList'
-import PayrollRunDetail from './pages/payroll/PayrollRunDetail'
-import PerformanceList from './pages/performance/PerformanceList'
-import KinerjaLembaga from './pages/performance/KinerjaLembaga'
-import WorkloadList from './pages/workload/WorkloadList'
-import TrainingList from './pages/training/TrainingList'
-import TrainingDetail from './pages/training/TrainingDetail'
-import OrgStructure from './pages/org/OrgStructure'
-import UserRoles from './pages/users/UserRoles'
-import HolidayList from './pages/holidays/HolidayList'
-import ActivityLog from './pages/activity/ActivityLog'
-import NotificationSettings from './pages/settings/NotificationSettings'
-import StudentList from './pages/students/StudentList'
-import StudentDetail from './pages/students/StudentDetail'
-import AcademicSettings from './pages/academic/AcademicSettings'
-import SppList from './pages/spp/SppList'
-import NilaiRapor from './pages/nilai/NilaiRapor'
-import KesiswaanDashboard from './pages/kesiswaan/KesiswaanDashboard'
-import AsetList from './pages/aset/AsetList'
-import DokumenCetak from './pages/aset/DokumenCetak'
-import AcademicManagement from './pages/academic/AcademicManagement'
-import KeuanganManagement from './pages/keuangan/KeuanganManagement'
+
+// Code-splitting (Rekomendasi Asesmen ERP/HRIS — Performa): tiap halaman
+// dimuat sebagai chunk terpisah lewat React.lazy, sehingga bundle awal jauh
+// lebih ringan dan hanya kode halaman yang sedang dibuka yang diunduh.
+// Shell (Layout), guard rute, dan Login tetap dimuat langsung agar tampil
+// instan tanpa kedip.
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const EmployeeList = lazy(() => import('./pages/employees/EmployeeList'))
+const EmployeeDetail = lazy(() => import('./pages/employees/EmployeeDetail'))
+const AttendanceList = lazy(() => import('./pages/attendance/AttendanceList'))
+const StudentAttendanceList = lazy(() => import('./pages/attendance/StudentAttendanceList'))
+const LeaveList = lazy(() => import('./pages/leave/LeaveList'))
+const PayrollList = lazy(() => import('./pages/payroll/PayrollList'))
+const PayrollRunDetail = lazy(() => import('./pages/payroll/PayrollRunDetail'))
+const PerformanceList = lazy(() => import('./pages/performance/PerformanceList'))
+const KinerjaLembaga = lazy(() => import('./pages/performance/KinerjaLembaga'))
+const WorkloadList = lazy(() => import('./pages/workload/WorkloadList'))
+const TrainingList = lazy(() => import('./pages/training/TrainingList'))
+const TrainingDetail = lazy(() => import('./pages/training/TrainingDetail'))
+const OrgStructure = lazy(() => import('./pages/org/OrgStructure'))
+const UserRoles = lazy(() => import('./pages/users/UserRoles'))
+const HolidayList = lazy(() => import('./pages/holidays/HolidayList'))
+const ActivityLog = lazy(() => import('./pages/activity/ActivityLog'))
+const NotificationSettings = lazy(() => import('./pages/settings/NotificationSettings'))
+const StudentList = lazy(() => import('./pages/students/StudentList'))
+const StudentDetail = lazy(() => import('./pages/students/StudentDetail'))
+const AcademicSettings = lazy(() => import('./pages/academic/AcademicSettings'))
+const SppList = lazy(() => import('./pages/spp/SppList'))
+const NilaiRapor = lazy(() => import('./pages/nilai/NilaiRapor'))
+const KesiswaanDashboard = lazy(() => import('./pages/kesiswaan/KesiswaanDashboard'))
+const AsetList = lazy(() => import('./pages/aset/AsetList'))
+const DokumenCetak = lazy(() => import('./pages/aset/DokumenCetak'))
+const AcademicManagement = lazy(() => import('./pages/academic/AcademicManagement'))
+const KeuanganManagement = lazy(() => import('./pages/keuangan/KeuanganManagement'))
 
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <Suspense fallback={<FullPageSpinner />}>
         <Routes>
           <Route path="/login" element={<Login />} />
           {/* Halaman cetak dokumen — di luar Layout (tanpa sidebar) agar siap print/PDF. */}
@@ -85,6 +94,7 @@ export default function App() {
             <Route path="keuangan/:area" element={<KeuanganManagement />} />
           </Route>
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </AuthProvider>
   )

@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Papa from 'papaparse'
-import { ArrowLeft, PlayCircle, Lock, Pencil, RefreshCw, Download, Landmark } from 'lucide-react'
+import { ArrowLeft, PlayCircle, Lock, Pencil, RefreshCw, Download, Landmark, FileDown } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner, Modal, Input, Textarea } from '../../components/ui'
 import { STATUS_BADGE_COLOR, formatRupiah, BULAN } from '../../lib/format'
 import { hitungIH } from '../../lib/remunerasi'
 import { hitungKomponenGaji } from '../../lib/payroll'
+import { unduhSlipPdf } from '../../lib/slipPdf'
 import BankMuamalatExport from './BankMuamalatExport'
 
 export default function PayrollRunDetail() {
@@ -331,22 +332,37 @@ export default function PayrollRunDetail() {
                   <Td className="text-[var(--color-danger)]">-{formatRupiah(d.total_potongan)}</Td>
                   <Td className="font-medium">{formatRupiah(d.gaji_bersih)}</Td>
                   <Td>
-                    {run.status === 'draft' && (
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => handleRecompute(d)}
-                          disabled={recomputingId === d.id}
-                          className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)] disabled:opacity-50"
-                          aria-label="Hitung ulang dari data terkini"
-                          title="Hitung ulang dari data terkini (Golongan/Ruang, Jabatan, Tugas Tambahan)"
-                        >
-                          <RefreshCw className={`h-4 w-4 ${recomputingId === d.id ? 'animate-spin' : ''}`} />
-                        </button>
-                        <button onClick={() => setEditRow(d)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah honor/potongan">
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                      </div>
-                    )}
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => unduhSlipPdf({
+                          row: d,
+                          nama: d.employees?.nama,
+                          unit: d.employees?.schools ? `${d.employees.schools.jenjang} — ${d.employees.schools.nama}` : 'Kantor Yayasan Pusat',
+                          periode: `${BULAN[run.periode_bulan - 1]} ${run.periode_tahun}`,
+                        })}
+                        className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]"
+                        aria-label="Unduh slip gaji (PDF)"
+                        title="Unduh slip gaji (PDF)"
+                      >
+                        <FileDown className="h-4 w-4" />
+                      </button>
+                      {run.status === 'draft' && (
+                        <>
+                          <button
+                            onClick={() => handleRecompute(d)}
+                            disabled={recomputingId === d.id}
+                            className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)] disabled:opacity-50"
+                            aria-label="Hitung ulang dari data terkini"
+                            title="Hitung ulang dari data terkini (Golongan/Ruang, Jabatan, Tugas Tambahan)"
+                          >
+                            <RefreshCw className={`h-4 w-4 ${recomputingId === d.id ? 'animate-spin' : ''}`} />
+                          </button>
+                          <button onClick={() => setEditRow(d)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah honor/potongan">
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </Td>
                 </Tr>
               ))}

@@ -317,6 +317,8 @@ function PembayaranModal({ tagihan, employeeId, onClose, onChanged }) {
           </div>
         )}
 
+        <OnlinePaymentSection row={row} onRefresh={() => { load(); onChanged() }} />
+
         <form onSubmit={handleAdd} className="flex flex-col gap-3 border-t border-[var(--color-border)] pt-4">
           <p className="text-[13px] font-semibold text-[var(--color-ink)]">Tambah Pembayaran</p>
           <div className="grid grid-cols-2 gap-3">
@@ -335,6 +337,73 @@ function PembayaranModal({ tagihan, employeeId, onClose, onChanged }) {
         </form>
       </div>
     </Modal>
+  )
+}
+
+// Bagian "Bayar Online (Midtrans)" di dalam modal Kelola Pembayaran.
+// Membuat Virtual Account / QRIS lewat Edge Function spp-create-payment,
+// lalu menampilkan nomor VA / gambar QRIS. Pembayaran tercatat OTOMATIS
+// saat dana masuk (via webhook spp-webhook) — admin tidak perlu input manual.
+function OnlinePaymentSection({ row, onRefresh }) {
+  const [method, setMethod] = useState('qris')
+  const [bank, setBank] = useState('bca')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  const lunas = row.status === 'lunas'
+  const expired = row.gateway_expiry && new Date(row.gateway_expiry) < new Date()
+  const adaVA = !!row.gateway_va_number
+  const adaQR = !!row.gateway_qris_url
+  const tampilAktif = (adaVA || adaQR) && !expired && !lunas
+
+  const buat = async () => {
+    setBusy(true); setErr('')
+    const { data, error } = await supabase.functions.invoke('spp-create-payment', {
+      body: { tagihan_id: row.id, method, bank: method === 'va' ? bank : undefined },
+    })
+    setBusy(false)
+    if (error) { setErr('Gagal membuat tagihan online: ' + (error.message || 'periksa Edge Function & API key.')); return }
+    if (data?.error) { setErr(data.error); return }
+    onRefresh()
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-navy-50)] p-3">
+      <p className="text-[13px] font-semibold text-[var(--color-ink)]">Bayar Online (Midtrans)</p>
+      {lunas ? (
+        <p className="text-sm text-[var(--color-success)]">Tagihan sudah lunas.</p>
+      ) : tampilAktif ? (
+        <div className="flex flex-col gap-1.5 text-sm">
+          {adaVA && <p>VA {String(row.gateway_va_bank || '').toUpperCase()}: <span className="font-semibold tracking-wide">{row.gateway_va_number}</span></p>}
+          {adaQR && <img src={row.gateway_qris_url} alt="QRIS pembayaran SPP" className="h-44 w-44 self-start rounded border border-[var(--color-border)] bg-white p-1.5" />}
+          <p className="text-xs text-[var(--color-ink-soft)]">
+            Status: {row.gateway_status || 'pending'}{row.gateway_expiry ? ` · berlaku s/d ${formatDate(row.gateway_expiry)}` : ''}. Pembayaran tercatat otomatis setelah dana masuk.
+          </p>
+          <button type="button" onClick={onRefresh} className="self-start text-xs font-medium text-[var(--color-navy)] hover:underline">Perbarui status</button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <div className="grid grid-cols-2 gap-2">
+            <Select label="Metode" value={method} onChange={(e) => setMethod(e.target.value)}>
+              <option value="qris">QRIS</option>
+              <option value="va">Virtual Account</option>
+            </Select>
+            {method === 'va' && (
+              <Select label="Bank VA" value={bank} onChange={(e) => setBank(e.target.value)}>
+                <option value="bca">BCA</option>
+                <option value="bni">BNI</option>
+                <option value="bri">BRI</option>
+                <option value="permata">Permata</option>
+                <option value="mandiri">Mandiri (Bill)</option>
+              </Select>
+            )}
+          </div>
+          {err && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-xs text-[var(--color-danger)]">{err}</p>}
+          <Button type="button" variant="outline" onClick={buat} disabled={busy}>{busy ? 'Membuat…' : 'Buat Tagihan Online'}</Button>
+          <p className="text-xs text-[var(--color-ink-soft)]">Membuat nomor VA / kode QRIS lewat Midtrans. Butuh Edge Function &amp; API key terpasang (lihat panduan).</p>
+        </div>
+      )}
+    </div>
   )
 }
 
