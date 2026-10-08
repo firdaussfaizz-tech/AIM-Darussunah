@@ -210,7 +210,7 @@ function ModuleGroup({ groupKey, label, icon: Icon, items, isDesktop, openKey, s
           <ChevronRight className="h-3.5 w-3.5 opacity-60" />
         </button>
         {open && (
-          <div className={`nav-flyout glass absolute left-full top-0 z-50 ml-1 rounded-2xl p-2 ${twoCol ? 'w-[26rem]' : 'w-60'}`}>
+          <div className={`nav-flyout absolute left-full top-0 z-50 ml-1 rounded-2xl p-2 ${twoCol ? 'w-[26rem]' : 'w-60'}`}>
             <p className="px-2.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">{label}</p>
             <div className={`grid gap-0.5 ${twoCol ? 'grid-cols-2' : 'grid-cols-1'}`}>{itemLinks}</div>
           </div>
