@@ -110,6 +110,17 @@ html {
   transition: transform 320ms var(--ease-smooth);
 }
 
+/* Flyout menu modul (desktop) — panel mengambang ke kanan trigger grup,
+   seperti mega-menu, supaya Sidebar tetap ringkas & tak bergulir penuh. */
+.nav-flyout {
+  box-shadow: 0 16px 48px -12px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  animation: nav-flyout-in 160ms var(--ease-smooth);
+}
+@keyframes nav-flyout-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 /* Modal — animasi muncul (fade + naik sedikit + scale), backdrop fade
    terpisah supaya terasa seperti sheet/panel macOS, bukan pop instan. */
 @keyframes modal-backdrop-in {

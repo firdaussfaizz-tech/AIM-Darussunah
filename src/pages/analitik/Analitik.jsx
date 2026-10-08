@@ -76,6 +76,7 @@ export default function Analitik() {
   const [runId, setRunId] = useState('')
   const [tahunAjaranList, setTahunAjaranList] = useState([])
   const [taId, setTaId] = useState('')
+  const [sppBulan, setSppBulan] = useState('') // '' = seluruh tahun ajaran
   const [months, setMonths] = useState(6)
 
   // Muat opsi selektor sekali.
@@ -142,7 +143,7 @@ export default function Analitik() {
       } else if (reportId === 'spp-unit') {
         if (!taId) { out.meta = ['Belum ada tahun ajaran.']; if (!batal) { setResult(out); setLoading(false) }; return }
         const ta = tahunAjaranList.find((t) => t.id === taId)
-        const { data } = await supabase.rpc('spp_rekap_per_unit', { p_tahun_ajaran_id: taId })
+        const { data } = await supabase.rpc('spp_rekap_per_unit', { p_tahun_ajaran_id: taId, p_bulan: sppBulan === '' ? null : Number(sppBulan) })
         const rows = (data || []).map((u) => {
           const dt = Number(u.total_tagihan || 0)
           const db = Number(u.total_dibayar || 0)
@@ -165,7 +166,7 @@ export default function Analitik() {
           ],
           rows,
           chart: { kind: 'bar', xKey: 'unit', bars: [{ key: 'tunggakan', label: 'Tunggakan' }], valueType: 'rupiah' },
-          meta: [`Tahun Ajaran: ${ta ? ta.nama : '—'}${ta?.status === 'aktif' ? ' (aktif)' : ''}`, scopeNote, `Dibuat: ${tgl}`],
+          meta: [`Tahun Ajaran: ${ta ? ta.nama : '—'}${ta?.status === 'aktif' ? ' (aktif)' : ''}`, `Bulan: ${sppBulan === '' ? 'Semua bulan' : BULAN[Number(sppBulan) - 1]}`, scopeNote, `Dibuat: ${tgl}`],
           title: 'Kolektibilitas SPP per Unit',
           fileslug: `spp-unit-${ta ? slug(ta.nama) : ''}`,
         }
@@ -216,7 +217,7 @@ export default function Analitik() {
     load()
     return () => { batal = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boleh, reportId, runId, taId, months, payrollRuns, tahunAjaranList])
+  }, [boleh, reportId, runId, taId, sppBulan, months, payrollRuns, tahunAjaranList])
 
   // Baris total untuk kolom numerik (selain kolom teks pertama & persen).
   const totalRow = useMemo(() => {
@@ -295,11 +296,17 @@ export default function Analitik() {
               </Select>
             )}
             {reportId === 'spp-unit' && tahunAjaranList.length > 0 && (
-              <Select containerClassName="w-44" value={taId} onChange={(e) => setTaId(e.target.value)}>
-                {tahunAjaranList.map((t) => (
-                  <option key={t.id} value={t.id}>{t.nama}{t.status === 'aktif' ? ' (aktif)' : ''}</option>
-                ))}
-              </Select>
+              <>
+                <Select containerClassName="w-44" value={taId} onChange={(e) => setTaId(e.target.value)}>
+                  {tahunAjaranList.map((t) => (
+                    <option key={t.id} value={t.id}>{t.nama}{t.status === 'aktif' ? ' (aktif)' : ''}</option>
+                  ))}
+                </Select>
+                <Select containerClassName="w-40" value={sppBulan} onChange={(e) => setSppBulan(e.target.value)}>
+                  <option value="">Semua Bulan</option>
+                  {BULAN.map((b, i) => <option key={i} value={i + 1}>{b}</option>)}
+                </Select>
+              </>
             )}
             {(reportId === 'kehadiran-pegawai' || reportId === 'kehadiran-siswa') && (
               <Select containerClassName="w-44" value={months} onChange={(e) => setMonths(Number(e.target.value))}>

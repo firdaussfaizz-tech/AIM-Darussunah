@@ -24,7 +24,9 @@ export default function AcademicManagement() {
   const mySchools = useMemo(() => {
     const seen = new Map()
     for (const r of roles) {
-      if (['admin_sekolah', 'kepala_sekolah'].includes(r.role) && r.school_id && !seen.has(r.school_id)) {
+      // Enum lama ATAU peran dinamis manajer_unit (mis. Kepala Sekolah via jabatan).
+      const manajerUnit = ['admin_sekolah', 'kepala_sekolah'].includes(r.role) || r.roles?.tingkat_akses === 'manajer_unit'
+      if (manajerUnit && r.school_id && !seen.has(r.school_id)) {
         seen.set(r.school_id, { id: r.school_id, nama: r.schools?.nama, jenjang: r.schools?.jenjang })
       }
     }
@@ -145,7 +147,7 @@ function AcademicDashboard({ ctx }) {
       f(supabase.from('perangkat_ajar').select('status')).then((r) => r.data || []),
       (() => {
         const hariIni = isoLocal(new Date())
-        let q = supabase.from('kalender_akademik').select('*').or(`tanggal_mulai.gte.${hariIni},tanggal_selesai.gte.${hariIni}`).order('tanggal_mulai').limit(6)
+        let q = supabase.from('kalender_akademik').select('*').eq('status', 'disetujui').or(`tanggal_mulai.gte.${hariIni},tanggal_selesai.gte.${hariIni}`).order('tanggal_mulai').limit(6)
         if (effSchoolId) q = q.or(`school_id.is.null,school_id.eq.${effSchoolId}`)
         return q.then((r) => r.data || [])
       })(),
@@ -1361,16 +1363,24 @@ function PerangkatRekap({ ctx, rows }) {
 // =========================================================================
 // KALENDER AKADEMIK
 // =========================================================================
+const STATUS_KAL_LABEL = { diajukan: 'Menunggu', disetujui: 'Disetujui', ditolak: 'Ditolak' }
+const STATUS_KAL_BADGE = { diajukan: 'gold', disetujui: 'success', ditolak: 'danger' }
+
 function KalenderTab({ ctx }) {
-  const { effSchoolId, tahunId, tahunList, isManager, hasFullAccess } = ctx
+  const { effSchoolId, tahunId, tahunList, isManager, hasFullAccess, mySchools } = ctx
   const [rows, setRows] = useState([])
   const [libur, setLibur] = useState([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [fJenis, setFJenis] = useState('')
+  const [gabungan, setGabungan] = useState(false) // true = tampilkan semua unit (kalender sekolah gabungan)
   const [ta, setTa] = useState(undefined) // undefined = sedang dimuat
   const canWrite = isManager && (hasFullAccess || !!effSchoolId)
+  const myIds = useMemo(() => (mySchools || []).map((s) => s.id), [mySchools])
+  // Baris non-disetujui hanya tampak bagi Yayasan (penyetuju) & manajer unit
+  // pengusul; agenda disetujui tampak untuk semua.
+  const bolehLihatStatus = (st, schoolId) => (st == null || st === 'disetujui') || hasFullAccess || (schoolId && myIds.includes(schoolId))
 
   useEffect(() => {
     if (!tahunId) { setTa(null); return }
@@ -1382,24 +1392,29 @@ function KalenderTab({ ctx }) {
     if (ta === undefined) return
     setLoading(true)
     let q = supabase.from('kalender_akademik').select('*, schools(nama, jenjang)').order('tanggal_mulai')
-    let hq = supabase.from('school_holidays').select('tanggal, keterangan, school_id').order('tanggal')
-    if (effSchoolId) { q = q.or(`school_id.is.null,school_id.eq.${effSchoolId}`); hq = hq.or(`school_id.is.null,school_id.eq.${effSchoolId}`) }
+    let hq = supabase.from('school_holidays').select('tanggal, keterangan, school_id, status').order('tanggal')
+    // Filter per unit HANYA bila ada unit terpilih DAN bukan mode gabungan.
+    const filterUnit = effSchoolId && !gabungan
+    if (filterUnit) { q = q.or(`school_id.is.null,school_id.eq.${effSchoolId}`); hq = hq.or(`school_id.is.null,school_id.eq.${effSchoolId}`) }
     if (ta?.tanggal_mulai) { q = q.gte('tanggal_mulai', ta.tanggal_mulai); hq = hq.gte('tanggal', ta.tanggal_mulai) }
     if (ta?.tanggal_selesai) { q = q.lte('tanggal_mulai', ta.tanggal_selesai); hq = hq.lte('tanggal', ta.tanggal_selesai) }
     if (tahunId && !ta?.tanggal_mulai && !ta?.tanggal_selesai) { q = q.or(`tahun_ajaran_id.eq.${tahunId},tahun_ajaran_id.is.null`) }
     const [{ data }, { data: h }] = await Promise.all([q, hq])
     setRows(data || []); setLibur(h || []); setLoading(false)
-  }, [effSchoolId, ta, tahunId])
+  }, [effSchoolId, ta, tahunId, gabungan])
   useEffect(() => { load() }, [load])
 
   const del = async (r) => { if (!confirm(`Hapus agenda "${r.judul}"?`)) return; const { error } = await supabase.from('kalender_akademik').delete().eq('id', r.id); if (error) { alert('Gagal: ' + error.message); return } load() }
+  // Persetujuan Yayasan atas usulan agenda dari Kepala/Admin Sekolah.
+  const decide = async (r, status) => { const { error } = await supabase.from('kalender_akademik').update({ status }).eq('id', r.id); if (error) { alert('Gagal: ' + error.message); return } load() }
 
   // Gabungkan agenda + hari libur (dari Pengaturan Hari Libur) dalam satu daftar per bulan.
   const items = useMemo(() => {
-    const a = rows.map((r) => ({ ...r, src: 'agenda' }))
-    const h = libur.map((l, i) => ({ id: `h${i}`, judul: l.keterangan, jenis: 'libur', tanggal_mulai: l.tanggal, tanggal_selesai: null, src: 'libur', school_id: l.school_id }))
+    const a = rows.filter((r) => bolehLihatStatus(r.status, r.school_id)).map((r) => ({ ...r, src: 'agenda' }))
+    const h = libur.filter((l) => bolehLihatStatus(l.status, l.school_id)).map((l, i) => ({ id: `h${i}`, judul: l.keterangan, jenis: 'libur', tanggal_mulai: l.tanggal, tanggal_selesai: null, src: 'libur', school_id: l.school_id, status: l.status }))
     return [...a, ...h].filter((x) => !fJenis || x.jenis === fJenis).sort((x, y) => x.tanggal_mulai.localeCompare(y.tanggal_mulai))
-  }, [rows, libur, fJenis])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, libur, fJenis, myIds, hasFullAccess])
   const perBulan = useMemo(() => {
     const m = new Map()
     for (const it of items) {
@@ -1409,23 +1424,36 @@ function KalenderTab({ ctx }) {
     }
     return [...m.entries()]
   }, [items])
+  const adaUsulan = hasFullAccess && items.some((x) => x.src === 'agenda' && x.status === 'diajukan')
   const today = isoLocal(new Date())
   const bulanLabel = (k) => new Date(`${k}-01T00:00:00`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
-  const canEditRow = (r) => r.src === 'agenda' && (hasFullAccess || (r.school_id && isManager))
+  const canEditRow = (r) => r.src === 'agenda' && (hasFullAccess || (r.school_id && myIds.includes(r.school_id)))
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Select containerClassName="w-52" value={fJenis} onChange={(e) => setFJenis(e.target.value)}>
-          <option value="">Semua Jenis</option>
-          {JENIS_KALENDER.map((j) => <option key={j} value={j}>{JENIS_KALENDER_LABEL[j]}</option>)}
-        </Select>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select containerClassName="w-48" value={fJenis} onChange={(e) => setFJenis(e.target.value)}>
+            <option value="">Semua Jenis</option>
+            {JENIS_KALENDER.map((j) => <option key={j} value={j}>{JENIS_KALENDER_LABEL[j]}</option>)}
+          </Select>
+          {/* #4: kalender sekolah gabungan — tiap unit terintegrasi jadi satu. */}
+          <label className="flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-white px-3 py-2 text-sm text-[var(--color-ink)]">
+            <input type="checkbox" checked={gabungan} onChange={(e) => setGabungan(e.target.checked)} className="accent-[var(--color-navy)]" />
+            Gabungan semua unit
+          </label>
+        </div>
         <div className="flex flex-wrap gap-2">
           {effSchoolId && <Button variant="outline" onClick={() => openCetakAkd('kalender_akademik', effSchoolId, { ta: tahunId })}><Printer className="h-4 w-4" /> Cetak Kalender</Button>}
           {canWrite && <Button onClick={() => { setEditing(null); setOpen(true) }}><Plus className="h-4 w-4" /> Tambah Agenda</Button>}
         </div>
       </div>
-      <p className="text-xs text-[var(--color-ink-soft)]">Agenda berjenis <b>Libur</b> otomatis dikecualikan dari hitungan sesi mengajar (Rekap Kehadiran Mengajar). Hari libur dari Pengaturan Hari Libur juga ditampilkan di sini.</p>
+      <p className="text-xs text-[var(--color-ink-soft)]">
+        Agenda berjenis <b>Libur</b> otomatis dikecualikan dari hitungan sesi mengajar. Hari libur dari Pengaturan Hari Libur juga ditampilkan di sini.
+        {gabungan ? ' Mode gabungan: menampilkan agenda yang disetujui dari seluruh unit (kalender sekolah).' : ''}
+        {isManager && !hasFullAccess ? ' Agenda yang Anda tambahkan bersifat usulan dan berlaku setelah disetujui Yayasan.' : ''}
+      </p>
+      {adaUsulan && <p className="rounded-lg bg-[var(--color-gold-soft)] px-4 py-2.5 text-sm text-[var(--color-gold)]">Ada usulan agenda dari unit yang menunggu persetujuan Anda (tombol Setujui / Tolak pada baris berstatus <b>Menunggu</b>).</p>}
       {loading ? <FullPageSpinner /> : perBulan.length === 0 ? (
         <EmptyState icon={CalendarDays} title="Kalender masih kosong" description={canWrite ? 'Tambahkan agenda: ujian, rapat, pembagian rapor, libur, dll.' : 'Belum ada agenda akademik.'} />
       ) : perBulan.map(([k, list]) => (
@@ -1443,7 +1471,12 @@ function KalenderTab({ ctx }) {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {r.status && r.status !== 'disetujui' && <Badge color={STATUS_KAL_BADGE[r.status]}>{STATUS_KAL_LABEL[r.status]}</Badge>}
                   <Badge color={JENIS_KALENDER_BADGE[r.jenis]}>{JENIS_KALENDER_LABEL[r.jenis]}</Badge>
+                  {hasFullAccess && r.src === 'agenda' && r.status === 'diajukan' && <>
+                    <Button size="sm" variant="outline" onClick={() => decide(r, 'disetujui')}><CheckCircle2 className="h-3.5 w-3.5" /> Setujui</Button>
+                    <Button size="sm" variant="outline" onClick={() => decide(r, 'ditolak')}>Tolak</Button>
+                  </>}
                   {canEditRow(r) && <>
                     <button onClick={() => { setEditing(r); setOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]"><Pencil className="h-4 w-4" /></button>
                     <button onClick={() => del(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]"><Trash2 className="h-4 w-4" /></button>
@@ -1530,8 +1563,8 @@ function RekapKbmTab({ ctx }) {
     let sq = supabase.from('jadwal_pelajaran').select('employee_id, hari, employees(nama)').eq('school_id', effSchoolId).eq('semester', semester)
     if (tahunId) sq = sq.eq('tahun_ajaran_id', tahunId)
     if (!isManager && employee?.id) { jq = jq.eq('employee_id', employee.id); sq = sq.eq('employee_id', employee.id) }
-    const hq = supabase.from('school_holidays').select('tanggal').or(`school_id.is.null,school_id.eq.${effSchoolId}`).gte('tanggal', d1).lte('tanggal', d2)
-    const kq = supabase.from('kalender_akademik').select('jenis, tanggal_mulai, tanggal_selesai').eq('jenis', 'libur').or(`school_id.is.null,school_id.eq.${effSchoolId}`).lte('tanggal_mulai', d2)
+    const hq = supabase.from('school_holidays').select('tanggal').eq('status', 'disetujui').or(`school_id.is.null,school_id.eq.${effSchoolId}`).gte('tanggal', d1).lte('tanggal', d2)
+    const kq = supabase.from('kalender_akademik').select('jenis, tanggal_mulai, tanggal_selesai').eq('status', 'disetujui').eq('jenis', 'libur').or(`school_id.is.null,school_id.eq.${effSchoolId}`).lte('tanggal_mulai', d2)
     const taq = tahunId ? supabase.from('tahun_ajaran').select('tanggal_mulai, tanggal_selesai').eq('id', tahunId).maybeSingle() : Promise.resolve({ data: null })
     const [{ data: jurnal }, { data: jadwal }, { data: libur }, { data: kal }, { data: ta }] = await Promise.all([jq, sq, hq, kq, taq])
     const liburAll = [...(libur || []).map((l) => l.tanggal), ...liburDariKalender(kal || [])]

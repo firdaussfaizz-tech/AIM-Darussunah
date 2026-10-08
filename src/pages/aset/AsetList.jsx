@@ -99,7 +99,11 @@ export default function AsetList() {
   const mySchools = useMemo(() => {
     const seen = new Map()
     for (const r of roles) {
-      if (['admin_sekolah', 'kepala_sekolah'].includes(r.role) && r.school_id && !seen.has(r.school_id)) {
+      // Kenali peran manajer unit BAIK dari enum lama (admin_sekolah/
+      // kepala_sekolah) MAUPUN dari model peran dinamis (tingkat_akses
+      // 'manajer_unit', mis. Kepala Sekolah yang perannya via jabatan).
+      const manajerUnit = ['admin_sekolah', 'kepala_sekolah'].includes(r.role) || r.roles?.tingkat_akses === 'manajer_unit'
+      if (manajerUnit && r.school_id && !seen.has(r.school_id)) {
         seen.set(r.school_id, { id: r.school_id, nama: r.schools?.nama, jenjang: r.schools?.jenjang })
       }
     }
@@ -252,15 +256,21 @@ function KebijakanTab() {
 function useUnitFilter(hasFullAccess, mySchools) {
   const [schools, setSchools] = useState([])
   const [schoolId, setSchoolId] = useState(hasFullAccess ? '' : (mySchools[0]?.id || ''))
+  // Kunci daftar unit manajer agar efek bisa bereaksi saat data peran tiba
+  // SETELAH mount (mySchools semula kosong) tanpa memicu ulang tiap render.
+  const mineKey = mySchools.map((s) => s.id).join(',')
   useEffect(() => {
     if (hasFullAccess) {
       supabase.from('schools').select('id, nama, jenjang').order('jenjang').then(({ data }) => setSchools(data || []))
     } else {
       setSchools(mySchools)
-      if (!schoolId && mySchools.length) setSchoolId(mySchools[0].id)
+      // Auto-pilih unit pertama milik manajer (Kepala/Admin Sekolah) begitu
+      // daftarnya tersedia — mencegah "Pilih unit lebih dulu" padahal peran
+      // sudah jelas satu unit.
+      setSchoolId((prev) => prev || mySchools[0]?.id || '')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasFullAccess])
+  }, [hasFullAccess, mineKey])
   return { schools, schoolId, setSchoolId }
 }
 

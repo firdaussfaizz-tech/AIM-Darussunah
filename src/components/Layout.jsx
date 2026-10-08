@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CalendarCheck, CalendarClock, Wallet, Star,
@@ -157,51 +157,106 @@ function NavItem({ to, label, icon: Icon, end, onClick }) {
   )
 }
 
-// Grup navigasi yang bisa dilipat, dengan animasi tinggi halus (trik CSS
-// grid-template-rows, lihat .nav-group-panel di index.css) — tidak perlu
-// mengukur tinggi konten lewat JavaScript untuk tetap mulus. Status
-// terbuka/tertutup disimpan di localStorage supaya pilihan pengguna tidak
-// hilang setiap kali me-reload halaman.
-function NavGroup({ storageKey, label, icon: Icon, defaultOpen = true, children }) {
-  const [open, setOpen] = useState(() => {
-    try {
-      const saved = localStorage.getItem(storageKey)
-      return saved === null ? defaultOpen : saved === '1'
-    } catch {
-      return defaultOpen
-    }
+// Deteksi mode desktop (≥1024px) untuk memilih perilaku menu: desktop =
+// flyout mengambang; mobile (drawer) = accordion.
+function useIsDesktop() {
+  const [desktop, setDesktop] = useState(() => {
+    try { return window.matchMedia('(min-width: 1024px)').matches } catch { return true }
   })
+  useEffect(() => {
+    let mq
+    try { mq = window.matchMedia('(min-width: 1024px)') } catch { return undefined }
+    const on = (e) => setDesktop(e.matches)
+    if (mq.addEventListener) mq.addEventListener('change', on); else mq.addListener(on)
+    return () => { if (mq.removeEventListener) mq.removeEventListener('change', on); else mq.removeListener(on) }
+  }, [])
+  return desktop
+}
 
-  const toggle = () => {
-    setOpen((prev) => {
-      const next = !prev
-      try { localStorage.setItem(storageKey, next ? '1' : '0') } catch { /* localStorage tidak tersedia — abaikan */ }
-      return next
-    })
+function pathActive(to, pathname) {
+  const base = to.split('?')[0]
+  if (base === '/') return pathname === '/'
+  return pathname === base || pathname.startsWith(base + '/')
+}
+
+// Grup modul. Desktop: TRIGGER ringkas yang membuka panel flyout ke kanan
+// (mega-menu) saat hover/klik, sehingga Sidebar tetap pendek & tak bergulir
+// penuh. Mobile (drawer): accordion melipat ke bawah.
+function ModuleGroup({ groupKey, label, icon: Icon, items, isDesktop, openKey, setOpenKey, pathname, onNavigate }) {
+  const wrapRef = useRef(null)
+  const open = openKey === groupKey
+  const active = items.some((it) => pathActive(it.to, pathname))
+  const twoCol = isDesktop && items.length > 6
+  const triggerCls = `nav-link flex w-full items-center gap-3 rounded-full px-3.5 py-2 text-[13px] font-semibold ${active ? 'bg-[var(--color-navy)] text-white' : 'text-[var(--color-ink)] hover:bg-black/[0.04]'}`
+
+  // Tutup flyout saat klik di luar (desktop).
+  useEffect(() => {
+    if (!open || !isDesktop) return undefined
+    const onDoc = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpenKey(null) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open, isDesktop, setOpenKey])
+
+  const itemLinks = items.map(({ to, label: l, icon, end }) => (
+    <NavItem key={to + l} to={to} label={l} icon={icon} end={end} onClick={() => { setOpenKey(null); onNavigate?.() }} />
+  ))
+
+  if (isDesktop) {
+    return (
+      <div ref={wrapRef} className="relative" onMouseEnter={() => setOpenKey(groupKey)}>
+        <button type="button" className={triggerCls} aria-expanded={open} onClick={() => setOpenKey(open ? null : groupKey)}>
+          <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} />
+          <span className="flex-1 text-left">{label}</span>
+          <ChevronRight className="h-3.5 w-3.5 opacity-60" />
+        </button>
+        {open && (
+          <div className={`nav-flyout glass absolute left-full top-0 z-50 ml-1 rounded-2xl p-2 ${twoCol ? 'w-[26rem]' : 'w-60'}`}>
+            <p className="px-2.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">{label}</p>
+            <div className={`grid gap-0.5 ${twoCol ? 'grid-cols-2' : 'grid-cols-1'}`}>{itemLinks}</div>
+          </div>
+        )}
+      </div>
+    )
   }
 
+  // Mobile: accordion
   return (
     <div>
-      <button
-        type="button"
-        onClick={toggle}
-        aria-expanded={open}
-        className="nav-link flex w-full items-center gap-3 rounded-full px-3.5 py-2 text-[12px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)] hover:bg-black/[0.04]"
-      >
+      <button type="button" className={triggerCls} aria-expanded={open} onClick={() => setOpenKey(open ? null : groupKey)}>
         <Icon className="h-[16px] w-[16px]" strokeWidth={2} />
         <span className="flex-1 text-left">{label}</span>
         <ChevronRight className={`nav-group-chevron h-3.5 w-3.5 ${open ? 'rotate-90' : ''}`} />
       </button>
       <div className={`nav-group-panel ${open ? 'is-open' : ''}`}>
-        <div className="flex flex-col gap-0.5 pt-1">{children}</div>
+        <div className="flex flex-col gap-0.5 pt-1">{itemLinks}</div>
       </div>
     </div>
   )
 }
 
 function Sidebar({ open, onClose }) {
-  const { isManager, hasFullAccess, isWaliKelas, isBendahara, employee, can, permsReady } = useAuth()
-  const { kepegawaian, kesiswaan, akademik, sarpras, keuangan, pribadi, lainnya } = navGroupsFor({ isManager, hasFullAccess, isWaliKelas, isBendahara, employeeId: employee?.id, can, permsReady })
+  const { isManager, hasFullAccess, employee, can, permsReady } = useAuth()
+  const { kepegawaian, kesiswaan, akademik, sarpras, keuangan, pribadi, lainnya } = navGroupsFor({ isManager, hasFullAccess, employeeId: employee?.id, can, permsReady })
+  const isDesktop = useIsDesktop()
+  const [openKey, setOpenKey] = useState(null)
+  const { pathname } = useLocation()
+
+  // Tutup menu yang terbuka setiap kali pindah halaman.
+  useEffect(() => { setOpenKey(null) }, [pathname])
+
+  // Dasbor tampil sebagai item langsung di atas grup (bukan di dalam flyout).
+  const dashboard = kepegawaian.find((i) => i.to === '/')
+  const kepItems = kepegawaian.filter((i) => i.to !== '/')
+
+  const groups = [
+    { key: 'kepegawaian', label: 'Kepegawaian', icon: Users, items: kepItems },
+    { key: 'kesiswaan', label: 'Kesiswaan', icon: BookOpen, items: kesiswaan },
+    { key: 'akademik', label: 'Akademik / Pembelajaran', icon: GraduationCap, items: akademik },
+    { key: 'sarpras', label: 'Sarana & Prasarana', icon: Boxes, items: sarpras },
+    { key: 'keuangan', label: 'Manajemen Keuangan', icon: Wallet, items: keuangan },
+    { key: 'pribadi', label: 'Menu Pribadi', icon: Contact, items: pribadi },
+    { key: 'lainnya', label: 'Lainnya', icon: UserCog, items: lainnya },
+  ].filter((g) => g.items.length > 0)
 
   return (
     <aside
@@ -223,63 +278,22 @@ function Sidebar({ open, onClose }) {
           <X className="h-5 w-5" />
         </button>
       </div>
-      <nav className="scroll-thin mt-2 flex flex-col gap-2 overflow-y-auto px-3 pb-6" style={{ maxHeight: 'calc(100vh - 4rem)' }}>
-        <NavGroup storageKey="simpeg_nav_kepegawaian_open" label="Kepegawaian" icon={Users} defaultOpen>
-          {kepegawaian.map(({ to, label, icon, end }) => (
-            <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
-          ))}
-        </NavGroup>
-
-        {kesiswaan.length > 0 && (
-          <NavGroup storageKey="simpeg_nav_kesiswaan_open" label="Kesiswaan" icon={BookOpen} defaultOpen>
-            {kesiswaan.map(({ to, label, icon, end }) => (
-              <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
-            ))}
-          </NavGroup>
-        )}
-
-        {akademik.length > 0 && (
-          <NavGroup storageKey="simpeg_nav_akademik_open" label="Akademik / Pembelajaran" icon={BookOpen} defaultOpen={false}>
-            {akademik.map(({ to, label, icon, end }) => (
-              <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
-            ))}
-          </NavGroup>
-        )}
-
-        {sarpras.length > 0 && (
-          <NavGroup storageKey="simpeg_nav_sarpras_open" label="Sarana & Prasarana" icon={Boxes} defaultOpen>
-            {sarpras.map(({ to, label, icon, end }) => (
-              <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
-            ))}
-          </NavGroup>
-        )}
-
-        {keuangan.length > 0 && (
-          <NavGroup storageKey="simpeg_nav_keuangan_open" label="Manajemen Keuangan" icon={Wallet} defaultOpen>
-            {keuangan.map(({ to, label, icon, end }) => (
-              <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
-            ))}
-          </NavGroup>
-        )}
-
-        {pribadi.length > 0 && (
-          <NavGroup storageKey="simpeg_nav_pribadi_open" label="Menu Pribadi" icon={Contact} defaultOpen={false}>
-            {pribadi.map(({ to, label, icon }) => (
-              <NavItem key={label} to={to} label={label} icon={icon} onClick={onClose} />
-            ))}
-          </NavGroup>
-        )}
-
-        {lainnya.length > 0 && (
-          <div>
-            <p className="px-3.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">Lainnya</p>
-            <div className="flex flex-col gap-0.5">
-              {lainnya.map(({ to, label, icon, end }) => (
-                <NavItem key={to} to={to} label={label} icon={icon} end={end} onClick={onClose} />
-              ))}
-            </div>
-          </div>
-        )}
+      <nav className="scroll-thin mt-2 flex flex-col gap-1 overflow-y-auto px-3 pb-6 lg:overflow-visible" style={{ maxHeight: 'calc(100vh - 4rem)' }}>
+        {dashboard && <NavItem to={dashboard.to} label={dashboard.label} icon={dashboard.icon} end={dashboard.end} onClick={onClose} />}
+        {groups.map((g) => (
+          <ModuleGroup
+            key={g.key}
+            groupKey={g.key}
+            label={g.label}
+            icon={g.icon}
+            items={g.items}
+            isDesktop={isDesktop}
+            openKey={openKey}
+            setOpenKey={setOpenKey}
+            pathname={pathname}
+            onNavigate={onClose}
+          />
+        ))}
       </nav>
     </aside>
   )

@@ -419,6 +419,7 @@ const emptyTarifForm = { school_id: '', tahun_ajaran_id: '', tingkat: '', nomina
 function RekapTab() {
   const [tahunAjaranList, setTahunAjaranList] = useState([])
   const [taId, setTaId] = useState('')
+  const [bulan, setBulan] = useState('') // '' = seluruh tahun ajaran
   const [rekap, setRekap] = useState([])
   const [penunggak, setPenunggak] = useState([])
   const [loading, setLoading] = useState(true)
@@ -439,14 +440,15 @@ function RekapTab() {
     setLoading(true)
     setError('')
     const [{ data: r, error: e1 }, { data: p, error: e2 }] = await Promise.all([
-      supabase.rpc('spp_rekap_per_unit', { p_tahun_ajaran_id: taId }),
+      supabase.rpc('spp_rekap_per_unit', { p_tahun_ajaran_id: taId, p_bulan: bulan === '' ? null : Number(bulan) }),
+      // Penunggak tetap akumulatif se-tahun ajaran (sisa tunggakan total siswa).
       supabase.rpc('spp_penunggak', { p_tahun_ajaran_id: taId, p_limit: 20 }),
     ])
     if (e1 || e2) setError((e1 || e2).message)
     setRekap(r || [])
     setPenunggak(p || [])
     setLoading(false)
-  }, [taId])
+  }, [taId, bulan])
 
   useEffect(() => { if (taId) load() }, [taId, load])
 
@@ -481,6 +483,11 @@ function RekapTab() {
           {tahunAjaranList.length === 0 && <option value="">— Belum ada Tahun Ajaran —</option>}
           {tahunAjaranList.map((t) => <option key={t.id} value={t.id}>TA {t.nama}{t.status === 'aktif' ? ' (aktif)' : ''}</option>)}
         </Select>
+        <Select containerClassName="w-44" value={bulan} onChange={(e) => setBulan(e.target.value)}>
+          <option value="">Semua Bulan</option>
+          {BULAN.map((b, i) => <option key={i} value={i + 1}>{b}</option>)}
+        </Select>
+        {bulan !== '' && <span className="text-xs text-[var(--color-ink-soft)]">Menampilkan tagihan & pelunasan bulan <b>{BULAN[Number(bulan) - 1]}</b> saja.</span>}
       </div>
 
       {error && (

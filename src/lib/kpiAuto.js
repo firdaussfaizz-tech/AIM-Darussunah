@@ -57,6 +57,7 @@ async function kehadiranPegawai(schoolId, d1, d2) {
     supabase
       .from('school_holidays')
       .select('tanggal')
+      .eq('status', 'disetujui')
       .or(`school_id.is.null,school_id.eq.${schoolId}`)
       .gte('tanggal', d1)
       .lte('tanggal', d2),
@@ -97,8 +98,8 @@ export async function kehadiranSkorPegawai(employeeId, schoolId, d1, d2) {
   if (!employeeId) throw new Error('Pegawai belum dipilih.')
   if (!d1 || !d2) throw new Error('Periode tidak memiliki rentang tanggal.')
   const holQuery = schoolId
-    ? supabase.from('school_holidays').select('tanggal').or(`school_id.is.null,school_id.eq.${schoolId}`).gte('tanggal', d1).lte('tanggal', d2)
-    : supabase.from('school_holidays').select('tanggal').is('school_id', null).gte('tanggal', d1).lte('tanggal', d2)
+    ? supabase.from('school_holidays').select('tanggal').eq('status', 'disetujui').or(`school_id.is.null,school_id.eq.${schoolId}`).gte('tanggal', d1).lte('tanggal', d2)
+    : supabase.from('school_holidays').select('tanggal').eq('status', 'disetujui').is('school_id', null).gte('tanggal', d1).lte('tanggal', d2)
   const [{ data: att, error: e1 }, { data: hol }] = await Promise.all([
     supabase
       .from('attendance')

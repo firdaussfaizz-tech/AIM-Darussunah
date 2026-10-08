@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
-import { CalendarOff, Plus, Pencil, Trash2, ShieldAlert } from 'lucide-react'
+import { CalendarOff, Plus, Pencil, Trash2, ShieldAlert, Check, X } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Button, Table, Tr, Td, Badge, EmptyState, FullPageSpinner, Modal, Input, Select } from '../../components/ui'
-import { formatDate } from '../../lib/format'
+import { formatDate, STATUS_BADGE_COLOR } from '../../lib/format'
+
+const STATUS_LABEL = { diajukan: 'Menunggu', disetujui: 'Disetujui', ditolak: 'Ditolak' }
 
 // Kalender Libur — Roadmap B Otomasi #6: hari libur (di luar Minggu) yang
 // dikecualikan dari Hari Kerja Wajib pada perhitungan Indeks Kehadiran
@@ -62,6 +64,15 @@ export default function HolidayList() {
     load()
   }
 
+  // Persetujuan Yayasan atas usulan libur dari Kepala/Admin Sekolah.
+  const decide = async (row, status) => {
+    const { error } = await supabase.from('school_holidays').update({ status }).eq('id', row.id)
+    if (error) { alert('Gagal: ' + error.message); return }
+    load()
+  }
+
+  const adaUsulan = rows.some((r) => r.status === 'diajukan')
+
   return (
     <div>
       <PageHeader
@@ -77,6 +88,17 @@ export default function HolidayList() {
         }
       />
 
+      {!hasFullAccess && (
+        <p className="mb-4 rounded-lg bg-[var(--color-navy-50)] px-4 py-2.5 text-sm text-[var(--color-ink-soft)]">
+          Hari libur yang Anda tambahkan bersifat <b>usulan</b> dan baru berlaku (ikut dihitung pada Indeks Kehadiran & kalender akademik) setelah <b>disetujui Yayasan</b>.
+        </p>
+      )}
+      {hasFullAccess && adaUsulan && (
+        <p className="mb-4 rounded-lg bg-[var(--color-gold-soft)] px-4 py-2.5 text-sm text-[var(--color-gold)]">
+          Ada usulan hari libur dari unit yang menunggu persetujuan Anda (tombol ✓ / ✕ pada baris berstatus <b>Menunggu</b>).
+        </p>
+      )}
+
       <Card padded={false}>
         <div className="p-5">
           {loading ? (
@@ -84,7 +106,7 @@ export default function HolidayList() {
           ) : rows.length === 0 ? (
             <EmptyState icon={CalendarOff} title="Belum ada hari libur tercatat" description={`Tambahkan hari libur untuk tahun ${year} — libur nasional bertanggal tetap sudah terisi otomatis, sisanya (Idul Fitri, Idul Adha, libur semester, dll.) perlu ditambahkan manual.`} />
           ) : (
-            <Table columns={['Tanggal', 'Keterangan', 'Cakupan', '']}>
+            <Table columns={['Tanggal', 'Keterangan', 'Cakupan', 'Status', '']}>
               {rows.map((r) => (
                 <Tr key={r.id}>
                   <Td className="font-medium text-[var(--color-ink)]">{formatDate(r.tanggal)}</Td>
@@ -96,7 +118,18 @@ export default function HolidayList() {
                       <Badge color="gold">Seluruh Yayasan</Badge>
                     )}
                   </Td>
+                  <Td><Badge color={STATUS_BADGE_COLOR[r.status] || 'neutral'}>{STATUS_LABEL[r.status] || r.status || 'Disetujui'}</Badge></Td>
                   <Td className="flex items-center justify-end gap-2">
+                    {hasFullAccess && r.status === 'diajukan' && (
+                      <>
+                        <button onClick={() => decide(r, 'disetujui')} className="text-[var(--color-ink-soft)] hover:text-[var(--color-success)]" aria-label="Setujui" title="Setujui">
+                          <Check className="h-4 w-4" />
+                        </button>
+                        <button onClick={() => decide(r, 'ditolak')} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Tolak" title="Tolak">
+                          <X className="h-4 w-4" />
+                        </button>
+                      </>
+                    )}
                     <button onClick={() => { setEditingRow(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah">
                       <Pencil className="h-4 w-4" />
                     </button>

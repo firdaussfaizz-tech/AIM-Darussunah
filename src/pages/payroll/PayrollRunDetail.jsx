@@ -64,6 +64,7 @@ export default function PayrollRunDetail() {
       supabase
         .from('school_holidays')
         .select('tanggal')
+        .eq('status', 'disetujui')
         .gte('tanggal', start).lt('tanggal', endDate)
         .or(`school_id.is.null${emp.school_id ? `,school_id.eq.${emp.school_id}` : ''}`),
     ])

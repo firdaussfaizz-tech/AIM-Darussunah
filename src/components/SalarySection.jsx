@@ -50,6 +50,7 @@ export default function SalarySection({ employee, canManage }) {
       supabase
         .from('school_holidays')
         .select('tanggal')
+        .eq('status', 'disetujui')
         .gte('tanggal', start).lt('tanggal', endDate)
         .or(`school_id.is.null${employee.school_id ? `,school_id.eq.${employee.school_id}` : ''}`),
     ])

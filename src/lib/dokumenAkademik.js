@@ -69,8 +69,8 @@ export async function loadDokumenAkd(jenis, id, qs = {}) {
   }
   if (jenis === 'kalender_akademik') {
     const { data: school } = await supabase.from('schools').select('id, nama, jenjang').eq('id', id).maybeSingle()
-    let aq = supabase.from('kalender_akademik').select('*').or(`school_id.is.null,school_id.eq.${id}`).order('tanggal_mulai')
-    let hq = supabase.from('school_holidays').select('tanggal, keterangan').or(`school_id.is.null,school_id.eq.${id}`).order('tanggal')
+    let aq = supabase.from('kalender_akademik').select('*').eq('status', 'disetujui').or(`school_id.is.null,school_id.eq.${id}`).order('tanggal_mulai')
+    let hq = supabase.from('school_holidays').select('tanggal, keterangan').eq('status', 'disetujui').or(`school_id.is.null,school_id.eq.${id}`).order('tanggal')
     if (ta?.tanggal_mulai) { aq = aq.gte('tanggal_mulai', ta.tanggal_mulai); hq = hq.gte('tanggal', ta.tanggal_mulai) }
     if (ta?.tanggal_selesai) { aq = aq.lte('tanggal_mulai', ta.tanggal_selesai); hq = hq.lte('tanggal', ta.tanggal_selesai) }
     const [{ data: agenda }, { data: libur }] = await Promise.all([aq, hq])
@@ -93,7 +93,7 @@ export async function loadDokumenAkd(jenis, id, qs = {}) {
     let sq = supabase.from('jadwal_pelajaran').select('employee_id, hari, employees(nama)').eq('school_id', id).eq('semester', sem)
     if (qs.ta) sq = sq.eq('tahun_ajaran_id', qs.ta)
     if (qs.emp) { jq = jq.eq('employee_id', qs.emp); sq = sq.eq('employee_id', qs.emp) }
-    const hq = supabase.from('school_holidays').select('tanggal').or(`school_id.is.null,school_id.eq.${id}`).gte('tanggal', qs.d1).lte('tanggal', qs.d2)
+    const hq = supabase.from('school_holidays').select('tanggal').eq('status', 'disetujui').or(`school_id.is.null,school_id.eq.${id}`).gte('tanggal', qs.d1).lte('tanggal', qs.d2)
     // Batasi rentang ke periode tahun ajaran agar sesi terjadwal tidak menggelembung.
     const c1 = ta?.tanggal_mulai && ta.tanggal_mulai > qs.d1 ? ta.tanggal_mulai : qs.d1
     const c2 = ta?.tanggal_selesai && ta.tanggal_selesai < qs.d2 ? ta.tanggal_selesai : qs.d2
