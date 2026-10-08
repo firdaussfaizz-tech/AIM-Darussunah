@@ -129,6 +129,9 @@ function navGroupsFor({ isManager, hasFullAccess, employeeId, can, permsReady })
   // Modul sistem (lintas aplikasi). Default hanya akses-penuh (Admin Yayasan/
   // HR), tapi kini juga tampil bila peran diberi izin modulnya lewat matriks.
   const lainnya = []
+  // Analitik & Laporan — pelaporan lintas-modul untuk manajemen (Yayasan/HR/
+  // Kepala Sekolah). Data per-unit tetap dibatasi RLS sesuai hak akses.
+  if (isManager || (permsReady && can('analitik', 'lihat'))) lainnya.push({ to: '/analitik', label: 'Analitik & Laporan', icon: FileBarChart })
   if (fullOf('pengguna')) lainnya.push({ to: '/pengguna', label: 'Pengguna & Peran', icon: UserCog })
   if (fullOf('log')) lainnya.push({ to: '/log-aktivitas', label: 'Log Aktivitas', icon: History })
   if (fullOf('notifikasi')) lainnya.push({ to: '/notifikasi-email', label: 'Notifikasi Email', icon: Mail })

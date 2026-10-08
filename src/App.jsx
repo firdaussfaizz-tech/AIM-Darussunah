@@ -39,6 +39,7 @@ const AsetList = lazy(() => import('./pages/aset/AsetList'))
 const DokumenCetak = lazy(() => import('./pages/aset/DokumenCetak'))
 const AcademicManagement = lazy(() => import('./pages/academic/AcademicManagement'))
 const KeuanganManagement = lazy(() => import('./pages/keuangan/KeuanganManagement'))
+const Analitik = lazy(() => import('./pages/analitik/Analitik'))
 
 export default function App() {
   return (
@@ -92,6 +93,7 @@ export default function App() {
             <Route path="pembelajaran/:area" element={<AcademicManagement />} />
             <Route path="keuangan" element={<Navigate to="/keuangan/dashboard" replace />} />
             <Route path="keuangan/:area" element={<KeuanganManagement />} />
+            <Route path="analitik" element={<Analitik />} />
           </Route>
         </Routes>
         </Suspense>
