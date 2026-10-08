@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useState } from 'react'
+import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 export function PageHeader({ title, description, actions }) {
   return (
@@ -186,6 +186,7 @@ const STAT_ACCENTS = {
 //   hover, dan menghormati prefers-reduced-motion.
 export function StatCard({ label, value, sub, accent, icon: Icon }) {
   const accentColor = STAT_ACCENTS[accent]
+  const valueRef = useFitText(value)
   return (
     <Card className="stat-card group relative min-w-0 overflow-hidden">
       {accentColor && (
@@ -199,10 +200,47 @@ export function StatCard({ label, value, sub, accent, icon: Icon }) {
           </span>
         )}
       </div>
-      <p className="mt-2 break-words font-[family-name:var(--font-display)] text-[clamp(22px,4.5vw,32px)] font-semibold leading-tight tracking-tight tabular-nums text-[var(--color-ink)]">{value}</p>
+      <p
+        ref={valueRef}
+        className="mt-2 block w-full min-w-0 overflow-hidden whitespace-nowrap font-[family-name:var(--font-display)] text-[clamp(20px,4.5vw,32px)] font-semibold leading-tight tracking-tight tabular-nums text-[var(--color-ink)]"
+      >
+        {value}
+      </p>
       {sub && <p className="mt-2 text-[13px] leading-snug text-[var(--color-ink-soft)]">{sub}</p>}
     </Card>
   )
+}
+
+// Auto-fit: menjaga nilai StatCard SELALU satu baris. Dimulai dari ukuran font
+// maksimum (dari kelas `text-[clamp(...)]`), lalu diperkecil bertahap hanya bila
+// teks melebihi lebar kartu — sehingga angka panjang seperti "Rp 4.785.000"
+// tidak pernah terbungkus dua baris maupun terpotong. Dihitung ulang saat
+// nilai berubah atau ukuran kartu berubah (ResizeObserver).
+function useFitText(value) {
+  const ref = useRef(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const fit = () => {
+      el.style.fontSize = '' // kembali ke ukuran maksimum dari CSS
+      const max = parseFloat(window.getComputedStyle(el).fontSize) || 32
+      let size = max
+      // scrollWidth > clientWidth menandakan teks meluber (butuh diperkecil).
+      let guard = 48
+      while (el.scrollWidth > el.clientWidth && size > 11 && guard-- > 0) {
+        size -= 1
+        el.style.fontSize = `${size}px`
+      }
+    }
+    fit()
+    let ro
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(fit)
+      ro.observe(el)
+    }
+    return () => { if (ro) ro.disconnect() }
+  }, [value])
+  return ref
 }
 
 // Modal tetap dirender sesaat setelah `open` jadi false, supaya animasi
