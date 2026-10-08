@@ -90,6 +90,7 @@ function ManagerWorkload() {
           tugasTambahanList: tugasByEmployee[e.id] || [],
           jpMengajar: b?.jp_mengajar || 0,
           jamKetatausahaan: b?.jam_ketatausahaan || 0,
+          jamManajerial: b?.jam_manajerial || 0,
           settings,
         })
         return { employee: e, beban: b, hasil }
@@ -147,7 +148,8 @@ function ManagerWorkload() {
                   <Td className="text-[var(--color-ink-soft)]">{e.schools ? `${e.schools.jenjang} — ${e.schools.nama}` : 'Yayasan'}</Td>
                   <Td>{hasil.jpMengajar} JP</Td>
                   <Td className="text-[var(--color-ink-soft)]">
-                    Tatap muka {jam(hasil.jamTatapMuka)} + Tugas tambahan {jam(hasil.jamTugasTambahan)} + TU {jam(hasil.jamKetatausahaan)}
+                    Tatap muka {jam(hasil.jamTatapMuka)} + Tugas tambahan {jam(hasil.jamTugasTambahan)}
+                    {hasil.jamManajerial > 0 && <> + Manajerial KS {jam(hasil.jamManajerial)}</>} + TU {jam(hasil.jamKetatausahaan)}
                     <span className="ml-1 font-medium text-[var(--color-ink)]">= {jam(hasil.totalJamTerpakai)}</span>
                   </Td>
                   <Td className={hasil.sisaJamKerja < 0 ? 'text-[var(--color-danger)]' : ''}>{jam(hasil.sisaJamKerja)}</Td>
@@ -174,6 +176,7 @@ function ManagerWorkload() {
 function EditBebanKerjaModal({ row, onClose, onSaved }) {
   const [jpMengajar, setJpMengajar] = useState('0')
   const [jamKetatausahaan, setJamKetatausahaan] = useState('0')
+  const [jamManajerial, setJamManajerial] = useState('0')
   const [catatan, setCatatan] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -182,6 +185,7 @@ function EditBebanKerjaModal({ row, onClose, onSaved }) {
     if (row) {
       setJpMengajar(String(row.beban?.jp_mengajar ?? 0))
       setJamKetatausahaan(String(row.beban?.jam_ketatausahaan ?? 0))
+      setJamManajerial(String(row.beban?.jam_manajerial ?? 0))
       setCatatan(row.beban?.catatan || '')
       setError('')
     }
@@ -194,7 +198,7 @@ function EditBebanKerjaModal({ row, onClose, onSaved }) {
     setSaving(true)
     setError('')
     const { error: err } = await supabase.from('employee_beban_kerja').upsert(
-      { employee_id: e.id, jp_mengajar: Number(jpMengajar) || 0, jam_ketatausahaan: Number(jamKetatausahaan) || 0, catatan: catatan || null, updated_at: new Date().toISOString() },
+      { employee_id: e.id, jp_mengajar: Number(jpMengajar) || 0, jam_ketatausahaan: Number(jamKetatausahaan) || 0, jam_manajerial: Number(jamManajerial) || 0, catatan: catatan || null, updated_at: new Date().toISOString() },
       { onConflict: 'employee_id' },
     )
     setSaving(false)
@@ -203,13 +207,26 @@ function EditBebanKerjaModal({ row, onClose, onSaved }) {
   }
 
   return (
-    <Modal open={!!row} onClose={onClose} title={`Beban Kerja — ${e.nama}`}>
+    <Modal open={!!row} onClose={onClose} title={`Beban Kerja — ${e.nama}`} width="max-w-xl">
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-4">
           <Input label="JP Mengajar / Minggu" type="number" min="0" step="0.5" value={jpMengajar} onChange={(ev) => setJpMengajar(ev.target.value)} />
           <Input label="Jam Ketatausahaan / Minggu" type="number" min="0" step="0.5" value={jamKetatausahaan} onChange={(ev) => setJamKetatausahaan(ev.target.value)} />
         </div>
         <p className="-mt-2 text-xs text-[var(--color-ink-soft)]">Jam Ketatausahaan hanya diisi untuk staf TU murni tanpa jam mengajar.</p>
+
+        <Input label="Jam Manajerial Kepala Sekolah / Minggu" type="number" min="0" step="0.5" value={jamManajerial} onChange={(ev) => setJamManajerial(ev.target.value)} />
+        <div className="-mt-2 rounded-md bg-[var(--color-gold-soft)] p-3 text-xs text-[var(--color-gold)]">
+          <p className="mb-1 flex items-center gap-1.5 font-semibold"><Info className="h-3.5 w-3.5" /> Jam Manajerial Kepala Sekolah — Kepmendikdasmen No. 221/P/2025</p>
+          <p className="text-[var(--color-ink-soft)]">
+            Beban kerja Kepala Sekolah <strong>37 jam 30 menit/minggu</strong>, dipenuhi lewat tugas Kepala Sekolah <strong>tanpa kewajiban mengajar tatap muka reguler</strong>.
+            Mencakup tiga tugas: <strong>(1) Manajerial</strong> (visi-misi, kurikulum, RKAS, pengelolaan SDM & sistem informasi, refleksi),
+            <strong> (2) Pengembangan Kewirausahaan</strong>, dan <strong>(3) Supervisi</strong> guru & tenaga kependidikan.
+            Pelaksanaan ketiganya <strong>diekuivalensikan dengan pemenuhan 24 jam tatap muka (JTM)</strong>.
+          </p>
+          <p className="mt-1 text-[var(--color-ink-soft)]">Isi dengan jam nyata tugas kepemimpinan per minggu — untuk Kepala Sekolah penuh, setara beban kerja penuh (37 jam 30 menit). Kosongkan (0) untuk pegawai non-Kepala Sekolah.</p>
+        </div>
+
         <Textarea label="Catatan (opsional)" rows={2} value={catatan} onChange={(ev) => setCatatan(ev.target.value)} />
 
         <div className="rounded-md bg-[var(--color-navy-50)] p-3 text-xs text-[var(--color-ink-soft)]">
@@ -327,6 +344,7 @@ function SelfWorkload({ employeeId }) {
     tugasTambahanList: tugasList,
     jpMengajar: beban?.jp_mengajar || 0,
     jamKetatausahaan: beban?.jam_ketatausahaan || 0,
+    jamManajerial: beban?.jam_manajerial || 0,
     settings,
   })
 
@@ -360,6 +378,11 @@ function SelfWorkload({ employeeId }) {
               {hasil.rincianTugasTambahan.length === 0 ? 'Tidak ada' : hasil.rincianTugasTambahan.map((t) => `${t.nama} (${t.jp} JP)`).join(', ')}
             </Td>
             <Td>{jam(hasil.jamTugasTambahan)}</Td>
+          </Tr>
+          <Tr>
+            <Td className="font-medium text-[var(--color-ink)]">Jam Manajerial Kepala Sekolah</Td>
+            <Td className="text-[var(--color-ink-soft)]">{hasil.jamManajerial > 0 ? 'Manajerial + Kewirausahaan + Supervisi (Kepmendikdasmen 221/P/2025)' : '—'}</Td>
+            <Td>{jam(hasil.jamManajerial)}</Td>
           </Tr>
           <Tr>
             <Td className="font-medium text-[var(--color-ink)]">Jam Ketatausahaan</Td>

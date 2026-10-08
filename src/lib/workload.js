@@ -7,8 +7,13 @@
 //   Jam Tugas Tambahan    = (JP ekuivalensi Jabatan Struktural
 //                             + Σ JP ekuivalensi seluruh Tugas Tambahan
 //                               yang diemban) x Durasi 1 JP / 60
+//   Jam Manajerial KS     = jam tugas Kepala Sekolah (manajerial +
+//                             pengembangan kewirausahaan + supervisi),
+//                             mengacu Kepmendikdasmen No. 221/P/2025 —
+//                             diekuivalensikan dengan pemenuhan 24 JTM,
+//                             tanpa wajib mengajar tatap muka reguler.
 //   Total Jam Terpakai    = Jam Tatap Muka + Jam Tugas Tambahan
-//                             + Jam Ketatausahaan
+//                             + Jam Manajerial KS + Jam Ketatausahaan
 //   Sisa Jam Kerja Efektif = Kapasitas Jam Kerja − Total Jam Terpakai
 //   Utilisasi              = Total Jam Terpakai / Kapasitas Jam Kerja
 //
@@ -52,6 +57,7 @@ export function durasiJpMenit(jenjang, settings) {
  * @param {Array} [p.tugasTambahanList] - daftar tugas tambahan yang diemban { nama, jp_ekuivalensi }
  * @param {number} [p.jpMengajar] - JP Mengajar per minggu
  * @param {number} [p.jamKetatausahaan] - Jam Ketatausahaan per minggu (staf TU)
+ * @param {number} [p.jamManajerial] - Jam Manajerial Kepala Sekolah per minggu (Kepmendikdasmen 221/P/2025)
  * @param {Object} p.settings - baris beban_kerja_settings
  */
 export function hitungBebanKerja({
@@ -60,6 +66,7 @@ export function hitungBebanKerja({
   tugasTambahanList = [],
   jpMengajar = 0,
   jamKetatausahaan = 0,
+  jamManajerial = 0,
   settings = DEFAULT_BEBAN_KERJA_SETTINGS,
 }) {
   const durasiJp = durasiJpMenit(jenjang, settings)
@@ -79,7 +86,8 @@ export function hitungBebanKerja({
   const jamTugasTambahan = (jpTugasTambahan * durasiJp) / 60
 
   const jamKetatausahaanN = Number(jamKetatausahaan) || 0
-  const totalJamTerpakai = jamTatapMuka + jamTugasTambahan + jamKetatausahaanN
+  const jamManajerialN = Number(jamManajerial) || 0
+  const totalJamTerpakai = jamTatapMuka + jamTugasTambahan + jamManajerialN + jamKetatausahaanN
 
   const kapasitas = Number(settings.kapasitas_jam_kerja) || DEFAULT_BEBAN_KERJA_SETTINGS.kapasitas_jam_kerja
   const sisaJamKerja = kapasitas - totalJamTerpakai
@@ -100,6 +108,7 @@ export function hitungBebanKerja({
     jpTugasTambahan,
     jamTugasTambahan,
     jamKetatausahaan: jamKetatausahaanN,
+    jamManajerial: jamManajerialN,
     totalJamTerpakai,
     kapasitas,
     sisaJamKerja,
