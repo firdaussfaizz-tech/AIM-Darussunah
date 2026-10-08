@@ -568,15 +568,34 @@ function KenaikanKelasTab({ rombel, schools, tahunAjaran, lockedSchoolId }) {
 
   useEffect(() => { loadSiswa() }, [loadSiswa])
 
+  // Nilai Select mengkodekan jenis + rombel tujuan: "naik:<id>" / "tinggal:<id>",
+  // atau AKSI_LULUS/AKSI_KELUAR. Dengan begitu "Tinggal Kelas" jadi pilihan
+  // langsung di dropdown Aksi (tak perlu lagi mencentang kotak terpisah).
+  const parseAksi = (val) => {
+    if (!val) return null
+    if (val === AKSI_LULUS || val === AKSI_KELUAR) return { aksi: val, tinggalKelas: false }
+    const idx = val.indexOf(':')
+    if (idx === -1) return { aksi: val, tinggalKelas: false } // kompatibilitas nilai lama (id rombel polos = Naik)
+    return { aksi: val.slice(idx + 1), tinggalKelas: val.slice(0, idx) === 'tinggal' }
+  }
+  const selectValue = (entry) => {
+    if (!entry || !entry.aksi) return ''
+    if (entry.aksi === AKSI_LULUS || entry.aksi === AKSI_KELUAR) return entry.aksi
+    return `${entry.tinggalKelas ? 'tinggal' : 'naik'}:${entry.aksi}`
+  }
+
   const applyDefaultToAll = () => {
-    if (!defaultTujuan) return
+    const parsed = parseAksi(defaultTujuan)
+    if (!parsed) return
     const next = {}
-    for (const item of siswaList) next[item.siswa_id] = { aksi: defaultTujuan, tinggalKelas: false }
+    for (const item of siswaList) next[item.siswa_id] = { ...parsed }
     setTargetMap(next)
   }
 
-  const setAksi = (siswaId, aksi) => setTargetMap((m) => ({ ...m, [siswaId]: { aksi, tinggalKelas: m[siswaId]?.tinggalKelas || false } }))
-  const setTinggalKelas = (siswaId, val) => setTargetMap((m) => ({ ...m, [siswaId]: { ...m[siswaId], tinggalKelas: val } }))
+  const setAksi = (siswaId, val) => {
+    const parsed = parseAksi(val)
+    setTargetMap((m) => ({ ...m, [siswaId]: parsed || { aksi: '', tinggalKelas: false } }))
+  }
 
   const handleProses = async () => {
     const items = siswaList.filter((s) => targetMap[s.siswa_id]?.aksi)
@@ -658,7 +677,12 @@ function KenaikanKelasTab({ rombel, schools, tahunAjaran, lockedSchoolId }) {
             <div className="mb-4 flex flex-col gap-2 rounded-md border border-[var(--color-border)] p-3 sm:flex-row sm:items-end">
               <Select containerClassName="flex-1" label="Terapkan ke Semua Siswa" value={defaultTujuan} onChange={(e) => setDefaultTujuan(e.target.value)}>
                 <option value="">— Pilih aksi massal (opsional) —</option>
-                {rombelTujuanOptions.map((r) => <option key={r.id} value={r.id}>Naik → {r.tingkat} {r.nama_rombel}</option>)}
+                <optgroup label="Naik Kelas">
+                  {rombelTujuanOptions.map((r) => <option key={`n${r.id}`} value={`naik:${r.id}`}>Naik → {r.tingkat} {r.nama_rombel}</option>)}
+                </optgroup>
+                <optgroup label="Tinggal Kelas (mengulang)">
+                  {rombelTujuanOptions.map((r) => <option key={`t${r.id}`} value={`tinggal:${r.id}`}>Tinggal → {r.tingkat} {r.nama_rombel}</option>)}
+                </optgroup>
                 <option value={AKSI_LULUS}>Tandai semua Lulus</option>
                 <option value={AKSI_KELUAR}>Tandai semua Keluar</option>
               </Select>
@@ -666,7 +690,7 @@ function KenaikanKelasTab({ rombel, schools, tahunAjaran, lockedSchoolId }) {
             </div>
           )}
 
-          <Table columns={['Nama', 'NIS', 'Aksi', 'Tinggal Kelas']}>
+          <Table columns={['Nama', 'NIS', 'Aksi', 'Keterangan']}>
             {siswaList.map((item) => {
               const current = targetMap[item.siswa_id] || {}
               const isRombelTarget = current.aksi && current.aksi !== AKSI_LULUS && current.aksi !== AKSI_KELUAR
@@ -675,23 +699,24 @@ function KenaikanKelasTab({ rombel, schools, tahunAjaran, lockedSchoolId }) {
                   <Td className="font-medium text-[var(--color-ink)]">{item.siswa?.nama_lengkap}</Td>
                   <Td className="text-[var(--color-ink-soft)]">{item.siswa?.nis || '—'}</Td>
                   <Td>
-                    <Select value={current.aksi || ''} onChange={(e) => setAksi(item.siswa_id, e.target.value)} disabled={!tujuanTahunId}>
+                    <Select value={selectValue(current)} onChange={(e) => setAksi(item.siswa_id, e.target.value)} disabled={!tujuanTahunId}>
                       <option value="">— Belum dipilih —</option>
-                      {rombelTujuanOptions.map((r) => <option key={r.id} value={r.id}>Naik → {r.tingkat} {r.nama_rombel}</option>)}
+                      <optgroup label="Naik Kelas">
+                        {rombelTujuanOptions.map((r) => <option key={`n${r.id}`} value={`naik:${r.id}`}>Naik → {r.tingkat} {r.nama_rombel}</option>)}
+                      </optgroup>
+                      <optgroup label="Tinggal Kelas (mengulang)">
+                        {rombelTujuanOptions.map((r) => <option key={`t${r.id}`} value={`tinggal:${r.id}`}>Tinggal → {r.tingkat} {r.nama_rombel}</option>)}
+                      </optgroup>
                       <option value={AKSI_LULUS}>Lulus</option>
                       <option value={AKSI_KELUAR}>Pindah / Keluar</option>
                     </Select>
                   </Td>
                   <Td>
-                    {isRombelTarget && (
-                      <input
-                        type="checkbox"
-                        checked={!!current.tinggalKelas}
-                        onChange={(e) => setTinggalKelas(item.siswa_id, e.target.checked)}
-                        className="h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-navy)] focus:ring-[var(--color-navy)]"
-                        title="Centang bila siswa tinggal kelas (mengulang tingkat yang sama)"
-                      />
-                    )}
+                    {!current.aksi ? <span className="text-[var(--color-ink-soft)]">—</span>
+                      : current.aksi === AKSI_LULUS ? <Badge color="navy">Lulus</Badge>
+                      : current.aksi === AKSI_KELUAR ? <Badge color="danger">Pindah / Keluar</Badge>
+                      : isRombelTarget && current.tinggalKelas ? <Badge color="gold">Tinggal kelas</Badge>
+                      : <Badge color="success">Naik kelas</Badge>}
                   </Td>
                 </Tr>
               )
