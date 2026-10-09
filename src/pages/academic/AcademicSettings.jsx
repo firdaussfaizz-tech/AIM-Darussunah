@@ -236,18 +236,27 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedScho
   const [error, setError] = useState('')
   const [rosterRombel, setRosterRombel] = useState(null)
   const [search, setSearch] = useState('')
+  const [taFilter, setTaFilter] = useState(null) // null = belum diinisialisasi; '' = semua TA
 
-  // Pencarian rombel: cocokkan terhadap nama rombel, tingkat, unit sekolah,
-  // wali kelas, dan tahun ajaran. Urutan asli (by tingkat) dipertahankan.
+  const tahunAktif = tahunAjaran.find((t) => t.status === 'aktif')
+
+  // Default filter = Tahun Ajaran AKTIF, supaya rombel tahun ajaran berikutnya
+  // yang sudah disiapkan tidak tercampur dengan tahun berjalan & membingungkan.
+  useEffect(() => {
+    if (taFilter === null && tahunAjaran.length) setTaFilter(tahunAktif?.id || '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tahunAjaran])
+
+  // Filter per Tahun Ajaran lalu pencarian teks (nama rombel, tingkat, unit,
+  // wali kelas, tahun ajaran). Urutan asli (by tingkat) dipertahankan.
   const q = search.trim().toLowerCase()
+  const baseRombel = rombel.filter((r) => !taFilter || r.tahun_ajaran_id === taFilter)
   const rombelTampil = q
-    ? rombel.filter((r) => [
+    ? baseRombel.filter((r) => [
         r.nama_rombel, r.tingkat, r.schools?.nama, r.schools?.jenjang,
         r.employees?.nama, r.tahun_ajaran?.nama,
       ].some((v) => String(v ?? '').toLowerCase().includes(q)))
-    : rombel
-
-  const tahunAktif = tahunAjaran.find((t) => t.status === 'aktif')
+    : baseRombel
 
   // Peta pegawai -> daftar rombel yang sudah diampunya sebagai Wali Kelas,
   // dipakai untuk menambahkan keterangan di dropdown Wali Kelas (supaya
@@ -318,19 +327,25 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedScho
   return (
     <SectionCard
       title="Rombongan Belajar (Rombel)"
-      description={tahunAktif ? `Menampilkan seluruh rombel — tahun ajaran aktif saat ini: ${tahunAktif.nama}` : 'Belum ada tahun ajaran aktif — atur di tab Tahun Ajaran.'}
+      description={tahunAktif ? `Rombel ditampilkan per Tahun Ajaran (default: tahun aktif ${tahunAktif.nama}). Ganti filter untuk melihat tahun lain.` : 'Belum ada tahun ajaran aktif — atur di tab Tahun Ajaran.'}
       actions={<Button size="sm" variant="outline" onClick={openAdd} disabled={!tahunAktif}><Plus className="h-4 w-4" /> Tambah Rombel</Button>}
     >
       {rombel.length === 0 ? <EmptyState icon={School} title="Belum ada rombel" /> : (
         <>
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari rombel: nama, tingkat, unit, atau wali kelas…"
-            containerClassName="mb-4 max-w-sm"
-          />
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <Select containerClassName="w-56" value={taFilter || ''} onChange={(e) => setTaFilter(e.target.value)}>
+              <option value="">Semua Tahun Ajaran</option>
+              {tahunAjaran.map((t) => <option key={t.id} value={t.id}>{t.nama}{t.status === 'aktif' ? ' (Aktif)' : ''}</option>)}
+            </Select>
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Cari rombel: nama, tingkat, unit, atau wali kelas…"
+              containerClassName="max-w-sm flex-1 min-w-[12rem]"
+            />
+          </div>
           {rombelTampil.length === 0 ? (
-            <EmptyState icon={School} title="Rombel tidak ditemukan" description={`Tidak ada rombel yang cocok dengan "${search}".`} />
+            <EmptyState icon={School} title="Rombel tidak ditemukan" description={q ? `Tidak ada rombel yang cocok dengan "${search}".` : 'Belum ada rombel pada tahun ajaran yang dipilih.'} />
           ) : (
         <Table columns={['Tahun Ajaran', 'Unit', 'Tingkat', 'Nama Rombel', 'Wali Kelas', 'Jumlah Siswa', '']}>
           {rombelTampil.map((r) => (
@@ -673,6 +688,10 @@ function KenaikanKelasTab({ rombel, schools, tahunAjaran, lockedSchoolId }) {
         <>
           {!tujuanTahunId ? (
             <p className="mb-3 rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-sm text-[var(--color-gold)]">Pilih Tahun Ajaran Tujuan di atas untuk dapat memilih rombel tujuan per siswa.</p>
+          ) : rombelTujuanOptions.length === 0 ? (
+            <p className="mb-3 rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-sm text-[var(--color-gold)]">
+              Belum ada <b>rombel</b> pada Tahun Ajaran Tujuan untuk unit ini, sehingga pilihan rombel tujuan belum muncul. Buat rombelnya dulu di tab <b>“Rombel / Kelas”</b> (mis. kelas untuk TA berikutnya), lalu kembali ke sini untuk memilih rombel tujuan. Siswa yang <b>Lulus</b> atau <b>Pindah/Keluar</b> tetap bisa diproses tanpa rombel tujuan.
+            </p>
           ) : (
             <div className="mb-4 flex flex-col gap-2 rounded-md border border-[var(--color-border)] p-3 sm:flex-row sm:items-end">
               <Select containerClassName="flex-1" label="Terapkan ke Semua Siswa" value={defaultTujuan} onChange={(e) => setDefaultTujuan(e.target.value)}>
@@ -701,12 +720,14 @@ function KenaikanKelasTab({ rombel, schools, tahunAjaran, lockedSchoolId }) {
                   <Td>
                     <Select value={selectValue(current)} onChange={(e) => setAksi(item.siswa_id, e.target.value)} disabled={!tujuanTahunId}>
                       <option value="">— Belum dipilih —</option>
-                      <optgroup label="Naik Kelas">
-                        {rombelTujuanOptions.map((r) => <option key={`n${r.id}`} value={`naik:${r.id}`}>Naik → {r.tingkat} {r.nama_rombel}</option>)}
-                      </optgroup>
-                      <optgroup label="Tinggal Kelas (mengulang)">
-                        {rombelTujuanOptions.map((r) => <option key={`t${r.id}`} value={`tinggal:${r.id}`}>Tinggal → {r.tingkat} {r.nama_rombel}</option>)}
-                      </optgroup>
+                      {rombelTujuanOptions.length > 0 && <>
+                        <optgroup label="Naik Kelas">
+                          {rombelTujuanOptions.map((r) => <option key={`n${r.id}`} value={`naik:${r.id}`}>Naik → {r.tingkat} {r.nama_rombel}</option>)}
+                        </optgroup>
+                        <optgroup label="Tinggal Kelas (mengulang)">
+                          {rombelTujuanOptions.map((r) => <option key={`t${r.id}`} value={`tinggal:${r.id}`}>Tinggal → {r.tingkat} {r.nama_rombel}</option>)}
+                        </optgroup>
+                      </>}
                       <option value={AKSI_LULUS}>Lulus</option>
                       <option value={AKSI_KELUAR}>Pindah / Keluar</option>
                     </Select>
