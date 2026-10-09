@@ -210,16 +210,27 @@ function AcademicDashboard({ ctx }) {
 // MATA PELAJARAN
 // =========================================================================
 function MapelTab({ ctx }) {
-  const { effSchoolId } = ctx
+  const { effSchoolId, tahunId } = ctx
+  const { guru } = useAcademicLists(effSchoolId, tahunId)
   const [rows, setRows] = useState([])
+  const [pengampuMap, setPengampuMap] = useState({}) // mapelId -> [{id, nama}]
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const load = useCallback(async () => {
-    if (!effSchoolId) { setRows([]); setLoading(false); return }
+    if (!effSchoolId) { setRows([]); setPengampuMap({}); setLoading(false); return }
     setLoading(true)
     const { data } = await supabase.from('mata_pelajaran').select('*').eq('school_id', effSchoolId).order('nama')
-    setRows(data || []); setLoading(false)
+    const list = data || []
+    setRows(list)
+    // Pengampu tiap mapel (banyak guru per mapel).
+    const ids = list.map((m) => m.id)
+    const map = {}
+    if (ids.length) {
+      const { data: pg } = await supabase.from('mapel_pengampu').select('mata_pelajaran_id, employee_id, employees(nama)').in('mata_pelajaran_id', ids)
+      for (const row of (pg || [])) (map[row.mata_pelajaran_id] ||= []).push({ id: row.employee_id, nama: row.employees?.nama || '—' })
+    }
+    setPengampuMap(map); setLoading(false)
   }, [effSchoolId])
   useEffect(() => { load() }, [load])
   const del = async (r) => { if (!confirm(`Hapus mapel "${r.nama}"?`)) return; const { error } = await supabase.from('mata_pelajaran').delete().eq('id', r.id); if (error) { alert('Gagal: ' + error.message); return } load() }
@@ -227,14 +238,19 @@ function MapelTab({ ctx }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end"><Button onClick={() => { setEditing(null); setOpen(true) }}><Plus className="h-4 w-4" /> Tambah Mapel</Button></div>
-      <SectionCard title="Mata Pelajaran" description="Daftar mata pelajaran unit ini — dipakai di Penugasan, Jadwal, Jurnal, Kurikulum, dan Nilai & Rapor.">
+      <SectionCard title="Mata Pelajaran" description="Daftar mata pelajaran unit ini beserta guru pengampunya — dipakai di Penugasan, Jadwal, Jurnal, Kurikulum, dan Nilai & Rapor.">
         {loading ? <FullPageSpinner /> : rows.length === 0 ? (
           <EmptyState icon={BookOpen} title="Belum ada mata pelajaran" description="Tambahkan mata pelajaran untuk unit ini." />
         ) : (
-          <Table columns={['Nama Mata Pelajaran', '']}>
+          <Table columns={['Nama Mata Pelajaran', 'Guru Pengampu', '']}>
             {rows.map((r) => (
               <Tr key={r.id}>
                 <Td className="font-medium">{r.nama}</Td>
+                <Td className="text-[var(--color-ink-soft)]">
+                  {(pengampuMap[r.id] && pengampuMap[r.id].length)
+                    ? pengampuMap[r.id].map((g) => g.nama).join(', ')
+                    : <span className="text-[var(--color-gold)]">Belum ada pengampu</span>}
+                </Td>
                 <Td><div className="flex justify-end gap-1.5">
                   <button onClick={() => { setEditing(r); setOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]"><Pencil className="h-4 w-4" /></button>
                   <button onClick={() => del(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]"><Trash2 className="h-4 w-4" /></button>
@@ -244,28 +260,67 @@ function MapelTab({ ctx }) {
           </Table>
         )}
       </SectionCard>
-      <MapelModal open={open} effSchoolId={effSchoolId} editing={editing} onClose={() => { setOpen(false); setEditing(null) }} onSaved={() => { setOpen(false); setEditing(null); load() }} />
+      <MapelModal open={open} effSchoolId={effSchoolId} guru={guru} editing={editing} onClose={() => { setOpen(false); setEditing(null) }} onSaved={() => { setOpen(false); setEditing(null); load() }} />
     </div>
   )
 }
 
-function MapelModal({ open, effSchoolId, editing, onClose, onSaved }) {
+function MapelModal({ open, effSchoolId, guru, editing, onClose, onSaved }) {
   const [nama, setNama] = useState('')
+  const [pengampu, setPengampu] = useState([]) // array employee_id
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  useEffect(() => { if (open) { setNama(editing?.nama || ''); setError('') } }, [open, editing])
+  useEffect(() => {
+    if (!open) return
+    setNama(editing?.nama || ''); setError('')
+    if (editing?.id) {
+      supabase.from('mapel_pengampu').select('employee_id').eq('mata_pelajaran_id', editing.id)
+        .then(({ data }) => setPengampu((data || []).map((r) => r.employee_id)))
+    } else setPengampu([])
+  }, [open, editing])
+  const togglePengampu = (id) => setPengampu((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])
   const submit = async (e) => {
     e.preventDefault()
     if (!nama.trim()) { setError('Isi nama mata pelajaran.'); return }
     setError(''); setSaving(true)
-    const q = editing ? supabase.from('mata_pelajaran').update({ nama: nama.trim() }).eq('id', editing.id) : supabase.from('mata_pelajaran').insert({ school_id: effSchoolId, nama: nama.trim() })
-    const { error: err } = await q
-    setSaving(false); if (err) { setError(err.message); return }; onSaved()
+    // Simpan mapel (insert/update), lalu sinkronkan daftar pengampu.
+    let mapelId = editing?.id
+    if (editing) {
+      const { error: err } = await supabase.from('mata_pelajaran').update({ nama: nama.trim() }).eq('id', editing.id)
+      if (err) { setSaving(false); setError(err.message); return }
+    } else {
+      const { data, error: err } = await supabase.from('mata_pelajaran').insert({ school_id: effSchoolId, nama: nama.trim() }).select('id').single()
+      if (err) { setSaving(false); setError(err.message); return }
+      mapelId = data.id
+    }
+    // Sinkron pengampu: hapus semua lalu isi ulang sesuai pilihan.
+    await supabase.from('mapel_pengampu').delete().eq('mata_pelajaran_id', mapelId)
+    if (pengampu.length) {
+      const { error: e2 } = await supabase.from('mapel_pengampu').insert(pengampu.map((eid) => ({ mata_pelajaran_id: mapelId, employee_id: eid })))
+      if (e2) { setSaving(false); setError('Mapel tersimpan, tetapi pengampu gagal disimpan: ' + e2.message); return }
+    }
+    setSaving(false); onSaved()
   }
   return (
     <Modal open={open} onClose={onClose} title={editing ? 'Ubah Mata Pelajaran' : 'Tambah Mata Pelajaran'} width="max-w-md">
       <form onSubmit={submit} className="flex flex-col gap-3">
         <Input label="Nama Mata Pelajaran" required value={nama} onChange={(e) => setNama(e.target.value)} placeholder="mis. Matematika, PAI, Bahasa Indonesia" />
+        <div>
+          <p className="mb-1.5 text-sm font-medium text-[var(--color-ink)]">Guru Pengampu <span className="font-normal text-[var(--color-ink-soft)]">(boleh lebih dari satu)</span></p>
+          {(guru || []).length === 0 ? (
+            <p className="text-sm text-[var(--color-ink-soft)]">Belum ada guru aktif di unit ini.</p>
+          ) : (
+            <div className="max-h-48 overflow-y-auto rounded-md border border-[var(--color-border)] p-2">
+              {guru.map((g) => (
+                <label key={g.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-black/[0.03]">
+                  <input type="checkbox" checked={pengampu.includes(g.id)} onChange={() => togglePengampu(g.id)} className="h-4 w-4 accent-[var(--color-navy)]" />
+                  {g.nama}
+                </label>
+              ))}
+            </div>
+          )}
+          <p className="mt-1 text-xs text-[var(--color-ink-soft)]">Pengampu yang dipilih akan menjadi pilihan Guru saat membuat slot jadwal untuk mapel ini.</p>
+        </div>
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Batal</Button><Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button></div>
       </form>
@@ -491,6 +546,21 @@ function PenugasanModal({ open, ctx, lists, editing, onClose, onSaved }) {
 // =========================================================================
 // JADWAL PELAJARAN
 // =========================================================================
+// Hitung jam Mulai/Selesai sebuah slot dari "Jam ke-", jam mulai KBM, dan
+// durasi satu JP (menit) milik unit. Model lurus tanpa istirahat: cukup
+// untuk mengisi jam otomatis; pengguna bisa mengatur durasi per unit.
+function hitungJamSlot(jamKe, jamMulaiKbm, durasiMenit) {
+  const jk = Number(jamKe)
+  const dur = Number(durasiMenit)
+  if (!jk || jk < 1 || !jamMulaiKbm || !dur) return null
+  const [h, m] = String(jamMulaiKbm).split(':').map(Number)
+  if (Number.isNaN(h) || Number.isNaN(m)) return null
+  const startMin = h * 60 + m + (jk - 1) * dur
+  const endMin = startMin + dur
+  const fmt = (mins) => `${String(Math.floor((mins % 1440) / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
+  return { mulai: fmt(startMin), selesai: fmt(endMin) }
+}
+
 function JadwalTab({ ctx }) {
   const { effSchoolId, tahunId, semester, isManager, employee } = ctx
   const { rombel, mapel, guru } = useAcademicLists(effSchoolId, tahunId)
@@ -502,6 +572,27 @@ function JadwalTab({ ctx }) {
 
   const [allRows, setAllRows] = useState([])
   const [guruCetak, setGuruCetak] = useState('')
+
+  // Pengaturan jam pelajaran per unit (durasi JP & jam mulai KBM) — dasar
+  // penghitungan jam Mulai/Selesai slot secara otomatis.
+  const [jamForm, setJamForm] = useState({ jp_durasi_menit: '', jam_mulai_kbm: '' })
+  const [savingJam, setSavingJam] = useState(false)
+  useEffect(() => {
+    if (!effSchoolId) return
+    supabase.from('schools').select('jp_durasi_menit, jam_mulai_kbm').eq('id', effSchoolId).maybeSingle().then(({ data }) => {
+      setJamForm({ jp_durasi_menit: data?.jp_durasi_menit ?? '', jam_mulai_kbm: data?.jam_mulai_kbm ? String(data.jam_mulai_kbm).slice(0, 5) : '' })
+    })
+  }, [effSchoolId])
+  const simpanJam = async () => {
+    setSavingJam(true)
+    const { error: err } = await supabase.from('schools').update({
+      jp_durasi_menit: jamForm.jp_durasi_menit === '' ? null : Number(jamForm.jp_durasi_menit),
+      jam_mulai_kbm: jamForm.jam_mulai_kbm || null,
+    }).eq('id', effSchoolId)
+    setSavingJam(false)
+    if (err) { alert('Gagal menyimpan pengaturan jam: ' + err.message); return }
+    alert('Pengaturan jam tersimpan. Slot baru akan memakai jam otomatis ini.')
+  }
 
   // Manajer memuat SELURUH slot unit (untuk deteksi bentrok lintas rombel), lalu disaring per rombel di layar.
   const load = useCallback(async () => {
@@ -572,6 +663,18 @@ function JadwalTab({ ctx }) {
           )}
         </div>
       </div>
+      {isManager && (
+        <div className="flex flex-wrap items-end gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-navy-50)] p-3">
+          <div className="min-w-[12rem]">
+            <p className="text-sm font-medium text-[var(--color-ink)]">Pengaturan Jam Pelajaran (unit ini)</p>
+            <p className="text-xs text-[var(--color-ink-soft)]">Jam Mulai/Selesai slot dihitung otomatis dari “Jam ke-” memakai nilai ini.</p>
+          </div>
+          <div className="flex-1" />
+          <Input label="Durasi per JP (menit)" type="number" min="1" containerClassName="w-40" value={jamForm.jp_durasi_menit} onChange={(e) => setJamForm((s) => ({ ...s, jp_durasi_menit: e.target.value }))} />
+          <Input label="Jam mulai KBM" type="time" containerClassName="w-36" value={jamForm.jam_mulai_kbm} onChange={(e) => setJamForm((s) => ({ ...s, jam_mulai_kbm: e.target.value }))} />
+          <Button variant="outline" onClick={simpanJam} disabled={savingJam}>{savingJam ? 'Menyimpan…' : 'Simpan Jam'}</Button>
+        </div>
+      )}
       {isManager && nBentrok > 0 && (
         <p className="flex items-center gap-2 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">
           <AlertTriangle className="h-4 w-4 shrink-0" /> Terdeteksi {nBentrok} slot jadwal bentrok (guru / rombel / ruangan dipakai di waktu yang sama). Slot bertanda merah perlu diperbaiki.
@@ -610,6 +713,8 @@ function JadwalTab({ ctx }) {
 function JadwalModal({ open, ctx, lists, rombelId, editing, onClose, onSaved }) {
   const { effSchoolId, tahunId, semester } = ctx
   const [ruangan, setRuangan] = useState([])
+  const [jamCfg, setJamCfg] = useState(undefined) // {jp_durasi_menit, jam_mulai_kbm} | null
+  const [mapelGuru, setMapelGuru] = useState(null) // pengampu mapel terpilih: [{id, nama}] | null
   const [f, setF] = useState({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -620,6 +725,25 @@ function JadwalModal({ open, ctx, lists, rombelId, editing, onClose, onSaved }) 
       : { rombel_id: rombelId || '', hari: '1', jam_ke: '1', jam_mulai: '', jam_selesai: '', mata_pelajaran_id: '', employee_id: '', ruangan_id: '' })
   }, [open, editing, rombelId])
   useEffect(() => { if (open && effSchoolId) supabase.from('ruangan').select('id, nama').eq('school_id', effSchoolId).order('nama').then(({ data }) => setRuangan(data || [])) }, [open, effSchoolId])
+  // Pengaturan jam unit (durasi JP & jam mulai KBM) untuk hitung jam otomatis.
+  useEffect(() => {
+    if (!open || !effSchoolId) return
+    supabase.from('schools').select('jp_durasi_menit, jam_mulai_kbm').eq('id', effSchoolId).maybeSingle()
+      .then(({ data }) => setJamCfg(data && data.jp_durasi_menit && data.jam_mulai_kbm ? data : null))
+  }, [open, effSchoolId])
+  // Hitung jam Mulai/Selesai otomatis dari "Jam ke-" + durasi JP unit.
+  useEffect(() => {
+    if (!open || !jamCfg) return
+    const res = hitungJamSlot(f.jam_ke, jamCfg.jam_mulai_kbm, jamCfg.jp_durasi_menit)
+    if (res) setF((s) => ((s.jam_mulai === res.mulai && s.jam_selesai === res.selesai) ? s : { ...s, jam_mulai: res.mulai, jam_selesai: res.selesai }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, f.jam_ke, jamCfg])
+  // Daftar pengampu untuk mapel terpilih (memfilter pilihan Guru).
+  useEffect(() => {
+    if (!open || !f.mata_pelajaran_id) { setMapelGuru(null); return }
+    supabase.from('mapel_pengampu').select('employee_id, employees(nama)').eq('mata_pelajaran_id', f.mata_pelajaran_id)
+      .then(({ data }) => setMapelGuru((data || []).map((r) => ({ id: r.employee_id, nama: r.employees?.nama || '—' }))))
+  }, [open, f.mata_pelajaran_id])
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
   // Prefill guru dari penugasan saat mapel+rombel dipilih.
   const onPickMapel = async (mid) => {
@@ -628,6 +752,13 @@ function JadwalModal({ open, ctx, lists, rombelId, editing, onClose, onSaved }) 
       const { data } = await supabase.from('penugasan_mengajar').select('employee_id').eq('mata_pelajaran_id', mid).eq('rombel_id', f.rombel_id).eq('tahun_ajaran_id', tahunId).eq('semester', semester).limit(1).maybeSingle()
       if (data?.employee_id) setF((s) => ({ ...s, mata_pelajaran_id: mid, employee_id: data.employee_id }))
     }
+  }
+  // Opsi Guru: pengampu mapel bila ada; jika tidak, seluruh guru unit.
+  // Pastikan guru yang sudah terpilih tetap muncul meski bukan pengampu.
+  let guruOptions = (mapelGuru && mapelGuru.length) ? mapelGuru : lists.guru
+  if (f.employee_id && !guruOptions.some((g) => g.id === f.employee_id)) {
+    const extra = lists.guru.find((g) => g.id === f.employee_id)
+    if (extra) guruOptions = [...guruOptions, extra]
   }
   const submit = async (e) => {
     e.preventDefault()
@@ -665,10 +796,15 @@ function JadwalModal({ open, ctx, lists, rombelId, editing, onClose, onSaved }) 
           </Select>
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <Input label="Jam ke-" type="number" value={f.jam_ke ?? ''} onChange={(e) => set('jam_ke', e.target.value)} />
-          <Input label="Mulai" type="time" value={f.jam_mulai || ''} onChange={(e) => set('jam_mulai', e.target.value)} />
-          <Input label="Selesai" type="time" value={f.jam_selesai || ''} onChange={(e) => set('jam_selesai', e.target.value)} />
+          <Input label="Jam ke-" type="number" min="1" value={f.jam_ke ?? ''} onChange={(e) => set('jam_ke', e.target.value)} />
+          <Input label={jamCfg ? 'Mulai (otomatis)' : 'Mulai'} type="time" value={f.jam_mulai || ''} readOnly={!!jamCfg} onChange={(e) => set('jam_mulai', e.target.value)} className={jamCfg ? 'bg-[var(--color-paper)] text-[var(--color-ink-soft)]' : ''} />
+          <Input label={jamCfg ? 'Selesai (otomatis)' : 'Selesai'} type="time" value={f.jam_selesai || ''} readOnly={!!jamCfg} onChange={(e) => set('jam_selesai', e.target.value)} className={jamCfg ? 'bg-[var(--color-paper)] text-[var(--color-ink-soft)]' : ''} />
         </div>
+        {jamCfg ? (
+          <p className="-mt-1 text-xs text-[var(--color-ink-soft)]">Jam dihitung otomatis dari <b>Jam ke-</b>: mulai {String(jamCfg.jam_mulai_kbm).slice(0, 5)}, {jamCfg.jp_durasi_menit} menit/JP. Ubah durasi di <b>Pengaturan Jam</b> pada halaman Jadwal.</p>
+        ) : (
+          <p className="-mt-1 text-xs text-[var(--color-gold)]">Durasi JP unit belum diatur — isi jam secara manual, atau atur di <b>Pengaturan Jam</b> pada halaman Jadwal agar otomatis.</p>
+        )}
         <Select label="Mata Pelajaran" value={f.mata_pelajaran_id || ''} onChange={(e) => onPickMapel(e.target.value)}>
           <option value="">— Pilih —</option>
           {lists.mapel.map((m) => <option key={m.id} value={m.id}>{m.nama}</option>)}
@@ -676,13 +812,18 @@ function JadwalModal({ open, ctx, lists, rombelId, editing, onClose, onSaved }) 
         <div className="grid grid-cols-2 gap-3">
           <Select label="Guru" value={f.employee_id || ''} onChange={(e) => set('employee_id', e.target.value)}>
             <option value="">— Pilih —</option>
-            {lists.guru.map((g) => <option key={g.id} value={g.id}>{g.nama}</option>)}
+            {guruOptions.map((g) => <option key={g.id} value={g.id}>{g.nama}</option>)}
           </Select>
           <Select label="Ruangan" value={f.ruangan_id || ''} onChange={(e) => set('ruangan_id', e.target.value)}>
             <option value="">— (opsional) —</option>
             {ruangan.map((r) => <option key={r.id} value={r.id}>{r.nama}</option>)}
           </Select>
         </div>
+        {f.mata_pelajaran_id && mapelGuru && (
+          mapelGuru.length > 0
+            ? <p className="-mt-1 text-xs text-[var(--color-ink-soft)]">Pilihan Guru dibatasi ke <b>pengampu</b> mapel ini. Tambah/ubah pengampu di tab Mata Pelajaran.</p>
+            : <p className="-mt-1 text-xs text-[var(--color-gold)]">Mapel ini belum punya pengampu — menampilkan semua guru. Tetapkan pengampunya di tab Mata Pelajaran.</p>
+        )}
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Batal</Button><Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button></div>
       </form>
@@ -1396,9 +1537,13 @@ function KalenderTab({ ctx }) {
     // Filter per unit HANYA bila ada unit terpilih DAN bukan mode gabungan.
     const filterUnit = effSchoolId && !gabungan
     if (filterUnit) { q = q.or(`school_id.is.null,school_id.eq.${effSchoolId}`); hq = hq.or(`school_id.is.null,school_id.eq.${effSchoolId}`) }
-    if (ta?.tanggal_mulai) { q = q.gte('tanggal_mulai', ta.tanggal_mulai); hq = hq.gte('tanggal', ta.tanggal_mulai) }
-    if (ta?.tanggal_selesai) { q = q.lte('tanggal_mulai', ta.tanggal_selesai); hq = hq.lte('tanggal', ta.tanggal_selesai) }
-    if (tahunId && !ta?.tanggal_mulai && !ta?.tanggal_selesai) { q = q.or(`tahun_ajaran_id.eq.${tahunId},tahun_ajaran_id.is.null`) }
+    // AGENDA disaring per TAHUN AJARAN (bukan dijepit rentang tanggal) supaya
+    // agenda yang ditandai TA ini SELALU muncul walau tanggalnya di luar
+    // jendela TA; agenda tanpa TA (berlaku lintas tahun) juga ikut tampil.
+    if (tahunId) q = q.or(`tahun_ajaran_id.eq.${tahunId},tahun_ajaran_id.is.null`)
+    // HARI LIBUR tetap disaring per rentang tanggal TA (tak punya kolom TA).
+    if (ta?.tanggal_mulai) hq = hq.gte('tanggal', ta.tanggal_mulai)
+    if (ta?.tanggal_selesai) hq = hq.lte('tanggal', ta.tanggal_selesai)
     const [{ data }, { data: h }] = await Promise.all([q, hq])
     setRows(data || []); setLibur(h || []); setLoading(false)
   }, [effSchoolId, ta, tahunId, gabungan])
