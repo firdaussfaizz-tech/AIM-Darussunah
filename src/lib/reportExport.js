@@ -155,7 +155,7 @@ export async function exportPdf({ filename, title, meta = [], columns, rows }) {
     doc.setPage(p)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(140, 140, 140)
     doc.text(`Halaman ${p} dari ${pages}`, pageW - margin, pageH - 20, { align: 'right' })
-    doc.text('SIMPEG Yayasan — Analitik & Laporan', margin, pageH - 20)
+    doc.text('SIS HanifOne — Analitik & Laporan', margin, pageH - 20)
   }
 
   doc.save(`${filename}-${timestampSlug()}.pdf`)

@@ -123,7 +123,7 @@ export async function unduhSlipPdf({ row, nama, unit, periode }) {
   // --- Footer ---
   const tgl = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(150)
-  doc.text(`Dicetak ${tgl} - Slip gaji ini dihasilkan otomatis oleh SIMPEG Yayasan.`, marginX, pageH - 36)
+  doc.text(`Dicetak ${tgl} - Slip gaji ini dihasilkan otomatis oleh SIS HanifOne.`, marginX, pageH - 36)
 
   const safe = (s) => String(s || '').trim().replace(/[^\w-]+/g, '_').replace(/_+/g, '_')
   doc.save(`Slip-Gaji-${safe(nama)}-${safe(periode)}.pdf`)

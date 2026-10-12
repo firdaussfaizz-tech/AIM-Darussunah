@@ -1,9 +1,9 @@
 import { useEffect, useState, useMemo } from 'react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
-import { LayoutDashboard, GraduationCap, ClipboardCheck, Wallet, NotebookText } from 'lucide-react'
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { LayoutDashboard, GraduationCap, ClipboardCheck, Wallet, NotebookText, ChevronDown } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
-import { PageHeader, Card, SectionCard, StatCard, Badge, EmptyState, FullPageSpinner } from '../../components/ui'
+import { PageHeader, Card, SectionCard, StatCard, Badge, EmptyState, FullPageSpinner, Input, Button } from '../../components/ui'
 import { formatRupiah, SISWA_STATUS_LABELS, STATUS_BADGE_COLOR, BULAN, SEMESTER_OPTIONS } from '../../lib/format'
 
 // Semester berjalan ditebak dari bulan saat ini — sama persis dengan logika
@@ -53,31 +53,34 @@ function DashboardBody({ lockedSchoolId }) {
   const [loading, setLoading] = useState(true)
   const [siswaRows, setSiswaRows] = useState([])
   const [presensiRows, setPresensiRows] = useState([]) // presensi HARI INI (dengan nama siswa)
-  const [presensiRange, setPresensiRange] = useState([]) // presensi rentang (utk % mingguan/bulanan)
   const [tahunAktif, setTahunAktif] = useState(null)
   const [sppRows, setSppRows] = useState([])
   const [nilaiSiswaIds, setNilaiSiswaIds] = useState([])
   const [rombelRows, setRombelRows] = useState([])
+
+  // Rekap Presensi sebagai sub-panel yang MUNCUL saat kartu "Presensi Hari
+  // Ini" diklik. Linimasa kehadiran dapat diatur rentang tanggalnya.
+  const [showPresensi, setShowPresensi] = useState(false)
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const weekAgoStr = (() => { const d = new Date(); d.setDate(d.getDate() - 6); return d.toISOString().slice(0, 10) })()
+  const [dari, setDari] = useState(weekAgoStr)
+  const [sampai, setSampai] = useState(todayStr)
+  const [linimasaRows, setLinimasaRows] = useState([])
+  const [linimasaLoading, setLinimasaLoading] = useState(false)
 
   useEffect(() => {
     const load = async () => {
       setLoading(true)
       const today = new Date().toISOString().slice(0, 10)
       const now = new Date()
-      const awalBulan = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-      const weekAgoDate = new Date(now); weekAgoDate.setDate(now.getDate() - 6)
-      const weekAgo = weekAgoDate.toISOString().slice(0, 10)
-      const rangeStart = weekAgo < awalBulan ? weekAgo : awalBulan // cakup mingguan & bulanan
 
-      const [{ data: siswa }, { data: presensi }, { data: presensiR }, { data: ta }] = await Promise.all([
+      const [{ data: siswa }, { data: presensi }, { data: ta }] = await Promise.all([
         supabase.from('siswa').select('id, status, school_id, schools!school_id(nama, jenjang)'),
         supabase.from('presensi_siswa').select('status, keterangan, siswa:siswa_id(nama_lengkap, nis), rombel:rombel_id(nama_rombel)').eq('tanggal', today),
-        supabase.from('presensi_siswa').select('tanggal, status').gte('tanggal', rangeStart),
         supabase.from('tahun_ajaran').select('id, nama').eq('status', 'aktif').maybeSingle(),
       ])
       setSiswaRows(siswa || [])
       setPresensiRows(presensi || [])
-      setPresensiRange(presensiR || [])
       setTahunAktif(ta || null)
 
       if (ta) {
@@ -130,24 +133,36 @@ function DashboardBody({ lockedSchoolId }) {
     return by
   }, [presensiRows])
 
-  // Persentase kehadiran: harian (hari ini), mingguan (7 hari), bulanan.
-  const persenHadir = useMemo(() => {
-    const now = new Date()
-    const today = now.toISOString().slice(0, 10)
-    const awalBulan = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-    const weekAgoDate = new Date(now); weekAgoDate.setDate(now.getDate() - 6)
-    const weekAgo = weekAgoDate.toISOString().slice(0, 10)
-    const calc = (arr) => {
-      const total = arr.length
-      const hadir = arr.filter((r) => r.status === 'hadir').length
-      return { total, hadir, persen: total > 0 ? Math.round((hadir / total) * 100) : null }
+  // Linimasa kehadiran: ambil presensi pada rentang [dari, sampai] yang
+  // dipilih — hanya saat panel presensi dibuka, dan hanya bila rentang valid.
+  useEffect(() => {
+    if (!showPresensi || !dari || !sampai || dari > sampai) return
+    let batal = false
+    setLinimasaLoading(true)
+    supabase.from('presensi_siswa').select('tanggal, status').gte('tanggal', dari).lte('tanggal', sampai)
+      .then(({ data }) => { if (!batal) { setLinimasaRows(data || []); setLinimasaLoading(false) } })
+    return () => { batal = true }
+  }, [showPresensi, dari, sampai])
+
+  // Ringkasan + seri harian untuk rentang terpilih.
+  const linimasa = useMemo(() => {
+    const recap = { hadir: 0, izin: 0, sakit: 0, alpa: 0 }
+    const perHari = {}
+    for (const r of linimasaRows) {
+      recap[r.status] = (recap[r.status] || 0) + 1
+      const d = (perHari[r.tanggal] ||= { total: 0, hadir: 0 })
+      d.total += 1
+      if (r.status === 'hadir') d.hadir += 1
     }
-    return {
-      harian: calc(presensiRange.filter((r) => r.tanggal === today)),
-      mingguan: calc(presensiRange.filter((r) => r.tanggal >= weekAgo)),
-      bulanan: calc(presensiRange.filter((r) => r.tanggal >= awalBulan)),
-    }
-  }, [presensiRange])
+    const total = linimasaRows.length
+    const persen = total > 0 ? Math.round((recap.hadir / total) * 100) : null
+    const series = Object.entries(perHari).sort((a, b) => a[0].localeCompare(b[0])).map(([tanggal, d]) => ({
+      tanggal,
+      label: new Date(`${tanggal}T00:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }),
+      persen: d.total > 0 ? Math.round((d.hadir / d.total) * 100) : 0,
+    }))
+    return { ...recap, total, persen, series }
+  }, [linimasaRows])
 
   const sppStats = useMemo(() => {
     const lunas = sppRows.filter((t) => t.status === 'lunas').length
@@ -197,11 +212,18 @@ function DashboardBody({ lockedSchoolId }) {
                 : 'Belum ada rombel pada TA aktif')
             : 'Belum ada tahun ajaran aktif'}
         />
-        <StatCard
-          label="Presensi Hari Ini"
-          value={presensiStats.total > 0 ? `${presensiStats.hadir} Hadir` : '—'}
-          sub={presensiStats.total > 0 ? `dari ${presensiStats.total} siswa tercatat · Izin ${presensiStats.izin} · Sakit ${presensiStats.sakit} · Alpa ${presensiStats.alpa}` : 'Belum ada presensi tercatat hari ini'}
-        />
+        <button
+          type="button"
+          onClick={() => setShowPresensi((v) => !v)}
+          aria-expanded={showPresensi}
+          className="w-full rounded-[var(--radius-card,16px)] text-left transition hover:brightness-[0.99] focus:outline-none focus:ring-2 focus:ring-[var(--color-navy-50)]"
+        >
+          <StatCard
+            label={<span className="inline-flex items-center gap-1">Presensi Hari Ini <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showPresensi ? 'rotate-180' : ''}`} /></span>}
+            value={presensiStats.total > 0 ? `${presensiStats.hadir} Hadir` : '—'}
+            sub={presensiStats.total > 0 ? `dari ${presensiStats.total} tercatat · Izin ${presensiStats.izin} · Sakit ${presensiStats.sakit} · Alpa ${presensiStats.alpa} · klik untuk rincian` : 'Klik untuk rincian & linimasa kehadiran'}
+          />
+        </button>
         <StatCard
           label={`SPP ${bulanIni} ${tahunIni}`}
           value={sppStats.total > 0 ? `${sppStats.lunas} / ${sppStats.total} Lunas` : '—'}
@@ -245,48 +267,97 @@ function DashboardBody({ lockedSchoolId }) {
         )}
       </div>
 
-      <SectionCard title="Rekap Presensi Siswa" description="Kehadiran siswa hari ini beserta persentase harian, mingguan, dan bulanan. Hanya mencakup rombel yang sudah dicatat presensinya.">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {[['Harian (hari ini)', persenHadir.harian], ['Mingguan (7 hari)', persenHadir.mingguan], ['Bulanan (bulan ini)', persenHadir.bulanan]].map(([lbl, d]) => (
-            <Card key={lbl} className="bg-[var(--color-navy-50)]">
-              <p className="text-[13px] font-medium text-[var(--color-ink-soft)]">% Kehadiran {lbl}</p>
-              <p className="mt-1 font-[family-name:var(--font-display)] text-[26px] font-semibold text-[var(--color-navy)]">{d.persen != null ? `${d.persen}%` : '—'}</p>
-              <p className="text-xs text-[var(--color-ink-soft)]">{d.total > 0 ? `${d.hadir} hadir dari ${d.total} tercatat` : 'Belum ada presensi'}</p>
-            </Card>
-          ))}
-        </div>
+      {showPresensi && (
+        <SectionCard title="Rekap Presensi Siswa" description="Rincian kehadiran siswa hari ini dan linimasa kehadiran pada rentang tanggal yang dipilih. Hanya mencakup rombel yang sudah dicatat presensinya.">
+          {/* ---------- HARI INI ---------- */}
+          <p className="mb-2 text-sm font-semibold text-[var(--color-ink)]">Hari Ini</p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            {[['Tercatat', presensiStats.total], ['Hadir', presensiStats.hadir], ['Izin', presensiStats.izin], ['Sakit', presensiStats.sakit], ['Alpa', presensiStats.alpa]].map(([lbl, val]) => (
+              <div key={lbl} className="rounded-lg border border-[var(--color-border)] p-3 text-center">
+                <p className="text-xs text-[var(--color-ink-soft)]">{lbl}</p>
+                <p className="mt-0.5 text-xl font-semibold text-[var(--color-ink)]">{val}</p>
+              </div>
+            ))}
+          </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-          {[['Tercatat', presensiStats.total], ['Hadir', presensiStats.hadir], ['Izin', presensiStats.izin], ['Sakit', presensiStats.sakit], ['Alpa', presensiStats.alpa]].map(([lbl, val]) => (
-            <div key={lbl} className="rounded-lg border border-[var(--color-border)] p-3 text-center">
-              <p className="text-xs text-[var(--color-ink-soft)]">{lbl}</p>
-              <p className="mt-0.5 text-xl font-semibold text-[var(--color-ink)]">{val}</p>
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {[['Izin', 'izin', 'gold'], ['Sakit', 'sakit', 'navy'], ['Alpa', 'alpa', 'danger']].map(([lbl, key, color]) => (
+              <div key={key}>
+                <div className="mb-1.5 flex items-center gap-2"><Badge color={color}>{lbl}</Badge><span className="text-xs text-[var(--color-ink-soft)]">{presensiDetail[key].length} siswa</span></div>
+                {presensiDetail[key].length === 0 ? (
+                  <p className="text-sm text-[var(--color-ink-soft)]">—</p>
+                ) : (
+                  <ul className="flex flex-col divide-y divide-[var(--color-border)] rounded-md border border-[var(--color-border)]">
+                    {presensiDetail[key].map((s, i) => (
+                      <li key={i} className="px-3 py-1.5">
+                        <p className="text-sm font-medium text-[var(--color-ink)]">{s.nama}</p>
+                        <p className="text-xs text-[var(--color-ink-soft)]">{[s.rombel, s.nis, s.ket].filter(Boolean).join(' · ') || '—'}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+          {presensiStats.total === 0 && <p className="mt-3 text-sm text-[var(--color-ink-soft)]">Belum ada presensi siswa tercatat hari ini.</p>}
+
+          {/* ---------- LINIMASA (rentang tanggal bebas) ---------- */}
+          <div className="mt-6 border-t border-[var(--color-border)] pt-4">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[var(--color-ink)]">Linimasa Kehadiran</p>
+                <p className="text-xs text-[var(--color-ink-soft)]">Pilih satu tanggal (Dari = Sampai) atau rentang tanggal untuk melihat persentase kehadiran.</p>
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <Input label="Dari" type="date" containerClassName="w-40" value={dari} max={todayStr} onChange={(e) => setDari(e.target.value)} />
+                <Input label="Sampai" type="date" containerClassName="w-40" value={sampai} max={todayStr} onChange={(e) => setSampai(e.target.value)} />
+              </div>
             </div>
-          ))}
-        </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => { setDari(todayStr); setSampai(todayStr) }}>Hari ini</Button>
+              <Button size="sm" variant="outline" onClick={() => { const d = new Date(); d.setDate(d.getDate() - 6); setDari(d.toISOString().slice(0, 10)); setSampai(todayStr) }}>7 hari terakhir</Button>
+              <Button size="sm" variant="outline" onClick={() => { const d = new Date(); d.setDate(d.getDate() - 29); setDari(d.toISOString().slice(0, 10)); setSampai(todayStr) }}>30 hari terakhir</Button>
+            </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {[['Izin', 'izin', 'gold'], ['Sakit', 'sakit', 'navy'], ['Alpa', 'alpa', 'danger']].map(([lbl, key, color]) => (
-            <div key={key}>
-              <div className="mb-1.5 flex items-center gap-2"><Badge color={color}>{lbl}</Badge><span className="text-xs text-[var(--color-ink-soft)]">{presensiDetail[key].length} siswa</span></div>
-              {presensiDetail[key].length === 0 ? (
-                <p className="text-sm text-[var(--color-ink-soft)]">—</p>
-              ) : (
-                <ul className="flex flex-col divide-y divide-[var(--color-border)] rounded-md border border-[var(--color-border)]">
-                  {presensiDetail[key].map((s, i) => (
-                    <li key={i} className="px-3 py-1.5">
-                      <p className="text-sm font-medium text-[var(--color-ink)]">{s.nama}</p>
-                      <p className="text-xs text-[var(--color-ink-soft)]">{[s.rombel, s.nis, s.ket].filter(Boolean).join(' · ') || '—'}</p>
-                    </li>
+            {dari > sampai ? (
+              <p className="mt-3 text-sm text-[var(--color-danger)]">Tanggal “Dari” tidak boleh setelah “Sampai”.</p>
+            ) : linimasaLoading ? (
+              <p className="mt-3 text-sm text-[var(--color-ink-soft)]">Memuat…</p>
+            ) : (
+              <>
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  <Card className="bg-[var(--color-navy-50)]">
+                    <p className="text-[13px] font-medium text-[var(--color-ink-soft)]">% Kehadiran {dari === sampai ? '(1 hari)' : `(${linimasa.series.length} hari)`}</p>
+                    <p className="mt-1 font-[family-name:var(--font-display)] text-[26px] font-semibold text-[var(--color-navy)]">{linimasa.persen != null ? `${linimasa.persen}%` : '—'}</p>
+                    <p className="text-xs text-[var(--color-ink-soft)]">{linimasa.total > 0 ? `${linimasa.hadir} hadir / ${linimasa.total} tercatat` : 'Belum ada data'}</p>
+                  </Card>
+                  {[['Hadir', linimasa.hadir], ['Izin', linimasa.izin], ['Sakit', linimasa.sakit], ['Alpa', linimasa.alpa]].map(([lbl, val]) => (
+                    <div key={lbl} className="rounded-lg border border-[var(--color-border)] p-3 text-center">
+                      <p className="text-xs text-[var(--color-ink-soft)]">{lbl}</p>
+                      <p className="mt-0.5 text-xl font-semibold text-[var(--color-ink)]">{val}</p>
+                    </div>
                   ))}
-                </ul>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {presensiStats.total === 0 && <p className="mt-3 text-sm text-[var(--color-ink-soft)]">Belum ada presensi siswa tercatat hari ini.</p>}
-      </SectionCard>
+                </div>
+                {linimasa.series.length > 1 && (
+                  <div className="mt-4 rounded-xl border border-[var(--color-border)] p-3">
+                    <p className="mb-1 text-xs text-[var(--color-ink-soft)]">Tren % kehadiran per hari</p>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <LineChart data={linimasa.series} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                        <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--color-ink-soft)' }} axisLine={{ stroke: 'var(--color-border)' }} tickLine={false} />
+                        <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--color-ink-soft)' }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
+                        <Tooltip contentStyle={{ borderRadius: 8, borderColor: 'var(--color-border)', fontSize: 13 }} formatter={(v) => `${v}%`} />
+                        <Line type="monotone" dataKey="persen" name="% Hadir" stroke="var(--color-navy)" strokeWidth={2} dot={{ r: 3 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+                {linimasa.total === 0 && <p className="mt-3 text-sm text-[var(--color-ink-soft)]">Belum ada presensi tercatat pada rentang ini.</p>}
+              </>
+            )}
+          </div>
+        </SectionCard>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="flex items-center gap-3">

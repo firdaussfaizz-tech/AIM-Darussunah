@@ -266,11 +266,9 @@ function Sidebar({ open, onClose }) {
     >
       <div className="flex h-16 items-center justify-between px-5">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-[var(--color-navy)] shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_2px_6px_-1px_rgba(0,113,227,0.5)]">
-            <GraduationCap className="h-[18px] w-[18px] text-white" strokeWidth={2} />
-          </div>
+          <img src="/logo-hanifone.png" alt="Logo YPI Darussunah" className="h-9 w-9 shrink-0 object-contain" />
           <div className="leading-tight">
-            <p className="font-[family-name:var(--font-display)] text-[15px] font-semibold text-[var(--color-ink)]">SIMPEG Yayasan</p>
+            <p className="font-[family-name:var(--font-display)] text-[15px] font-semibold text-[var(--color-ink)]">SIS HanifOne</p>
             <p className="text-[11px] text-[var(--color-ink-soft)]">SD · SMP · SMA</p>
           </div>
         </div>

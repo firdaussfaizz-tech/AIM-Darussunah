@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { GraduationCap } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { Button, Input } from '../../components/ui'
@@ -53,11 +52,9 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-[var(--color-paper)] px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-[16px] bg-[var(--color-navy)]">
-            <GraduationCap className="h-7 w-7 text-white" />
-          </div>
-          <h1 className="font-[family-name:var(--font-display)] text-[26px] font-semibold tracking-tight text-[var(--color-ink)]">SIMPEG Yayasan</h1>
-          <p className="mt-1.5 text-[15px] text-[var(--color-ink-soft)]">Sistem Informasi Kepegawaian — SD · SMP · SMA</p>
+          <img src="/logo-hanifone.png" alt="Logo YPI Darussunah" className="mb-4 h-20 w-20 object-contain" />
+          <h1 className="font-[family-name:var(--font-display)] text-[26px] font-semibold tracking-tight text-[var(--color-ink)]">SIS HanifOne</h1>
+          <p className="mt-1.5 text-[15px] text-[var(--color-ink-soft)]">Sistem Informasi Sekolah — SD · SMP · SMA</p>
         </div>
 
         <form onSubmit={handleSubmit} className="rounded-[20px] border border-[var(--color-border)] bg-[var(--color-surface)] p-7 shadow-sm">

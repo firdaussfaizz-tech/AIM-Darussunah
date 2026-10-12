@@ -36,7 +36,7 @@ export default function NotificationSettings() {
     const { data } = await supabase.from('app_settings').select('*').eq('id', 1).maybeSingle()
     setRow(data || null)
     setFromEmail(data?.notif_from_email || '')
-    setFromName(data?.notif_from_name || 'SIMPEG Yayasan')
+    setFromName(data?.notif_from_name || 'SIS HanifOne')
     setLoading(false)
   }
 
@@ -119,7 +119,7 @@ export default function NotificationSettings() {
             autoComplete="off"
           />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Input label="Nama Pengirim" placeholder="SIMPEG Yayasan" value={fromName} onChange={(e) => setFromName(e.target.value)} />
+            <Input label="Nama Pengirim" placeholder="SIS HanifOne" value={fromName} onChange={(e) => setFromName(e.target.value)} />
             <Input label="Email Pengirim" type="email" placeholder="notifikasi@gmail.com" required value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} />
           </div>
           <p className="-mt-2 text-xs text-[var(--color-ink-soft)]">Email pengirim harus alamat yang sudah diverifikasi di akun Brevo Anda (menu Senders), atau Brevo akan menolak pengiriman.</p>
