@@ -12,7 +12,7 @@ import {
   PPDB_STATUS, PPDB_STATUS_LABEL, PPDB_JALUR, PERANGKAT_WAJIB_DEFAULT,
   hariIso, slotBentrok, openCetakAkd, isoLocal, hitungRekapKbm, liburDariKalender,
 } from '../../lib/academic'
-import { DEFAULT_BEBAN_KERJA_SETTINGS } from '../../lib/workload'
+import { DEFAULT_BEBAN_KERJA_SETTINGS, hitungBebanKerja, STATUS_BADGE_COLOR_BEBAN_KERJA } from '../../lib/workload'
 
 const BUCKET = 'employee-files'
 const fmtTgl = (d) => (d ? new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
@@ -352,9 +352,13 @@ function PenugasanTab({ ctx }) {
 
   const del = async (r) => { if (!confirm('Hapus penugasan ini?')) return; await supabase.from('penugasan_mengajar').delete().eq('id', r.id); load() }
 
-  // Data pendukung validasi JTM: standar min/maks + JP ekuivalensi tugas tambahan & jabatan struktural.
+  // Data pendukung: standar beban kerja + input per guru untuk MENGHITUNG
+  // status beban kerja PERSIS SAMA dengan modul Beban Kerja (Kepegawaian)
+  // lewat hitungBebanKerja (jam terpakai vs kapasitas → Longgar/Wajar/Padat/
+  // Melebihi kapasitas). Sumbernya pun sama: employee_beban_kerja +
+  // positions + employee_tugas_tambahan.
   const [std, setStd] = useState(DEFAULT_BEBAN_KERJA_SETTINGS)
-  const [ekuiv, setEkuiv] = useState({})
+  const [bebanInput, setBebanInput] = useState({}) // empId -> input hitungBebanKerja
   const empIds = useMemo(() => [...new Set(rows.map((r) => r.employee_id).filter(Boolean))], [rows])
   const empKey = empIds.join(',')
   useEffect(() => {
@@ -362,20 +366,28 @@ function PenugasanTab({ ctx }) {
   }, [])
   useEffect(() => {
     const ids = empKey ? empKey.split(',') : []
-    if (ids.length === 0) { setEkuiv({}); return }
+    if (ids.length === 0) { setBebanInput({}); return }
     Promise.all([
-      supabase.from('employees').select('id, positions(nama, tunjangan_jenis, jp_ekuivalensi)').in('id', ids),
+      supabase.from('employees').select('id, schools!school_id(jenjang), positions(nama, tunjangan_jenis, jp_ekuivalensi)').in('id', ids),
       supabase.from('employee_tugas_tambahan').select('employee_id, tugas_tambahan(nama, jp_ekuivalensi)').in('employee_id', ids),
-    ]).then(([{ data: emp }, { data: tt }]) => {
+      supabase.from('employee_beban_kerja').select('employee_id, jp_mengajar, jam_ketatausahaan, jam_manajerial').in('employee_id', ids),
+    ]).then(([{ data: emp }, { data: tt }, { data: bk }]) => {
+      const tugasByEmp = {}
+      for (const t of tt || []) { if (t.tugas_tambahan) (tugasByEmp[t.employee_id] ||= []).push(t.tugas_tambahan) }
+      const bkByEmp = Object.fromEntries((bk || []).map((b) => [b.employee_id, b]))
       const m = {}
       for (const e of emp || []) {
-        const p = e.positions
-        if (p?.tunjangan_jenis === 'struktural' && Number(p.jp_ekuivalensi) > 0) (m[e.id] ||= []).push({ nama: p.nama, jp: Number(p.jp_ekuivalensi) })
+        const b = bkByEmp[e.id]
+        m[e.id] = {
+          position: e.positions,
+          jenjang: e.schools?.jenjang,
+          tugasTambahanList: tugasByEmp[e.id] || [],
+          jpMengajar: b?.jp_mengajar || 0,
+          jamKetatausahaan: b?.jam_ketatausahaan || 0,
+          jamManajerial: b?.jam_manajerial || 0,
+        }
       }
-      for (const t of tt || []) {
-        if (Number(t.tugas_tambahan?.jp_ekuivalensi) > 0) (m[t.employee_id] ||= []).push({ nama: t.tugas_tambahan.nama, jp: Number(t.tugas_tambahan.jp_ekuivalensi) })
-      }
-      setEkuiv(m)
+      setBebanInput(m)
     })
   }, [empKey])
 
@@ -390,17 +402,15 @@ function PenugasanTab({ ctx }) {
     }
     const statusOf = (jp) => (jp < jpMin ? 'kurang' : jp > jpMaks ? 'lebih' : 'ok')
     return Object.values(m).map((g) => {
-      const tambahan = g.id ? (ekuiv[g.id] || []) : []
-      const jpTambahan = tambahan.reduce((a, t) => a + t.jp, 0)
       // JTM = JP MENGAJAR saja (tugas tambahan TIDAK dijumlahkan ke JTM).
       const totalJtm = g.jp
       const status = !g.id ? null : statusOf(totalJtm)
-      // Beban kerja = JP mengajar + JP ekuivalensi tugas tambahan/struktural.
-      const bebanTotal = g.jp + jpTambahan
-      const bebanStatus = !g.id ? null : statusOf(bebanTotal)
-      return { ...g, tambahan, jpTambahan, totalJtm, status, bebanTotal, bebanStatus }
-    }).sort((a, b) => b.bebanTotal - a.bebanTotal)
-  }, [rows, ekuiv, jpMin, jpMaks])
+      // Status beban kerja IDENTIK dengan modul Kepegawaian (hitungBebanKerja).
+      const inp = g.id ? bebanInput[g.id] : null
+      const hasil = inp ? hitungBebanKerja({ ...inp, settings: std }) : null
+      return { ...g, totalJtm, status, hasil }
+    }).sort((a, b) => (b.hasil?.totalJamTerpakai || 0) - (a.hasil?.totalJamTerpakai || 0))
+  }, [rows, bebanInput, std, jpMin, jpMaks])
   const nKurang = rekapGuru.filter((g) => g.status === 'kurang').length
   const nLebih = rekapGuru.filter((g) => g.status === 'lebih').length
 
@@ -433,7 +443,7 @@ function PenugasanTab({ ctx }) {
       </SectionCard>
 
       {rekapGuru.length > 0 && (
-        <SectionCard title="Akumulasi & Validasi JTM per Guru" description={`JTM = JP mengajar semester ini (tugas tambahan TIDAK menambah JTM), dibandingkan standar beban mengajar ${jpMin}–${jpMaks} JP/minggu. Kolom Beban Kerja memperhitungkan JP mengajar + ekuivalensi tugas tambahan/jabatan — klik untuk membuka modul Beban Kerja guru tsb. JP mengajar OTOMATIS mengisi 'JP Mengajar' di modul Beban Kerja.`}>
+        <SectionCard title="Akumulasi & Validasi JTM per Guru" description={`JTM = JP mengajar semester ini (tugas tambahan TIDAK menambah JTM), dibandingkan standar beban mengajar ${jpMin}–${jpMaks} JP/minggu. Kolom Beban Kerja memakai status yang SAMA dengan modul Beban Kerja (Kepegawaian): total jam terpakai (mengajar + tugas tambahan + ketatausahaan/manajerial) dibanding kapasitas jam kerja — klik untuk membuka modul Beban Kerja guru tsb.`}>
           {(nKurang > 0 || nLebih > 0) && (
             <p className="mb-3 flex items-center gap-2 rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-xs text-[var(--color-gold)]">
               <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -447,17 +457,15 @@ function PenugasanTab({ ctx }) {
                 <Tr key={i}>
                   <Td className="font-medium">{g.nama}</Td>
                   <Td>{g.n}</Td>
-                  <Td className="text-xs" title={g.tambahan.map((t) => `${t.nama}: ${t.jp} JP`).join('\n')}>{g.jpTambahan > 0 ? `${g.jpTambahan} JP (${g.tambahan.map((t) => t.nama).join(', ')})` : '—'}</Td>
+                  <Td className="text-xs" title={(g.hasil?.rincianTugasTambahan || []).map((t) => `${t.nama}: ${t.jp} JP`).join('\n')}>{g.hasil && g.hasil.jpTugasTambahan > 0 ? `${g.hasil.jpTugasTambahan} JP (${g.hasil.rincianTugasTambahan.map((t) => t.nama).join(', ')})` : '—'}</Td>
                   <Td className="font-semibold">{g.totalJtm} JP</Td>
                   <Td>{g.status === 'kurang' ? <Badge color="gold">Kurang</Badge> : g.status === 'lebih' ? <Badge color="danger">Berlebih</Badge> : g.status === 'ok' ? <Badge color="success">Memenuhi</Badge> : '—'}</Td>
                   <Td>
-                    {g.id ? (
-                      <Link to={`/beban-kerja?emp=${g.id}`} title={`Buka Beban Kerja ${g.nama} (total ${g.bebanTotal} JP termasuk tugas tambahan)`}
-                        className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-xs font-medium hover:border-[var(--color-navy)] hover:bg-[var(--color-navy-50)]">
-                        <span className={g.bebanStatus === 'kurang' ? 'text-[var(--color-gold)]' : g.bebanStatus === 'lebih' ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'}>
-                          {g.bebanStatus === 'kurang' ? 'Kurang' : g.bebanStatus === 'lebih' ? 'Berlebih' : 'Memenuhi'}
-                        </span>
-                        <span className="text-[var(--color-ink-soft)]">{g.bebanTotal} JP</span>
+                    {g.id && g.hasil ? (
+                      <Link to={`/beban-kerja?emp=${g.id}`} title={`Buka Beban Kerja ${g.nama} — ${Math.round(g.hasil.utilisasi * 100)}% dari kapasitas jam kerja (${Math.round(g.hasil.totalJamTerpakai * 10) / 10} / ${g.hasil.kapasitas} jam/minggu)`}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-xs hover:border-[var(--color-navy)] hover:bg-[var(--color-navy-50)]">
+                        <Badge color={STATUS_BADGE_COLOR_BEBAN_KERJA[g.hasil.status] || 'neutral'}>{g.hasil.status}</Badge>
+                        <span className="text-[var(--color-ink-soft)]">{Math.round(g.hasil.utilisasi * 100)}%</span>
                         <ExternalLink className="h-3 w-3 text-[var(--color-ink-soft)]" />
                       </Link>
                     ) : '—'}

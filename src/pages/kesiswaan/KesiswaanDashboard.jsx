@@ -52,7 +52,8 @@ export default function KesiswaanDashboard() {
 function DashboardBody({ lockedSchoolId }) {
   const [loading, setLoading] = useState(true)
   const [siswaRows, setSiswaRows] = useState([])
-  const [presensiRows, setPresensiRows] = useState([])
+  const [presensiRows, setPresensiRows] = useState([]) // presensi HARI INI (dengan nama siswa)
+  const [presensiRange, setPresensiRange] = useState([]) // presensi rentang (utk % mingguan/bulanan)
   const [tahunAktif, setTahunAktif] = useState(null)
   const [sppRows, setSppRows] = useState([])
   const [nilaiSiswaIds, setNilaiSiswaIds] = useState([])
@@ -63,14 +64,20 @@ function DashboardBody({ lockedSchoolId }) {
       setLoading(true)
       const today = new Date().toISOString().slice(0, 10)
       const now = new Date()
+      const awalBulan = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+      const weekAgoDate = new Date(now); weekAgoDate.setDate(now.getDate() - 6)
+      const weekAgo = weekAgoDate.toISOString().slice(0, 10)
+      const rangeStart = weekAgo < awalBulan ? weekAgo : awalBulan // cakup mingguan & bulanan
 
-      const [{ data: siswa }, { data: presensi }, { data: ta }] = await Promise.all([
+      const [{ data: siswa }, { data: presensi }, { data: presensiR }, { data: ta }] = await Promise.all([
         supabase.from('siswa').select('id, status, school_id, schools!school_id(nama, jenjang)'),
-        supabase.from('presensi_siswa').select('status').eq('tanggal', today),
+        supabase.from('presensi_siswa').select('status, keterangan, siswa:siswa_id(nama_lengkap, nis), rombel:rombel_id(nama_rombel)').eq('tanggal', today),
+        supabase.from('presensi_siswa').select('tanggal, status').gte('tanggal', rangeStart),
         supabase.from('tahun_ajaran').select('id, nama').eq('status', 'aktif').maybeSingle(),
       ])
       setSiswaRows(siswa || [])
       setPresensiRows(presensi || [])
+      setPresensiRange(presensiR || [])
       setTahunAktif(ta || null)
 
       if (ta) {
@@ -113,6 +120,34 @@ function DashboardBody({ lockedSchoolId }) {
     for (const p of presensiRows) recap[p.status] = (recap[p.status] || 0) + 1
     return { ...recap, total: presensiRows.length }
   }, [presensiRows])
+
+  // Daftar siswa izin/sakit/alpa HARI INI (dengan nama & rombel).
+  const presensiDetail = useMemo(() => {
+    const by = { izin: [], sakit: [], alpa: [] }
+    for (const p of presensiRows) {
+      if (by[p.status]) by[p.status].push({ nama: p.siswa?.nama_lengkap || '—', nis: p.siswa?.nis, rombel: p.rombel?.nama_rombel, ket: p.keterangan })
+    }
+    return by
+  }, [presensiRows])
+
+  // Persentase kehadiran: harian (hari ini), mingguan (7 hari), bulanan.
+  const persenHadir = useMemo(() => {
+    const now = new Date()
+    const today = now.toISOString().slice(0, 10)
+    const awalBulan = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+    const weekAgoDate = new Date(now); weekAgoDate.setDate(now.getDate() - 6)
+    const weekAgo = weekAgoDate.toISOString().slice(0, 10)
+    const calc = (arr) => {
+      const total = arr.length
+      const hadir = arr.filter((r) => r.status === 'hadir').length
+      return { total, hadir, persen: total > 0 ? Math.round((hadir / total) * 100) : null }
+    }
+    return {
+      harian: calc(presensiRange.filter((r) => r.tanggal === today)),
+      mingguan: calc(presensiRange.filter((r) => r.tanggal >= weekAgo)),
+      bulanan: calc(presensiRange.filter((r) => r.tanggal >= awalBulan)),
+    }
+  }, [presensiRange])
 
   const sppStats = useMemo(() => {
     const lunas = sppRows.filter((t) => t.status === 'lunas').length
@@ -209,6 +244,49 @@ function DashboardBody({ lockedSchoolId }) {
           </SectionCard>
         )}
       </div>
+
+      <SectionCard title="Rekap Presensi Siswa" description="Kehadiran siswa hari ini beserta persentase harian, mingguan, dan bulanan. Hanya mencakup rombel yang sudah dicatat presensinya.">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {[['Harian (hari ini)', persenHadir.harian], ['Mingguan (7 hari)', persenHadir.mingguan], ['Bulanan (bulan ini)', persenHadir.bulanan]].map(([lbl, d]) => (
+            <Card key={lbl} className="bg-[var(--color-navy-50)]">
+              <p className="text-[13px] font-medium text-[var(--color-ink-soft)]">% Kehadiran {lbl}</p>
+              <p className="mt-1 font-[family-name:var(--font-display)] text-[26px] font-semibold text-[var(--color-navy)]">{d.persen != null ? `${d.persen}%` : '—'}</p>
+              <p className="text-xs text-[var(--color-ink-soft)]">{d.total > 0 ? `${d.hadir} hadir dari ${d.total} tercatat` : 'Belum ada presensi'}</p>
+            </Card>
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          {[['Tercatat', presensiStats.total], ['Hadir', presensiStats.hadir], ['Izin', presensiStats.izin], ['Sakit', presensiStats.sakit], ['Alpa', presensiStats.alpa]].map(([lbl, val]) => (
+            <div key={lbl} className="rounded-lg border border-[var(--color-border)] p-3 text-center">
+              <p className="text-xs text-[var(--color-ink-soft)]">{lbl}</p>
+              <p className="mt-0.5 text-xl font-semibold text-[var(--color-ink)]">{val}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {[['Izin', 'izin', 'gold'], ['Sakit', 'sakit', 'navy'], ['Alpa', 'alpa', 'danger']].map(([lbl, key, color]) => (
+            <div key={key}>
+              <div className="mb-1.5 flex items-center gap-2"><Badge color={color}>{lbl}</Badge><span className="text-xs text-[var(--color-ink-soft)]">{presensiDetail[key].length} siswa</span></div>
+              {presensiDetail[key].length === 0 ? (
+                <p className="text-sm text-[var(--color-ink-soft)]">—</p>
+              ) : (
+                <ul className="flex flex-col divide-y divide-[var(--color-border)] rounded-md border border-[var(--color-border)]">
+                  {presensiDetail[key].map((s, i) => (
+                    <li key={i} className="px-3 py-1.5">
+                      <p className="text-sm font-medium text-[var(--color-ink)]">{s.nama}</p>
+                      <p className="text-xs text-[var(--color-ink-soft)]">{[s.rombel, s.nis, s.ket].filter(Boolean).join(' · ') || '—'}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {presensiStats.total === 0 && <p className="mt-3 text-sm text-[var(--color-ink-soft)]">Belum ada presensi siswa tercatat hari ini.</p>}
+      </SectionCard>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="flex items-center gap-3">
