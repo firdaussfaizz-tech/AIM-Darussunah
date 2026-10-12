@@ -51,6 +51,10 @@ function ManagerWorkload() {
   const [schoolFilter, setSchoolFilter] = useState('')
   const [editEmployee, setEditEmployee] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Shortcut dari modul Penugasan (Akademik): /beban-kerja?emp=<id> langsung
+  // membuka editor beban kerja guru tsb.
+  const [sp, setSp] = useSearchParams()
+  const [autoOpened, setAutoOpened] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -108,6 +112,16 @@ function ManagerWorkload() {
     }
     return Object.values(map).map((u) => ({ ...u, utilisasi: u.kapasitas > 0 ? u.totalTerpakai / u.kapasitas : 0 }))
   }, [rows])
+
+  useEffect(() => {
+    if (autoOpened || loading || !sp.get('emp')) return
+    const row = rows.find((r) => r.employee.id === sp.get('emp'))
+    if (row) {
+      setEditEmployee(row)
+      setAutoOpened(true)
+      const next = new URLSearchParams(sp); next.delete('emp'); setSp(next, { replace: true })
+    }
+  }, [autoOpened, loading, rows, sp, setSp])
 
   if (loading || !settingsLoaded) return <FullPageSpinner />
 

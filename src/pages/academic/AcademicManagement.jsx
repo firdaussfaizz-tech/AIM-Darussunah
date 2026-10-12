@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { useParams, Navigate } from 'react-router-dom'
+import { useParams, Navigate, Link } from 'react-router-dom'
 import { CalendarRange, ClipboardList, BookOpen, Users, GraduationCap, Plus, Pencil, Trash2, Upload, FileText, CheckCircle2, ShieldAlert, Award, ExternalLink, Printer, AlertTriangle, CalendarDays, UserPlus, ClipboardCheck, RefreshCw } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
@@ -388,13 +388,18 @@ function PenugasanTab({ ctx }) {
       if (!m[key]) m[key] = { id: r.employee_id, nama: r.employees?.nama || 'Tanpa guru', jp: 0, n: 0 }
       m[key].jp += Number(r.jam_per_minggu || 0); m[key].n++
     }
+    const statusOf = (jp) => (jp < jpMin ? 'kurang' : jp > jpMaks ? 'lebih' : 'ok')
     return Object.values(m).map((g) => {
       const tambahan = g.id ? (ekuiv[g.id] || []) : []
       const jpTambahan = tambahan.reduce((a, t) => a + t.jp, 0)
-      const total = g.jp + jpTambahan
-      const status = !g.id ? null : total < jpMin ? 'kurang' : total > jpMaks ? 'lebih' : 'ok'
-      return { ...g, tambahan, jpTambahan, total, status }
-    }).sort((a, b) => b.total - a.total)
+      // JTM = JP MENGAJAR saja (tugas tambahan TIDAK dijumlahkan ke JTM).
+      const totalJtm = g.jp
+      const status = !g.id ? null : statusOf(totalJtm)
+      // Beban kerja = JP mengajar + JP ekuivalensi tugas tambahan/struktural.
+      const bebanTotal = g.jp + jpTambahan
+      const bebanStatus = !g.id ? null : statusOf(bebanTotal)
+      return { ...g, tambahan, jpTambahan, totalJtm, status, bebanTotal, bebanStatus }
+    }).sort((a, b) => b.bebanTotal - a.bebanTotal)
   }, [rows, ekuiv, jpMin, jpMaks])
   const nKurang = rekapGuru.filter((g) => g.status === 'kurang').length
   const nLebih = rekapGuru.filter((g) => g.status === 'lebih').length
@@ -428,29 +433,40 @@ function PenugasanTab({ ctx }) {
       </SectionCard>
 
       {rekapGuru.length > 0 && (
-        <SectionCard title="Akumulasi & Validasi JTM per Guru" description={`JP mengajar semester ini + JP ekuivalensi tugas tambahan/jabatan struktural, dibandingkan standar beban mengajar ${jpMin}–${jpMaks} JP/minggu (Pengaturan Beban Kerja). JP mengajar OTOMATIS mengisi 'JP Mengajar' di modul Beban Kerja.`}>
+        <SectionCard title="Akumulasi & Validasi JTM per Guru" description={`JTM = JP mengajar semester ini (tugas tambahan TIDAK menambah JTM), dibandingkan standar beban mengajar ${jpMin}–${jpMaks} JP/minggu. Kolom Beban Kerja memperhitungkan JP mengajar + ekuivalensi tugas tambahan/jabatan — klik untuk membuka modul Beban Kerja guru tsb. JP mengajar OTOMATIS mengisi 'JP Mengajar' di modul Beban Kerja.`}>
           {(nKurang > 0 || nLebih > 0) && (
             <p className="mb-3 flex items-center gap-2 rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-xs text-[var(--color-gold)]">
               <AlertTriangle className="h-4 w-4 shrink-0" />
-              {nKurang > 0 && <span>{nKurang} guru di bawah {jpMin} JP.</span>}
-              {nLebih > 0 && <span>{nLebih} guru melebihi {jpMaks} JP.</span>}
+              {nKurang > 0 && <span>{nKurang} guru JTM di bawah {jpMin} JP.</span>}
+              {nLebih > 0 && <span>{nLebih} guru JTM melebihi {jpMaks} JP.</span>}
             </p>
           )}
           <div className="overflow-x-auto">
-            <Table columns={['Guru', 'Penugasan', 'JP Mengajar', 'JP Tugas Tambahan', 'Total JTM', 'Status']}>
+            <Table columns={['Guru', 'Penugasan', 'JP Tugas Tambahan', 'Total JTM', 'Status JTM', 'Beban Kerja']}>
               {rekapGuru.map((g, i) => (
                 <Tr key={i}>
                   <Td className="font-medium">{g.nama}</Td>
                   <Td>{g.n}</Td>
-                  <Td>{g.jp} JP</Td>
                   <Td className="text-xs" title={g.tambahan.map((t) => `${t.nama}: ${t.jp} JP`).join('\n')}>{g.jpTambahan > 0 ? `${g.jpTambahan} JP (${g.tambahan.map((t) => t.nama).join(', ')})` : '—'}</Td>
-                  <Td className="font-semibold">{g.total} JP</Td>
+                  <Td className="font-semibold">{g.totalJtm} JP</Td>
                   <Td>{g.status === 'kurang' ? <Badge color="gold">Kurang</Badge> : g.status === 'lebih' ? <Badge color="danger">Berlebih</Badge> : g.status === 'ok' ? <Badge color="success">Memenuhi</Badge> : '—'}</Td>
+                  <Td>
+                    {g.id ? (
+                      <Link to={`/beban-kerja?emp=${g.id}`} title={`Buka Beban Kerja ${g.nama} (total ${g.bebanTotal} JP termasuk tugas tambahan)`}
+                        className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-xs font-medium hover:border-[var(--color-navy)] hover:bg-[var(--color-navy-50)]">
+                        <span className={g.bebanStatus === 'kurang' ? 'text-[var(--color-gold)]' : g.bebanStatus === 'lebih' ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'}>
+                          {g.bebanStatus === 'kurang' ? 'Kurang' : g.bebanStatus === 'lebih' ? 'Berlebih' : 'Memenuhi'}
+                        </span>
+                        <span className="text-[var(--color-ink-soft)]">{g.bebanTotal} JP</span>
+                        <ExternalLink className="h-3 w-3 text-[var(--color-ink-soft)]" />
+                      </Link>
+                    ) : '—'}
+                  </Td>
                 </Tr>
               ))}
             </Table>
           </div>
-          <p className="mt-2 text-[11px] text-[var(--color-ink-soft)]">Catatan: JP mengajar dihitung dari penugasan di unit ini saja; guru yang juga mengajar di unit lain dapat tampil "Kurang".</p>
+          <p className="mt-2 text-[11px] text-[var(--color-ink-soft)]">Catatan: JTM dihitung dari penugasan di unit ini saja; guru yang juga mengajar di unit lain dapat tampil "Kurang". Status Beban Kerja menambahkan ekuivalensi tugas tambahan — tombolnya membuka modul Beban Kerja (Kepegawaian).</p>
         </SectionCard>
       )}
 
