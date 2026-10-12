@@ -3,7 +3,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContai
 import { LayoutDashboard, GraduationCap, ClipboardCheck, Wallet, NotebookText, ChevronDown } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
-import { PageHeader, Card, SectionCard, StatCard, Badge, EmptyState, FullPageSpinner, Input, Button } from '../../components/ui'
+import { PageHeader, Card, SectionCard, StatCard, Badge, EmptyState, FullPageSpinner, Input, Button, Modal } from '../../components/ui'
 import { formatRupiah, SISWA_STATUS_LABELS, STATUS_BADGE_COLOR, BULAN, SEMESTER_OPTIONS } from '../../lib/format'
 
 // Semester berjalan ditebak dari bulan saat ini — sama persis dengan logika
@@ -267,8 +267,9 @@ function DashboardBody({ lockedSchoolId }) {
         )}
       </div>
 
-      {showPresensi && (
-        <SectionCard title="Rekap Presensi Siswa" description="Rincian kehadiran siswa hari ini dan linimasa kehadiran pada rentang tanggal yang dipilih. Hanya mencakup rombel yang sudah dicatat presensinya.">
+      <Modal open={showPresensi} onClose={() => setShowPresensi(false)} title="Rekap Presensi Siswa" width="max-w-4xl">
+        <div>
+          <p className="mb-4 text-sm text-[var(--color-ink-soft)]">Rincian kehadiran siswa hari ini dan linimasa kehadiran pada rentang tanggal yang dipilih. Hanya mencakup rombel yang sudah dicatat presensinya.</p>
           {/* ---------- HARI INI ---------- */}
           <p className="mb-2 text-sm font-semibold text-[var(--color-ink)]">Hari Ini</p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -356,8 +357,8 @@ function DashboardBody({ lockedSchoolId }) {
               </>
             )}
           </div>
-        </SectionCard>
-      )}
+        </div>
+      </Modal>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="flex items-center gap-3">
