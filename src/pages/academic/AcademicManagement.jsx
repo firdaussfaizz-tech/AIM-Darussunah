@@ -491,11 +491,18 @@ function PenugasanModal({ open, ctx, lists, editing, onClose, onSaved }) {
     if (valid.length === 0) { setError('Isi minimal satu baris mata pelajaran + rombel.'); return }
     setError(''); setSaving(true)
     if (isEdit) {
-      const it = valid[0]
-      const { error: err } = await supabase.from('penugasan_mengajar').update({ employee_id: employeeId || null, mata_pelajaran_id: it.mata_pelajaran_id, rombel_id: it.rombel_id, jam_per_minggu: Number(it.jam_per_minggu) || 0, keterangan: keterangan.trim() || null }).eq('id', editing.id)
-      setSaving(false)
-      if (err) { setError(err.message.includes('duplicate') ? 'Kombinasi mapel + rombel + semester sudah ada.' : err.message); return }
-      onSaved(); return
+      // Baris pertama memperbarui penugasan yang diedit; baris tambahan
+      // (bila ada) disimpan sebagai penugasan baru untuk guru yang sama —
+      // sehingga form Ubah bisa dipakai seperti form Tambah (banyak baris).
+      const [it0, ...rest] = valid
+      const { error: err } = await supabase.from('penugasan_mengajar').update({ employee_id: employeeId || null, mata_pelajaran_id: it0.mata_pelajaran_id, rombel_id: it0.rombel_id, jam_per_minggu: Number(it0.jam_per_minggu) || 0, keterangan: keterangan.trim() || null }).eq('id', editing.id)
+      if (err) { setSaving(false); setError(err.message.includes('duplicate') ? 'Kombinasi mapel + rombel + semester sudah ada.' : err.message); return }
+      if (rest.length > 0) {
+        const extra = rest.map((it) => ({ school_id: effSchoolId, tahun_ajaran_id: tahunId, semester, employee_id: employeeId || null, mata_pelajaran_id: it.mata_pelajaran_id, rombel_id: it.rombel_id, jam_per_minggu: Number(it.jam_per_minggu) || 0, keterangan: keterangan.trim() || null }))
+        const { error: e2 } = await supabase.from('penugasan_mengajar').insert(extra)
+        if (e2) { setSaving(false); setError('Baris pertama tersimpan, baris tambahan gagal: ' + (e2.message.includes('duplicate') ? 'ada kombinasi mapel + rombel + semester yang sudah ada.' : e2.message)); return }
+      }
+      setSaving(false); onSaved(); return
     }
     const payload = valid.map((it) => ({ school_id: effSchoolId, tahun_ajaran_id: tahunId, semester, employee_id: employeeId || null, mata_pelajaran_id: it.mata_pelajaran_id, rombel_id: it.rombel_id, jam_per_minggu: Number(it.jam_per_minggu) || 0, keterangan: keterangan.trim() || null }))
     const { error: err } = await supabase.from('penugasan_mengajar').insert(payload)
@@ -512,7 +519,7 @@ function PenugasanModal({ open, ctx, lists, editing, onClose, onSaved }) {
           {lists.guru.map((g) => <option key={g.id} value={g.id}>{g.nama}</option>)}
         </Select>
         <div className="flex flex-col gap-2">
-          <label className="text-[13px] font-medium text-[var(--color-ink)]">Mata Pelajaran &amp; Rombel {isEdit ? '' : '(boleh lebih dari satu)'}</label>
+          <label className="text-[13px] font-medium text-[var(--color-ink)]">Mata Pelajaran &amp; Rombel (boleh lebih dari satu)</label>
           {items.map((it, idx) => (
             <div key={idx} className="grid grid-cols-[1fr_1fr_84px_auto] items-center gap-2">
               <Select value={it.mata_pelajaran_id} onChange={(e) => setItem(idx, 'mata_pelajaran_id', e.target.value)}>
@@ -524,15 +531,14 @@ function PenugasanModal({ open, ctx, lists, editing, onClose, onSaved }) {
                 {lists.rombel.map((r) => <option key={r.id} value={r.id}>{r.nama_rombel}</option>)}
               </Select>
               <Input type="number" value={it.jam_per_minggu} onChange={(e) => setItem(idx, 'jam_per_minggu', e.target.value)} placeholder="JP" />
-              {!isEdit && <button type="button" onClick={() => removeItem(idx)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus baris"><Trash2 className="h-4 w-4" /></button>}
+              <button type="button" onClick={() => removeItem(idx)} disabled={items.length <= 1} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)] disabled:opacity-30" aria-label="Hapus baris"><Trash2 className="h-4 w-4" /></button>
             </div>
           ))}
-          {!isEdit && (
-            <div className="flex items-center justify-between">
-              <button type="button" onClick={addItem} className="text-xs font-medium text-[var(--color-navy)] hover:underline">+ Tambah mapel/rombel</button>
-              <span className="text-xs text-[var(--color-ink-soft)]">Total: <b>{totalJp} JP/minggu</b></span>
-            </div>
-          )}
+          <div className="flex items-center justify-between">
+            <button type="button" onClick={addItem} className="text-xs font-medium text-[var(--color-navy)] hover:underline">+ Tambah mapel/rombel</button>
+            <span className="text-xs text-[var(--color-ink-soft)]">Total: <b>{totalJp} JP/minggu</b></span>
+          </div>
+          {isEdit && <p className="text-xs text-[var(--color-ink-soft)]">Baris pertama memperbarui penugasan ini; baris tambahan disimpan sebagai penugasan baru untuk guru yang sama.</p>}
         </div>
         {lists.mapel.length === 0 && <p className="rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-xs text-[var(--color-gold)]">Belum ada mata pelajaran di unit ini. Tambahkan dulu lewat menu "Mata Pelajaran".</p>}
         <Input label="Keterangan" value={keterangan} onChange={(e) => setKeterangan(e.target.value)} />

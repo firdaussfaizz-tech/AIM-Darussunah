@@ -2,13 +2,101 @@ import { useEffect, useState, useCallback } from 'react'
 import { History, Eye } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { PageHeader, Card, Table, Tr, Td, Badge, EmptyState, FullPageSpinner, Modal, Select } from '../../components/ui'
-import { formatDate } from '../../lib/format'
 
+// Label ramah untuk tiap tabel yang diaudit (seluruh modul). Tabel yang
+// belum tercantum di sini tetap tampil memakai nama tabelnya.
 const TABLE_LABELS = {
+  // Kepegawaian & payroll
+  employees: 'Data Pegawai',
+  employee_documents: 'Dokumen Pegawai',
+  employee_education: 'Pendidikan Pegawai',
+  employee_work_history: 'Riwayat Kerja Pegawai',
+  employee_salary: 'Komponen Gaji Pegawai',
+  employee_tugas_tambahan: 'Tugas Tambahan Pegawai',
+  employee_beban_kerja: 'Beban Kerja Pegawai',
+  employment_contracts: 'Kontrak Kerja',
+  tugas_tambahan: 'Master Tugas Tambahan',
+  attendance: 'Presensi Pegawai',
+  leave_requests: 'Pengajuan Cuti/Izin',
+  leave_types: 'Jenis Cuti',
+  trainings: 'Pelatihan',
+  training_participants: 'Peserta Pelatihan',
+  payroll_runs: 'Periode Penggajian',
   payroll_details: 'Slip Gaji',
-  employees: 'Data Pegawai (Golongan)',
-  employee_tugas_tambahan: 'Tugas Tambahan',
+  payroll_settings: 'Pengaturan Penggajian',
+  beban_kerja_settings: 'Pengaturan Beban Kerja',
+  // Kinerja / OKR-KPI
+  performance_periods: 'Periode Penilaian Kinerja',
+  performance_reviews: 'Penilaian Kinerja',
+  performance_review_kpi_scores: 'Skor KPI Penilaian',
   performance_index: 'Indeks Kinerja',
+  kpi_indicators: 'Indikator KPI Individu',
+  kpi_lembaga_indikator: 'Indikator KPI Lembaga',
+  kpi_lembaga_pengukuran: 'Pengukuran KPI Lembaga',
+  okr_objectives: 'OKR — Objective',
+  okr_key_results: 'OKR — Key Result',
+  // Organisasi & akses
+  schools: 'Satuan Pendidikan',
+  positions: 'Jabatan',
+  departments: 'Departemen',
+  roles: 'Peran',
+  user_roles: 'Penetapan Peran Pengguna',
+  role_permissions: 'Matriks Izin Peran',
+  profiles: 'Profil Pengguna',
+  modules: 'Modul',
+  app_settings: 'Pengaturan Aplikasi',
+  school_holidays: 'Kalender Libur',
+  // Kesiswaan
+  siswa: 'Data Siswa',
+  siswa_dokumen: 'Dokumen Siswa',
+  rombel: 'Rombel / Kelas',
+  tahun_ajaran: 'Tahun Ajaran',
+  riwayat_siswa: 'Riwayat Kelas Siswa',
+  presensi_siswa: 'Presensi Siswa',
+  spp_tarif: 'Tarif SPP',
+  spp_tagihan: 'Tagihan SPP',
+  spp_pembayaran: 'Pembayaran SPP',
+  nilai_siswa: 'Nilai Siswa',
+  rapor_catatan: 'Catatan Rapor',
+  kurikulum_kkm: 'Kurikulum / KKM',
+  ppdb_pendaftar: 'Pendaftar PPDB',
+  // Akademik / pembelajaran
+  mata_pelajaran: 'Mata Pelajaran',
+  mapel_pengampu: 'Pengampu Mata Pelajaran',
+  penugasan_mengajar: 'Penugasan Mengajar',
+  jadwal_pelajaran: 'Jadwal Pelajaran',
+  jurnal_kbm: 'Jurnal KBM',
+  kalender_akademik: 'Kalender Akademik',
+  ekstrakurikuler: 'Ekstrakurikuler',
+  ekskul_peserta: 'Peserta Ekstrakurikuler',
+  perangkat_ajar: 'Perangkat Ajar',
+  // Sarana & prasarana
+  aset: 'Aset / Inventaris',
+  aset_kategori: 'Kategori Aset',
+  aset_klasifikasi: 'Klasifikasi Aset',
+  aset_golongan: 'Golongan Aset',
+  ruangan: 'Ruangan',
+  aset_penggunaan: 'Penggunaan Aset',
+  aset_pemeliharaan_log: 'Pemeliharaan Aset',
+  aset_penyaluran: 'Penyaluran Aset',
+  aset_opname: 'Opname Aset',
+  aset_opname_item: 'Item Opname Aset',
+  aset_penghapusan: 'Penghapusan Aset',
+  aset_penghapusan_item: 'Item Penghapusan Aset',
+  barang_habis_pakai: 'Barang Habis Pakai',
+  bhp_transaksi: 'Transaksi BHP',
+  dka_standar_aset: 'DKA — Standar Aset',
+  dka_standar_harga: 'DKA — Standar Harga',
+  dka_standar_kebutuhan: 'DKA — Standar Kebutuhan',
+  dka_usulan: 'DKA — Usulan Kebutuhan',
+  dka_usulan_item: 'DKA — Item Usulan',
+  dka_pengadaan_proses: 'DKA — Proses Pengadaan',
+  dka_pemeliharaan_item: 'DKA — Item Pemeliharaan',
+  // Keuangan
+  rkas_anggaran: 'RKAS — Anggaran',
+  rkas_pendapatan_item: 'RKAS — Pendapatan',
+  rkas_belanja_item: 'RKAS — Belanja',
+  buku_kas_transaksi: 'Buku Kas',
 }
 
 const ACTION_BADGE = { INSERT: 'success', UPDATE: 'gold', DELETE: 'danger' }
@@ -66,11 +154,11 @@ export default function ActivityLog() {
     <div>
       <PageHeader
         title="Log Aktivitas"
-        description="Riwayat perubahan pada data yang berdampak ke gaji — Golongan, Tugas Tambahan, Indeks Kinerja, dan slip gaji. 200 perubahan terbaru."
+        description="Riwayat seluruh perubahan data di aplikasi (ditambah, diubah, dihapus) — lintas modul: Kepegawaian, Kesiswaan, Akademik, Sarpras, Keuangan, dan lainnya. 200 perubahan terbaru."
         actions={
           <Select value={tableFilter} onChange={(e) => setTableFilter(e.target.value)} containerClassName="w-56">
             <option value="">Semua Jenis Data</option>
-            {Object.entries(TABLE_LABELS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            {Object.entries(TABLE_LABELS).sort((a, b) => a[1].localeCompare(b[1])).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
           </Select>
         }
       />
@@ -80,7 +168,7 @@ export default function ActivityLog() {
           {loading ? (
             <FullPageSpinner />
           ) : rows.length === 0 ? (
-            <EmptyState icon={History} title="Belum ada aktivitas tercatat" description="Perubahan pada Golongan, Tugas Tambahan, Indeks Kinerja, dan slip gaji akan muncul di sini." />
+            <EmptyState icon={History} title="Belum ada aktivitas tercatat" description="Setiap penambahan, perubahan, dan penghapusan data di seluruh modul aplikasi akan muncul di sini." />
           ) : (
             <Table columns={['Waktu', 'Jenis Data', 'Aksi', 'Pegawai Terkait', 'Diubah Oleh', '']}>
               {rows.map((r) => (
