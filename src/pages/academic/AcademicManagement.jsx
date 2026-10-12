@@ -611,12 +611,18 @@ function JadwalTab({ ctx }) {
   }, [effSchoolId])
   const simpanJam = async () => {
     setSavingJam(true)
-    const { error: err } = await supabase.from('schools').update({
-      jp_durasi_menit: jamForm.jp_durasi_menit === '' ? null : Number(jamForm.jp_durasi_menit),
-      jam_mulai_kbm: jamForm.jam_mulai_kbm || null,
-      istirahat1_mulai: jamForm.ist1_mulai || null, istirahat1_selesai: jamForm.ist1_selesai || null,
-      istirahat2_mulai: jamForm.ist2_mulai || null, istirahat2_selesai: jamForm.ist2_selesai || null,
-    }).eq('id', effSchoolId)
+    // Pakai RPC: tabel schools hanya bisa ditulis Yayasan (RLS), sedangkan
+    // Kepala/Admin Sekolah perlu mengatur jam unitnya sendiri. RPC memeriksa
+    // wewenang dan hanya mengubah kolom jam.
+    const { error: err } = await supabase.rpc('set_jam_pelajaran', {
+      p_school_id: effSchoolId,
+      p_jp_durasi_menit: jamForm.jp_durasi_menit === '' ? null : Number(jamForm.jp_durasi_menit),
+      p_jam_mulai_kbm: jamForm.jam_mulai_kbm || null,
+      p_istirahat1_mulai: jamForm.ist1_mulai || null,
+      p_istirahat1_selesai: jamForm.ist1_selesai || null,
+      p_istirahat2_mulai: jamForm.ist2_mulai || null,
+      p_istirahat2_selesai: jamForm.ist2_selesai || null,
+    })
     setSavingJam(false)
     if (err) { alert('Gagal menyimpan pengaturan jam: ' + err.message); return }
     alert('Pengaturan jam tersimpan. Slot baru akan memakai jam & istirahat otomatis ini.')
