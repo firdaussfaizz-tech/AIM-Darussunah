@@ -7,7 +7,13 @@
 import { supabase } from './supabaseClient'
 import { HARI_LABEL, JENIS_KALENDER_LABEL, PPDB_STATUS_LABEL, hitungRekapKbm, liburDariKalender } from './academic'
 
-const tgl = (d) => (d ? new Date(`${String(d).slice(0, 10)}T00:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }) : '.............................')
+const tgl = (d) => {
+  if (!d) return '.............................'
+  // Terima string tanggal (YYYY-MM-DD / ISO) MAUPUN objek Date (mis. new Date()).
+  const dt = d instanceof Date ? d : new Date(`${String(d).slice(0, 10)}T00:00:00`)
+  if (Number.isNaN(dt.getTime())) return '.............................'
+  return dt.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
+}
 const unitName = (s) => (s ? `${s.jenjang} — ${s.nama}` : 'Kantor Yayasan Pusat')
 const blank = '____________________'
 const jam = (r) => (r?.jam_mulai ? `${r.jam_mulai.slice(0, 5)}${r.jam_selesai ? `–${r.jam_selesai.slice(0, 5)}` : ''}` : '')
@@ -71,8 +77,12 @@ export async function loadDokumenAkd(jenis, id, qs = {}) {
     const { data: school } = await supabase.from('schools').select('id, nama, jenjang').eq('id', id).maybeSingle()
     let aq = supabase.from('kalender_akademik').select('*').eq('status', 'disetujui').or(`school_id.is.null,school_id.eq.${id}`).order('tanggal_mulai')
     let hq = supabase.from('school_holidays').select('tanggal, keterangan').eq('status', 'disetujui').or(`school_id.is.null,school_id.eq.${id}`).order('tanggal')
-    if (ta?.tanggal_mulai) { aq = aq.gte('tanggal_mulai', ta.tanggal_mulai); hq = hq.gte('tanggal', ta.tanggal_mulai) }
-    if (ta?.tanggal_selesai) { aq = aq.lte('tanggal_mulai', ta.tanggal_selesai); hq = hq.lte('tanggal', ta.tanggal_selesai) }
+    // Agenda: saring per TAHUN AJARAN (konsisten dengan tampilan layar), bukan
+    // dijepit rentang tanggal — agar agenda TA ini selalu ikut tercetak.
+    if (qs.ta) aq = aq.or(`tahun_ajaran_id.eq.${qs.ta},tahun_ajaran_id.is.null`)
+    // Hari libur tetap per rentang tanggal TA (tak punya kolom tahun ajaran).
+    if (ta?.tanggal_mulai) hq = hq.gte('tanggal', ta.tanggal_mulai)
+    if (ta?.tanggal_selesai) hq = hq.lte('tanggal', ta.tanggal_selesai)
     const [{ data: agenda }, { data: libur }] = await Promise.all([aq, hq])
     return { ta, school, agenda: agenda || [], libur: libur || [] }
   }

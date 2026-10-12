@@ -546,19 +546,40 @@ function PenugasanModal({ open, ctx, lists, editing, onClose, onSaved }) {
 // =========================================================================
 // JADWAL PELAJARAN
 // =========================================================================
-// Hitung jam Mulai/Selesai sebuah slot dari "Jam ke-", jam mulai KBM, dan
-// durasi satu JP (menit) milik unit. Model lurus tanpa istirahat: cukup
-// untuk mengisi jam otomatis; pengguna bisa mengatur durasi per unit.
-function hitungJamSlot(jamKe, jamMulaiKbm, durasiMenit) {
+const toMin = (t) => {
+  if (!t) return null
+  const [h, m] = String(t).split(':').map(Number)
+  return (Number.isNaN(h) || Number.isNaN(m)) ? null : h * 60 + m
+}
+const fmtMin = (mins) => `${String(Math.floor((mins % 1440) / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
+
+// Hitung jam Mulai/Selesai sebuah slot dari "Jam ke-", jam mulai KBM, durasi
+// satu JP (menit), dan daftar ISTIRAHAT (window {start,end} dalam menit).
+// Istirahat yang jatuh di antara / di tengah sebuah JP akan menggeser slot
+// berikutnya sesuai jeda, sehingga jam otomatis menghormati waktu istirahat.
+function hitungJamSlot(jamKe, jamMulaiKbm, durasiMenit, breaks = []) {
   const jk = Number(jamKe)
   const dur = Number(durasiMenit)
-  if (!jk || jk < 1 || !jamMulaiKbm || !dur) return null
-  const [h, m] = String(jamMulaiKbm).split(':').map(Number)
-  if (Number.isNaN(h) || Number.isNaN(m)) return null
-  const startMin = h * 60 + m + (jk - 1) * dur
-  const endMin = startMin + dur
-  const fmt = (mins) => `${String(Math.floor((mins % 1440) / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
-  return { mulai: fmt(startMin), selesai: fmt(endMin) }
+  const startBase = toMin(jamMulaiKbm)
+  if (!jk || jk < 1 || startBase == null || !dur) return null
+  const bs = (breaks || [])
+    .map((b) => ({ start: toMin(b.start), end: toMin(b.end) }))
+    .filter((b) => b.start != null && b.end != null && b.end > b.start)
+    .sort((a, b) => a.start - b.start)
+  const taken = Array.from({ length: bs.length }, () => false)
+  let clock = startBase
+  let slotStart = clock
+  let slotEnd = clock + dur
+  for (let i = 1; i <= jk; i++) {
+    // Terapkan istirahat yang mulai pada/atau sebelum jam sekarang.
+    for (let k = 0; k < bs.length; k++) { if (!taken[k] && bs[k].start <= clock) { clock = Math.max(clock, bs[k].end); taken[k] = true } }
+    slotStart = clock
+    slotEnd = slotStart + dur
+    // Jika istirahat mulai DI TENGAH slot ini, geser slot ke setelah istirahat.
+    for (let k = 0; k < bs.length; k++) { if (!taken[k] && bs[k].start > slotStart && bs[k].start < slotEnd) { slotStart = bs[k].end; slotEnd = slotStart + dur; taken[k] = true } }
+    clock = slotEnd
+  }
+  return { mulai: fmtMin(slotStart), selesai: fmtMin(slotEnd) }
 }
 
 function JadwalTab({ ctx }) {
@@ -575,12 +596,17 @@ function JadwalTab({ ctx }) {
 
   // Pengaturan jam pelajaran per unit (durasi JP & jam mulai KBM) — dasar
   // penghitungan jam Mulai/Selesai slot secara otomatis.
-  const [jamForm, setJamForm] = useState({ jp_durasi_menit: '', jam_mulai_kbm: '' })
+  const [jamForm, setJamForm] = useState({ jp_durasi_menit: '', jam_mulai_kbm: '', ist1_mulai: '', ist1_selesai: '', ist2_mulai: '', ist2_selesai: '' })
   const [savingJam, setSavingJam] = useState(false)
+  const hhmm = (t) => (t ? String(t).slice(0, 5) : '')
   useEffect(() => {
     if (!effSchoolId) return
-    supabase.from('schools').select('jp_durasi_menit, jam_mulai_kbm').eq('id', effSchoolId).maybeSingle().then(({ data }) => {
-      setJamForm({ jp_durasi_menit: data?.jp_durasi_menit ?? '', jam_mulai_kbm: data?.jam_mulai_kbm ? String(data.jam_mulai_kbm).slice(0, 5) : '' })
+    supabase.from('schools').select('jp_durasi_menit, jam_mulai_kbm, istirahat1_mulai, istirahat1_selesai, istirahat2_mulai, istirahat2_selesai').eq('id', effSchoolId).maybeSingle().then(({ data }) => {
+      setJamForm({
+        jp_durasi_menit: data?.jp_durasi_menit ?? '', jam_mulai_kbm: hhmm(data?.jam_mulai_kbm),
+        ist1_mulai: hhmm(data?.istirahat1_mulai), ist1_selesai: hhmm(data?.istirahat1_selesai),
+        ist2_mulai: hhmm(data?.istirahat2_mulai), ist2_selesai: hhmm(data?.istirahat2_selesai),
+      })
     })
   }, [effSchoolId])
   const simpanJam = async () => {
@@ -588,10 +614,12 @@ function JadwalTab({ ctx }) {
     const { error: err } = await supabase.from('schools').update({
       jp_durasi_menit: jamForm.jp_durasi_menit === '' ? null : Number(jamForm.jp_durasi_menit),
       jam_mulai_kbm: jamForm.jam_mulai_kbm || null,
+      istirahat1_mulai: jamForm.ist1_mulai || null, istirahat1_selesai: jamForm.ist1_selesai || null,
+      istirahat2_mulai: jamForm.ist2_mulai || null, istirahat2_selesai: jamForm.ist2_selesai || null,
     }).eq('id', effSchoolId)
     setSavingJam(false)
     if (err) { alert('Gagal menyimpan pengaturan jam: ' + err.message); return }
-    alert('Pengaturan jam tersimpan. Slot baru akan memakai jam otomatis ini.')
+    alert('Pengaturan jam tersimpan. Slot baru akan memakai jam & istirahat otomatis ini.')
   }
 
   // Manajer memuat SELURUH slot unit (untuk deteksi bentrok lintas rombel), lalu disaring per rombel di layar.
@@ -664,15 +692,33 @@ function JadwalTab({ ctx }) {
         </div>
       </div>
       {isManager && (
-        <div className="flex flex-wrap items-end gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-navy-50)] p-3">
-          <div className="min-w-[12rem]">
+        <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-navy-50)] p-3">
+          <div className="mb-2">
             <p className="text-sm font-medium text-[var(--color-ink)]">Pengaturan Jam Pelajaran (unit ini)</p>
-            <p className="text-xs text-[var(--color-ink-soft)]">Jam Mulai/Selesai slot dihitung otomatis dari “Jam ke-” memakai nilai ini.</p>
+            <p className="text-xs text-[var(--color-ink-soft)]">Jam Mulai/Selesai slot dihitung otomatis dari “Jam ke-”, memperhitungkan durasi JP & waktu istirahat di bawah ini.</p>
           </div>
-          <div className="flex-1" />
-          <Input label="Durasi per JP (menit)" type="number" min="1" containerClassName="w-40" value={jamForm.jp_durasi_menit} onChange={(e) => setJamForm((s) => ({ ...s, jp_durasi_menit: e.target.value }))} />
-          <Input label="Jam mulai KBM" type="time" containerClassName="w-36" value={jamForm.jam_mulai_kbm} onChange={(e) => setJamForm((s) => ({ ...s, jam_mulai_kbm: e.target.value }))} />
-          <Button variant="outline" onClick={simpanJam} disabled={savingJam}>{savingJam ? 'Menyimpan…' : 'Simpan Jam'}</Button>
+          <div className="flex flex-wrap items-end gap-3">
+            <Input label="Durasi per JP (menit)" type="number" min="1" containerClassName="w-36" value={jamForm.jp_durasi_menit} onChange={(e) => setJamForm((s) => ({ ...s, jp_durasi_menit: e.target.value }))} />
+            <Input label="Jam mulai KBM" type="time" containerClassName="w-32" value={jamForm.jam_mulai_kbm} onChange={(e) => setJamForm((s) => ({ ...s, jam_mulai_kbm: e.target.value }))} />
+            <div>
+              <p className="mb-1 text-xs font-medium text-[var(--color-ink-soft)]">Istirahat 1</p>
+              <div className="flex items-center gap-1.5">
+                <Input type="time" containerClassName="w-28" value={jamForm.ist1_mulai} onChange={(e) => setJamForm((s) => ({ ...s, ist1_mulai: e.target.value }))} />
+                <span className="text-[var(--color-ink-soft)]">–</span>
+                <Input type="time" containerClassName="w-28" value={jamForm.ist1_selesai} onChange={(e) => setJamForm((s) => ({ ...s, ist1_selesai: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-[var(--color-ink-soft)]">Istirahat 2</p>
+              <div className="flex items-center gap-1.5">
+                <Input type="time" containerClassName="w-28" value={jamForm.ist2_mulai} onChange={(e) => setJamForm((s) => ({ ...s, ist2_mulai: e.target.value }))} />
+                <span className="text-[var(--color-ink-soft)]">–</span>
+                <Input type="time" containerClassName="w-28" value={jamForm.ist2_selesai} onChange={(e) => setJamForm((s) => ({ ...s, ist2_selesai: e.target.value }))} />
+              </div>
+            </div>
+            <Button variant="outline" onClick={simpanJam} disabled={savingJam}>{savingJam ? 'Menyimpan…' : 'Simpan Jam'}</Button>
+          </div>
+          <p className="mt-2 text-xs text-[var(--color-ink-soft)]">Kosongkan salah satu istirahat bila tidak dipakai. Slot yang berimpit dengan jam istirahat otomatis digeser ke setelah istirahat.</p>
         </div>
       )}
       {isManager && nBentrok > 0 && (
@@ -728,13 +774,17 @@ function JadwalModal({ open, ctx, lists, rombelId, editing, onClose, onSaved }) 
   // Pengaturan jam unit (durasi JP & jam mulai KBM) untuk hitung jam otomatis.
   useEffect(() => {
     if (!open || !effSchoolId) return
-    supabase.from('schools').select('jp_durasi_menit, jam_mulai_kbm').eq('id', effSchoolId).maybeSingle()
+    supabase.from('schools').select('jp_durasi_menit, jam_mulai_kbm, istirahat1_mulai, istirahat1_selesai, istirahat2_mulai, istirahat2_selesai').eq('id', effSchoolId).maybeSingle()
       .then(({ data }) => setJamCfg(data && data.jp_durasi_menit && data.jam_mulai_kbm ? data : null))
   }, [open, effSchoolId])
-  // Hitung jam Mulai/Selesai otomatis dari "Jam ke-" + durasi JP unit.
+  // Hitung jam Mulai/Selesai otomatis dari "Jam ke-" + durasi JP + istirahat unit.
   useEffect(() => {
     if (!open || !jamCfg) return
-    const res = hitungJamSlot(f.jam_ke, jamCfg.jam_mulai_kbm, jamCfg.jp_durasi_menit)
+    const breaks = [
+      { start: jamCfg.istirahat1_mulai, end: jamCfg.istirahat1_selesai },
+      { start: jamCfg.istirahat2_mulai, end: jamCfg.istirahat2_selesai },
+    ]
+    const res = hitungJamSlot(f.jam_ke, jamCfg.jam_mulai_kbm, jamCfg.jp_durasi_menit, breaks)
     if (res) setF((s) => ((s.jam_mulai === res.mulai && s.jam_selesai === res.selesai) ? s : { ...s, jam_mulai: res.mulai, jam_selesai: res.selesai }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, f.jam_ke, jamCfg])
@@ -801,7 +851,7 @@ function JadwalModal({ open, ctx, lists, rombelId, editing, onClose, onSaved }) 
           <Input label={jamCfg ? 'Selesai (otomatis)' : 'Selesai'} type="time" value={f.jam_selesai || ''} readOnly={!!jamCfg} onChange={(e) => set('jam_selesai', e.target.value)} className={jamCfg ? 'bg-[var(--color-paper)] text-[var(--color-ink-soft)]' : ''} />
         </div>
         {jamCfg ? (
-          <p className="-mt-1 text-xs text-[var(--color-ink-soft)]">Jam dihitung otomatis dari <b>Jam ke-</b>: mulai {String(jamCfg.jam_mulai_kbm).slice(0, 5)}, {jamCfg.jp_durasi_menit} menit/JP. Ubah durasi di <b>Pengaturan Jam</b> pada halaman Jadwal.</p>
+          <p className="-mt-1 text-xs text-[var(--color-ink-soft)]">Jam dihitung otomatis dari <b>Jam ke-</b>: mulai {String(jamCfg.jam_mulai_kbm).slice(0, 5)}, {jamCfg.jp_durasi_menit} menit/JP{jamCfg.istirahat1_mulai ? `, istirahat ${String(jamCfg.istirahat1_mulai).slice(0, 5)}–${String(jamCfg.istirahat1_selesai).slice(0, 5)}` : ''}{jamCfg.istirahat2_mulai ? ` & ${String(jamCfg.istirahat2_mulai).slice(0, 5)}–${String(jamCfg.istirahat2_selesai).slice(0, 5)}` : ''}. Ubah di <b>Pengaturan Jam</b> pada halaman Jadwal.</p>
         ) : (
           <p className="-mt-1 text-xs text-[var(--color-gold)]">Durasi JP unit belum diatur — isi jam secara manual, atau atur di <b>Pengaturan Jam</b> pada halaman Jadwal agar otomatis.</p>
         )}
