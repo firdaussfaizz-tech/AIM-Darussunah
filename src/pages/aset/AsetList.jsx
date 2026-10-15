@@ -587,25 +587,50 @@ function AsetFormModal({ open, editingRow, schools, defaultSchoolId, klasifikasi
 // =========================================================================
 // TAB: RUANGAN (dasar KIR) — dengan kode & PIC
 // =========================================================================
+const KODE_RUANG_KELAS = '03' // kode unit kerja baku untuk Ruang Kelas (master unit_kerja_kode)
+
+// Nomor Kode Ruangan berikutnya (2 digit) untuk satu unit kerja di sekolah ybs.
+function nextKodeRuangan(rows, unitKode, excludeId) {
+  const used = (rows || [])
+    .filter((r) => (r.kode_unit_kerja || '') === unitKode && r.id !== excludeId)
+    .map((r) => parseInt(r.kode_ruangan, 10))
+    .filter((n) => !Number.isNaN(n))
+  return String((used.length ? Math.max(...used) : 0) + 1).padStart(2, '0')
+}
+
 function RuanganTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
   const [rows, setRows] = useState([])
   const [counts, setCounts] = useState({})
+  const [unitKerjaList, setUnitKerjaList] = useState([])
+  const [rombelList, setRombelList] = useState([])
+  const [taNama, setTaNama] = useState('')
   const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
   const [editingRow, setEditingRow] = useState(null)
 
+  // Master unit kerja dimuat sekali (lintas sekolah).
+  useEffect(() => {
+    supabase.from('unit_kerja_kode').select('kode, nama').eq('aktif', true).order('urutan')
+      .then(({ data }) => setUnitKerjaList(data || []))
+  }, [])
+
   const load = useCallback(async () => {
-    if (!schoolId) { setRows([]); setCounts({}); setLoading(false); return }
+    if (!schoolId) { setRows([]); setCounts({}); setRombelList([]); setTaNama(''); setLoading(false); return }
     setLoading(true)
-    const [{ data: r }, { data: aset }] = await Promise.all([
-      supabase.from('ruangan').select('*, employees:pic_employee_id(nama)').eq('school_id', schoolId).order('nama'),
+    const { data: ta } = await supabase.from('tahun_ajaran').select('id, nama').eq('status', 'aktif').maybeSingle()
+    const [{ data: r }, { data: aset }, { data: rb }] = await Promise.all([
+      supabase.from('ruangan').select('*, employees:pic_employee_id(nama), rombel:rombel_id(nama_rombel)').eq('school_id', schoolId).order('nama'),
       supabase.from('aset').select('ruangan_id').eq('school_id', schoolId).eq('status', 'aktif'),
+      ta ? supabase.from('rombel').select('id, nama_rombel, tingkat').eq('school_id', schoolId).eq('tahun_ajaran_id', ta.id).order('nama_rombel') : Promise.resolve({ data: [] }),
     ])
     const c = {}
     for (const a of (aset || [])) if (a.ruangan_id) c[a.ruangan_id] = (c[a.ruangan_id] || 0) + 1
     setRows(r || [])
     setCounts(c)
+    setRombelList(rb || [])
+    setTaNama(ta?.nama || '')
     setLoading(false)
   }, [schoolId])
 
@@ -614,6 +639,36 @@ function RuanganTab({ hasFullAccess, mySchools }) {
   const handleDelete = async (row) => {
     if (!confirm(`Hapus ruangan "${row.nama}"? Aset di dalamnya tidak ikut terhapus.`)) return
     const { error } = await supabase.from('ruangan').delete().eq('id', row.id)
+    if (error) { alert('Gagal: ' + error.message); return }
+    load()
+  }
+
+  // Buat ruang kelas otomatis dari daftar kelas (rombel) tahun ajaran aktif —
+  // hanya untuk rombel yang belum punya ruangan tertaut; kode ruangan berurut.
+  const generateFromRombel = async () => {
+    if (!schoolId) return
+    if (rombelList.length === 0) { alert(taNama ? `Belum ada kelas (rombel) pada ${taNama}.` : 'Belum ada tahun ajaran aktif.'); return }
+    const sudahTertaut = new Set(rows.filter((r) => r.rombel_id).map((r) => r.rombel_id))
+    const namaDipakai = new Set(rows.map((r) => (r.nama || '').trim().toLowerCase()))
+    let nomor = parseInt(nextKodeRuangan(rows, KODE_RUANG_KELAS), 10)
+    const toCreate = []
+    const bentrokNama = []
+    for (const rb of rombelList) {
+      if (sudahTertaut.has(rb.id)) continue
+      const nama = `Kelas ${rb.nama_rombel}`
+      if (namaDipakai.has(nama.toLowerCase())) { bentrokNama.push(rb.nama_rombel); continue }
+      toCreate.push({ school_id: schoolId, nama, jenis: 'kelas', rombel_id: rb.id, kode_unit_kerja: KODE_RUANG_KELAS, kode_ruangan: String(nomor).padStart(2, '0'), lantai: null, pic_employee_id: null, pic_nama: null, keterangan: `Dibuat otomatis dari kelas ${rb.nama_rombel} (${taNama}).` })
+      nomor += 1
+    }
+    if (toCreate.length === 0) {
+      alert(bentrokNama.length ? `Semua kelas sudah punya ruangan. Nama bentrok (lewati): ${bentrokNama.join(', ')}.` : 'Semua kelas tahun ajaran aktif sudah punya ruangan.')
+      return
+    }
+    const pesan = `Buat ${toCreate.length} ruang kelas dari daftar kelas ${taNama}?` + (bentrokNama.length ? `\n\n${bentrokNama.length} kelas dilewati karena nama ruangan sudah ada: ${bentrokNama.join(', ')}.` : '')
+    if (!confirm(pesan)) return
+    setGenerating(true)
+    const { error } = await supabase.from('ruangan').insert(toCreate)
+    setGenerating(false)
     if (error) { alert('Gagal: ' + error.message); return }
     load()
   }
@@ -629,21 +684,27 @@ function RuanganTab({ hasFullAccess, mySchools }) {
             {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
           </Select>
         ) : <span />}
-        <Button onClick={() => { setEditingRow(null); setFormOpen(true) }} disabled={!schoolId}><Plus className="h-4 w-4" /> Tambah Ruangan</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={generateFromRombel} disabled={!schoolId || generating || rombelList.length === 0} title={rombelList.length === 0 ? 'Belum ada kelas pada tahun ajaran aktif' : `Buat ruang kelas dari ${rombelList.length} kelas ${taNama}`}>
+            <BookOpen className="h-4 w-4" /> {generating ? 'Memproses…' : 'Buat ruangan dari kelas'}
+          </Button>
+          <Button onClick={() => { setEditingRow(null); setFormOpen(true) }} disabled={!schoolId}><Plus className="h-4 w-4" /> Tambah Ruangan</Button>
+        </div>
       </div>
 
-      <SectionCard title="Daftar Ruangan" description="Kode Unit Kerja & Kode Ruangan dipakai untuk menyusun Kode Lokasi aset.">
+      <SectionCard title="Daftar Ruangan" description="Kode Unit Kerja (dari master kodefikasi) & Kode Ruangan (otomatis) menyusun Kode Lokasi aset. Ruang kelas dapat ditautkan ke kelas (rombel) di Kesiswaan.">
         {!schoolId ? (
           <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
         ) : rows.length === 0 ? (
-          <EmptyState icon={DoorOpen} title="Belum ada ruangan" description="Tambahkan ruangan (dasar KIR)." />
+          <EmptyState icon={DoorOpen} title="Belum ada ruangan" description="Tambahkan ruangan, atau klik “Buat ruangan dari kelas” untuk menarik dari daftar kelas Kesiswaan." />
         ) : (
-          <Table columns={['Kode Unit', 'Kode Ruang', 'Nama Ruangan', 'Lantai', 'PIC', 'Jml Aset', '']}>
+          <Table columns={['Kode Unit', 'Kode Ruang', 'Nama Ruangan', 'Jenis / Kelas', 'Lantai', 'PIC', 'Jml Aset', '']}>
             {rows.map((r) => (
               <Tr key={r.id}>
                 <Td><span className="font-mono text-xs">{r.kode_unit_kerja || '—'}</span></Td>
                 <Td><span className="font-mono text-xs">{r.kode_ruangan || '—'}</span></Td>
                 <Td>{r.nama}</Td>
+                <Td>{r.jenis === 'kelas' ? <Badge color="navy">Kelas{r.rombel?.nama_rombel ? ` · ${r.rombel.nama_rombel}` : ''}</Badge> : <span className="text-xs text-[var(--color-ink-soft)]">Umum</span>}</Td>
                 <Td>{r.lantai || '—'}</Td>
                 <Td>{r.employees?.nama || r.pic_nama || '—'}</Td>
                 <Td>{counts[r.id] || 0}</Td>
@@ -659,12 +720,12 @@ function RuanganTab({ hasFullAccess, mySchools }) {
         )}
       </SectionCard>
 
-      <RuanganFormModal open={formOpen} editingRow={editingRow} schoolId={schoolId} onClose={() => { setFormOpen(false); setEditingRow(null) }} onSaved={() => { setFormOpen(false); setEditingRow(null); load() }} />
+      <RuanganFormModal open={formOpen} editingRow={editingRow} schoolId={schoolId} unitKerjaList={unitKerjaList} rombelList={rombelList} existingRows={rows} onClose={() => { setFormOpen(false); setEditingRow(null) }} onSaved={() => { setFormOpen(false); setEditingRow(null); load() }} />
     </div>
   )
 }
 
-function RuanganFormModal({ open, editingRow, schoolId, onClose, onSaved }) {
+function RuanganFormModal({ open, editingRow, schoolId, unitKerjaList = [], rombelList = [], existingRows = [], onClose, onSaved }) {
   const [f, setF] = useState({})
   const [pegawai, setPegawai] = useState([])
   const [saving, setSaving] = useState(false)
@@ -675,8 +736,8 @@ function RuanganFormModal({ open, editingRow, schoolId, onClose, onSaved }) {
     if (!open) return
     setError('')
     setF(editingRow
-      ? { kode_unit_kerja: editingRow.kode_unit_kerja || '', kode_ruangan: editingRow.kode_ruangan || '', nama: editingRow.nama || '', lantai: editingRow.lantai || '', pic_employee_id: editingRow.pic_employee_id || '', pic_nama: editingRow.pic_nama || '', keterangan: editingRow.keterangan || '' }
-      : { kode_unit_kerja: '', kode_ruangan: '', nama: '', lantai: '', pic_employee_id: '', pic_nama: '', keterangan: '' })
+      ? { jenis: editingRow.jenis || 'umum', rombel_id: editingRow.rombel_id || '', kode_unit_kerja: editingRow.kode_unit_kerja || '', kode_ruangan: editingRow.kode_ruangan || '', nama: editingRow.nama || '', lantai: editingRow.lantai || '', pic_employee_id: editingRow.pic_employee_id || '', pic_nama: editingRow.pic_nama || '', keterangan: editingRow.keterangan || '' }
+      : { jenis: 'umum', rombel_id: '', kode_unit_kerja: '', kode_ruangan: '', nama: '', lantai: '', pic_employee_id: '', pic_nama: '', keterangan: '' })
   }, [open, editingRow])
 
   useEffect(() => {
@@ -687,6 +748,28 @@ function RuanganFormModal({ open, editingRow, schoolId, onClose, onSaved }) {
   const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }))
   const pad2 = (v) => (v === '' ? '' : String(v).replace(/\D/g, '').slice(0, 2))
 
+  // Ganti unit kerja → saran Kode Ruangan berikutnya (hanya untuk ruangan baru,
+  // agar kode ruangan yang sudah tersimpan tidak tergeser).
+  const pilihUnitKerja = (kode) => {
+    setF((prev) => ({ ...prev, kode_unit_kerja: kode, kode_ruangan: isEdit ? prev.kode_ruangan : (kode ? nextKodeRuangan(existingRows, kode) : '') }))
+  }
+
+  // Ganti jenis → 'kelas' default ke unit kerja Ruang Kelas (03) + saran kode.
+  const pilihJenis = (jenis) => {
+    if (jenis === 'kelas') {
+      const adaKelas = unitKerjaList.some((u) => u.kode === KODE_RUANG_KELAS)
+      setF((prev) => ({ ...prev, jenis, kode_unit_kerja: adaKelas ? KODE_RUANG_KELAS : prev.kode_unit_kerja, kode_ruangan: isEdit ? prev.kode_ruangan : (adaKelas ? nextKodeRuangan(existingRows, KODE_RUANG_KELAS) : prev.kode_ruangan) }))
+    } else {
+      setF((prev) => ({ ...prev, jenis, rombel_id: '' }))
+    }
+  }
+
+  // Pilih kelas (rombel) → isi nama ruangan otomatis bila masih kosong.
+  const pilihRombel = (id) => {
+    const rb = rombelList.find((x) => x.id === id)
+    setF((prev) => ({ ...prev, rombel_id: id, nama: prev.nama?.trim() ? prev.nama : (rb ? `Kelas ${rb.nama_rombel}` : prev.nama) }))
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
@@ -694,6 +777,8 @@ function RuanganFormModal({ open, editingRow, schoolId, onClose, onSaved }) {
     setSaving(true)
     const payload = {
       school_id: schoolId,
+      jenis: f.jenis === 'kelas' ? 'kelas' : 'umum',
+      rombel_id: f.jenis === 'kelas' ? (f.rombel_id || null) : null,
       kode_unit_kerja: f.kode_unit_kerja ? String(f.kode_unit_kerja).padStart(2, '0') : null,
       kode_ruangan: f.kode_ruangan ? String(f.kode_ruangan).padStart(2, '0') : null,
       nama: f.nama.trim(),
@@ -712,10 +797,25 @@ function RuanganFormModal({ open, editingRow, schoolId, onClose, onSaved }) {
   return (
     <Modal open={open} onClose={onClose} title={isEdit ? 'Ubah Ruangan' : 'Tambah Ruangan'} width="max-w-lg">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <div className="grid grid-cols-2 gap-3">
+          <Select label="Jenis Ruangan" value={f.jenis || 'umum'} onChange={(e) => pilihJenis(e.target.value)}>
+            <option value="umum">Ruangan Umum</option>
+            <option value="kelas">Ruang Kelas</option>
+          </Select>
+          {f.jenis === 'kelas' && (
+            <Select label="Kelas (rombel) — Kesiswaan" value={f.rombel_id || ''} onChange={(e) => pilihRombel(e.target.value)}>
+              <option value="">— Belum ditautkan —</option>
+              {rombelList.map((rb) => <option key={rb.id} value={rb.id}>{rb.nama_rombel}</option>)}
+            </Select>
+          )}
+        </div>
         <Input label="Nama Ruangan" required value={f.nama || ''} onChange={(e) => set('nama', e.target.value)} placeholder="Contoh: Lab Komputer 1" />
         <div className="grid grid-cols-3 gap-3">
-          <Input label="Kode Unit Kerja" value={f.kode_unit_kerja || ''} onChange={(e) => set('kode_unit_kerja', pad2(e.target.value))} placeholder="mis. 01" />
-          <Input label="Kode Ruangan" value={f.kode_ruangan || ''} onChange={(e) => set('kode_ruangan', pad2(e.target.value))} placeholder="mis. 12" />
+          <Select label="Unit Kerja" containerClassName="col-span-1" value={f.kode_unit_kerja || ''} onChange={(e) => pilihUnitKerja(e.target.value)}>
+            <option value="">— Pilih —</option>
+            {unitKerjaList.map((u) => <option key={u.kode} value={u.kode}>{u.kode} — {u.nama}</option>)}
+          </Select>
+          <Input label="Kode Ruangan" value={f.kode_ruangan || ''} onChange={(e) => set('kode_ruangan', pad2(e.target.value))} placeholder="otomatis" />
           <Input label="Lantai" value={f.lantai || ''} onChange={(e) => set('lantai', e.target.value)} />
         </div>
         <Select label="PIC Ruangan (pegawai)" value={f.pic_employee_id || ''} onChange={(e) => set('pic_employee_id', e.target.value)}>
@@ -726,7 +826,7 @@ function RuanganFormModal({ open, editingRow, schoolId, onClose, onSaved }) {
           <Input label="PIC (tulis manual, bila bukan pegawai terdaftar)" value={f.pic_nama || ''} onChange={(e) => set('pic_nama', e.target.value)} />
         )}
         <Textarea label="Keterangan (opsional)" rows={2} value={f.keterangan || ''} onChange={(e) => set('keterangan', e.target.value)} />
-        <p className="text-xs text-[var(--color-ink-soft)]">Kode Unit Kerja & Kode Ruangan (2 digit) menjadi bagian Kode Lokasi aset: kepemilikan.lembaga.<b>unit</b>.<b>ruang</b>.tahun.</p>
+        <p className="text-xs text-[var(--color-ink-soft)]">Unit Kerja diambil dari master kodefikasi; Kode Ruangan terisi otomatis (nomor urut berikutnya) namun bisa disesuaikan. Keduanya menyusun Kode Lokasi aset: kepemilikan.lembaga.<b>unit</b>.<b>ruang</b>.tahun.</p>
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
@@ -743,18 +843,22 @@ function RuanganFormModal({ open, editingRow, schoolId, onClose, onSaved }) {
 function KodefikasiTab() {
   const [golongan, setGolongan] = useState([])
   const [klas, setKlas] = useState([])
+  const [unitKerja, setUnitKerja] = useState([])
   const [q, setQ] = useState('')
   const [loading, setLoading] = useState(true)
   const [editGol, setEditGol] = useState(null)
+  const [editUnit, setEditUnit] = useState(null) // {kode,...} edit | 'new' tambah | null
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: g }, { data: k }] = await Promise.all([
+    const [{ data: g }, { data: k }, { data: uk }] = await Promise.all([
       supabase.from('aset_golongan').select('*').order('kode'),
       supabase.from('aset_klasifikasi').select('*').order('kode'),
+      supabase.from('unit_kerja_kode').select('*').order('urutan'),
     ])
     setGolongan(g || [])
     setKlas(k || [])
+    setUnitKerja(uk || [])
     setLoading(false)
   }, [])
   useEffect(() => { load() }, [load])
@@ -799,8 +903,80 @@ function KodefikasiTab() {
         </Table>
       </SectionCard>
 
+      <SectionCard
+        title="Kode Unit Kerja (Ruangan)"
+        description="Segmen 'unit' pada Kode Lokasi aset — dipakai saat menambah ruangan. Kode '03' (Ruang Kelas) dipakai otomatis saat men-generate ruang kelas dari data Kesiswaan."
+        actions={<Button size="sm" onClick={() => setEditUnit('new')}><Plus className="h-4 w-4" /> Tambah</Button>}
+      >
+        <Table columns={['Kode', 'Nama Unit Kerja', 'Status', '']}>
+          {unitKerja.map((u) => (
+            <Tr key={u.kode}>
+              <Td><span className="font-mono text-xs">{u.kode}</span></Td>
+              <Td>{u.nama}</Td>
+              <Td>{u.aktif ? <Badge color="success">Aktif</Badge> : <Badge color="neutral">Nonaktif</Badge>}</Td>
+              <Td><div className="flex justify-end"><button onClick={() => setEditUnit(u)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button></div></Td>
+            </Tr>
+          ))}
+        </Table>
+      </SectionCard>
+
       <GolonganFormModal golongan={editGol} onClose={() => setEditGol(null)} onSaved={() => { setEditGol(null); load() }} />
+      <UnitKerjaFormModal entry={editUnit} existing={unitKerja} onClose={() => setEditUnit(null)} onSaved={() => { setEditUnit(null); load() }} />
     </div>
+  )
+}
+
+function UnitKerjaFormModal({ entry, existing = [], onClose, onSaved }) {
+  const isNew = entry === 'new'
+  const open = !!entry
+  const [kode, setKode] = useState('')
+  const [nama, setNama] = useState('')
+  const [aktif, setAktif] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!open) return
+    setError('')
+    setKode(isNew ? '' : (entry.kode || ''))
+    setNama(isNew ? '' : (entry.nama || ''))
+    setAktif(isNew ? true : !!entry.aktif)
+  }, [open, isNew, entry])
+
+  if (!open) return null
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    const k = String(kode).replace(/\D/g, '').slice(0, 2)
+    if (isNew && k.length !== 2) { setError('Kode harus 2 digit angka.'); return }
+    if (!nama.trim()) { setError('Isi nama unit kerja.'); return }
+    if (isNew && existing.some((u) => u.kode === k)) { setError(`Kode ${k} sudah dipakai.`); return }
+    setSaving(true)
+    const query = isNew
+      ? supabase.from('unit_kerja_kode').insert({ kode: k, nama: nama.trim(), aktif, urutan: (existing.reduce((m, u) => Math.max(m, u.urutan || 0), 0) + 1) })
+      : supabase.from('unit_kerja_kode').update({ nama: nama.trim(), aktif }).eq('kode', entry.kode)
+    const { error: err } = await query
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onSaved()
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={isNew ? 'Tambah Kode Unit Kerja' : `Ubah Unit Kerja ${entry.kode}`} width="max-w-sm">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <Input label="Kode (2 digit)" value={kode} onChange={(e) => setKode(e.target.value.replace(/\D/g, '').slice(0, 2))} disabled={!isNew} placeholder="mis. 16" />
+        <Input label="Nama Unit Kerja" required value={nama} onChange={(e) => setNama(e.target.value)} placeholder="mis. Ruang Multimedia" />
+        <label className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
+          <input type="checkbox" checked={aktif} onChange={(e) => setAktif(e.target.checked)} /> Aktif (tampil di pilihan ruangan)
+        </label>
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 
