@@ -621,9 +621,9 @@ function RuanganTab({ hasFullAccess, mySchools }) {
     setLoading(true)
     const { data: ta } = await supabase.from('tahun_ajaran').select('id, nama').eq('status', 'aktif').maybeSingle()
     const [{ data: r }, { data: aset }, { data: rb }] = await Promise.all([
-      supabase.from('ruangan').select('*, employees:pic_employee_id(nama), rombel:rombel_id(nama_rombel)').eq('school_id', schoolId).order('nama'),
+      supabase.from('ruangan').select('*, employees:pic_employee_id(nama), rombel:rombel_id(nama_rombel, wali_kelas_employee_id, wali:wali_kelas_employee_id(nama))').eq('school_id', schoolId).order('nama'),
       supabase.from('aset').select('ruangan_id').eq('school_id', schoolId).eq('status', 'aktif'),
-      ta ? supabase.from('rombel').select('id, nama_rombel, tingkat').eq('school_id', schoolId).eq('tahun_ajaran_id', ta.id).order('nama_rombel') : Promise.resolve({ data: [] }),
+      ta ? supabase.from('rombel').select('id, nama_rombel, tingkat, wali_kelas_employee_id, wali:wali_kelas_employee_id(nama)').eq('school_id', schoolId).eq('tahun_ajaran_id', ta.id).order('nama_rombel') : Promise.resolve({ data: [] }),
     ])
     const c = {}
     for (const a of (aset || [])) if (a.ruangan_id) c[a.ruangan_id] = (c[a.ruangan_id] || 0) + 1
@@ -657,7 +657,7 @@ function RuanganTab({ hasFullAccess, mySchools }) {
       if (sudahTertaut.has(rb.id)) continue
       const nama = `Kelas ${rb.nama_rombel}`
       if (namaDipakai.has(nama.toLowerCase())) { bentrokNama.push(rb.nama_rombel); continue }
-      toCreate.push({ school_id: schoolId, nama, jenis: 'kelas', rombel_id: rb.id, kode_unit_kerja: KODE_RUANG_KELAS, kode_ruangan: String(nomor).padStart(2, '0'), lantai: null, pic_employee_id: null, pic_nama: null, keterangan: `Dibuat otomatis dari kelas ${rb.nama_rombel} (${taNama}).` })
+      toCreate.push({ school_id: schoolId, nama, jenis: 'kelas', rombel_id: rb.id, kode_unit_kerja: KODE_RUANG_KELAS, kode_ruangan: String(nomor).padStart(2, '0'), lantai: null, pic_employee_id: rb.wali_kelas_employee_id || null, pic_nama: null, keterangan: `Dibuat otomatis dari kelas ${rb.nama_rombel} (${taNama}).${rb.wali?.nama ? ` PIC: Wali Kelas ${rb.wali.nama}.` : ''}` })
       nomor += 1
     }
     if (toCreate.length === 0) {
@@ -706,7 +706,9 @@ function RuanganTab({ hasFullAccess, mySchools }) {
                 <Td>{r.nama}</Td>
                 <Td>{r.jenis === 'kelas' ? <Badge color="navy">Kelas{r.rombel?.nama_rombel ? ` · ${r.rombel.nama_rombel}` : ''}</Badge> : <span className="text-xs text-[var(--color-ink-soft)]">Umum</span>}</Td>
                 <Td>{r.lantai || '—'}</Td>
-                <Td>{r.employees?.nama || r.pic_nama || '—'}</Td>
+                <Td>{r.jenis === 'kelas' && r.rombel?.wali?.nama
+                  ? <span>{r.rombel.wali.nama} <span className="block text-[11px] text-[var(--color-ink-soft)]">Wali Kelas{r.rombel?.nama_rombel ? ` ${r.rombel.nama_rombel}` : ''}</span></span>
+                  : (r.employees?.nama || r.pic_nama || '—')}</Td>
                 <Td>{counts[r.id] || 0}</Td>
                 <Td>
                   <div className="flex justify-end gap-1.5">
@@ -764,10 +766,17 @@ function RuanganFormModal({ open, editingRow, schoolId, unitKerjaList = [], romb
     }
   }
 
-  // Pilih kelas (rombel) → isi nama ruangan otomatis bila masih kosong.
+  // Pilih kelas (rombel) → isi nama ruangan otomatis bila masih kosong, dan
+  // jadikan Wali Kelas sebagai PIC ruangan (integrasi data Kesiswaan).
   const pilihRombel = (id) => {
     const rb = rombelList.find((x) => x.id === id)
-    setF((prev) => ({ ...prev, rombel_id: id, nama: prev.nama?.trim() ? prev.nama : (rb ? `Kelas ${rb.nama_rombel}` : prev.nama) }))
+    setF((prev) => ({
+      ...prev,
+      rombel_id: id,
+      nama: prev.nama?.trim() ? prev.nama : (rb ? `Kelas ${rb.nama_rombel}` : prev.nama),
+      pic_employee_id: rb?.wali_kelas_employee_id || prev.pic_employee_id,
+      pic_nama: rb?.wali_kelas_employee_id ? '' : prev.pic_nama,
+    }))
   }
 
   const handleSubmit = async (e) => {
@@ -822,6 +831,12 @@ function RuanganFormModal({ open, editingRow, schoolId, unitKerjaList = [], romb
           <option value="">— Pilih pegawai / isi manual di bawah —</option>
           {pegawai.map((p) => <option key={p.id} value={p.id}>{p.nama}</option>)}
         </Select>
+        {f.jenis === 'kelas' && f.rombel_id && (() => {
+          const rb = rombelList.find((x) => x.id === f.rombel_id)
+          return rb?.wali?.nama
+            ? <p className="-mt-1 text-xs text-[var(--color-ink-soft)]">PIC terisi otomatis dari Wali Kelas <b>{rb.wali.nama}</b> ({rb.nama_rombel}). Dapat diganti bila perlu.</p>
+            : <p className="-mt-1 text-xs text-[var(--color-gold)]">Kelas ini belum punya Wali Kelas di Kesiswaan — tetapkan wali kelas atau pilih PIC manual.</p>
+        })()}
         {!f.pic_employee_id && (
           <Input label="PIC (tulis manual, bila bukan pegawai terdaftar)" value={f.pic_nama || ''} onChange={(e) => set('pic_nama', e.target.value)} />
         )}
