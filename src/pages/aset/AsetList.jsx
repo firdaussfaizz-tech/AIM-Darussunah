@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Boxes, Plus, Pencil, Trash2, DoorOpen, ShieldAlert, Search, ClipboardList, Send, CheckCircle2, RotateCcw, Download, Tag, BookOpen, Clock3, ShieldCheck, Truck, ClipboardCheck, PackageCheck, Wrench, UserCheck, ScanLine, ArchiveX, Printer, Package } from 'lucide-react'
+import { Boxes, Plus, Pencil, Trash2, DoorOpen, ShieldAlert, Search, ClipboardList, Send, CheckCircle2, RotateCcw, Download, Tag, BookOpen, Clock3, ShieldCheck, Truck, ClipboardCheck, PackageCheck, Wrench, UserCheck, ScanLine, ArchiveX, Printer, Package, Info, MessageSquare } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner, StatCard } from '../../components/ui'
@@ -1152,6 +1152,8 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
   const [editingItem, setEditingItem] = useState(null)
   const [pemelOpen, setPemelOpen] = useState(false)
   const [editingPemel, setEditingPemel] = useState(null)
+  const [detail, setDetail] = useState(null)   // { item, jenis: 'pengadaan'|'pemeliharaan' }
+  const [catatan, setCatatan] = useState(null)  // { item, jenis } — editor catatan revisi (Yayasan)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1182,6 +1184,9 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
   const canSubmit = !!usulan && managesUnit && ['draft', 'dikembalikan'].includes(status)
   const canDecide = !!usulan && hasFullAccess && status === 'diajukan'
   const canCancelApproval = !!usulan && hasFullAccess && status === 'disahkan'
+  // Yayasan boleh memberi catatan revisi per item saat menelaah (diajukan)
+  // atau setelah dikembalikan (notanya tetap bisa disunting).
+  const canReview = !!usulan && hasFullAccess && ['diajukan', 'dikembalikan'].includes(status)
 
   const totalPengadaan = useMemo(() => items.reduce((a, r) => a + Number(r.jumlah_harga || 0), 0), [items])
   const totalPemel = useMemo(() => pemel.reduce((a, r) => a + Number(r.jumlah_biaya || 0), 0), [pemel])
@@ -1303,7 +1308,7 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
             <EmptyState icon={ClipboardList} title="Belum ada item pengadaan" description="Tambahkan kebutuhan pengadaan aset." />
           ) : (
             <div className="overflow-x-auto">
-              <Table columns={['Kode Aset', 'Nama & Spesifikasi', 'Alasan', 'Cara', 'Riil', 'Ajuan', 'Harga Satuan', 'Jumlah', 'Validasi', canEditItems ? '' : null].filter((c) => c !== null)}>
+              <Table columns={['Kode Aset', 'Nama & Spesifikasi', 'Alasan', 'Cara', 'Riil', 'Ajuan', 'Harga Satuan', 'Jumlah', 'Validasi', '']}>
                 {items.map((r) => {
                   const v = validasiHargaItem(r)
                   return (
@@ -1313,6 +1318,7 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
                         <span className="font-medium">{r.nama_aset}</span>
                         {r.spesifikasi && <span className="block text-xs text-[var(--color-ink-soft)]">{r.spesifikasi}</span>}
                         {(r.ruangan?.nama || r.lokasi) && <span className="block text-[11px] text-[var(--color-ink-soft)]">📍 {r.ruangan?.nama || r.lokasi}</span>}
+                        {r.catatan_revisi && <span className="mt-1 block rounded-md bg-[var(--color-gold-soft)] px-2 py-1 text-[11px] text-[var(--color-gold)]"><b>Catatan revisi:</b> {r.catatan_revisi}</span>}
                       </Td>
                       <Td className="text-xs">{r.alasan_kebutuhan || '—'}</Td>
                       <Td className="text-xs">{r.cara_pengadaan || '—'}</Td>
@@ -1324,14 +1330,16 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
                         <Badge color={v.badge}>{v.label}</Badge>
                         {v.perluJustifikasi && !r.justifikasi && <span className="block text-[11px] text-[var(--color-danger)]">perlu justifikasi</span>}
                       </Td>
-                      {canEditItems && (
-                        <Td>
-                          <div className="flex justify-end gap-1.5">
+                      <Td>
+                        <div className="flex justify-end gap-1.5">
+                          <button onClick={() => setDetail({ item: r, jenis: 'pengadaan' })} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Detail"><Info className="h-4 w-4" /></button>
+                          {canReview && <button onClick={() => setCatatan({ item: r, jenis: 'pengadaan' })} className={`hover:text-[var(--color-gold)] ${r.catatan_revisi ? 'text-[var(--color-gold)]' : 'text-[var(--color-ink-soft)]'}`} aria-label="Catatan revisi" title="Catatan revisi"><MessageSquare className="h-4 w-4" /></button>}
+                          {canEditItems && <>
                             <button onClick={() => { setEditingItem(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
                             <button onClick={() => deleteItem(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
-                          </div>
-                        </Td>
-                      )}
+                          </>}
+                        </div>
+                      </Td>
                     </Tr>
                   )
                 })}
@@ -1351,27 +1359,30 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
             <EmptyState icon={ClipboardList} title="Belum ada item pemeliharaan" description="Tambahkan rencana pemeliharaan aset yang sudah ada." />
           ) : (
             <div className="overflow-x-auto">
-              <Table columns={['Kode Aset', 'Nama Aset', 'Kondisi', 'Jenis', 'Volume', 'Harga Satuan', 'Jumlah Biaya', canEditItems ? '' : null].filter((c) => c !== null)}>
+              <Table columns={['Kode Aset', 'Nama Aset', 'Kondisi', 'Jenis', 'Volume', 'Harga Satuan', 'Jumlah Biaya', '']}>
                 {pemel.map((r) => (
                   <Tr key={r.id}>
                     <Td><span className="font-mono text-xs">{r.kode_aset || '—'}</span></Td>
                     <Td>
                       <span className="font-medium">{r.nama_aset}</span>
                       {(r.lokasi || r.nama_kegiatan) && <span className="block text-[11px] text-[var(--color-ink-soft)]">{r.lokasi ? `📍 ${r.lokasi}` : ''}{r.lokasi && r.nama_kegiatan ? ' · ' : ''}{r.nama_kegiatan || ''}</span>}
+                      {r.catatan_revisi && <span className="mt-1 block rounded-md bg-[var(--color-gold-soft)] px-2 py-1 text-[11px] text-[var(--color-gold)]"><b>Catatan revisi:</b> {r.catatan_revisi}</span>}
                     </Td>
                     <Td><Badge color={KONDISI_BADGE[r.kondisi]}>{KONDISI_LABEL[r.kondisi]}</Badge></Td>
                     <Td className="text-xs">{r.jenis_pemeliharaan || '—'}</Td>
                     <Td>{Number(r.volume)} <span className="text-[11px] text-[var(--color-ink-soft)]">{r.satuan}</span></Td>
                     <Td>{formatRupiah(r.harga_satuan)}</Td>
                     <Td className="font-medium">{formatRupiah(r.jumlah_biaya)}</Td>
-                    {canEditItems && (
-                      <Td>
-                        <div className="flex justify-end gap-1.5">
+                    <Td>
+                      <div className="flex justify-end gap-1.5">
+                        <button onClick={() => setDetail({ item: r, jenis: 'pemeliharaan' })} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Detail"><Info className="h-4 w-4" /></button>
+                        {canReview && <button onClick={() => setCatatan({ item: r, jenis: 'pemeliharaan' })} className={`hover:text-[var(--color-gold)] ${r.catatan_revisi ? 'text-[var(--color-gold)]' : 'text-[var(--color-ink-soft)]'}`} aria-label="Catatan revisi" title="Catatan revisi"><MessageSquare className="h-4 w-4" /></button>}
+                        {canEditItems && <>
                           <button onClick={() => { setEditingPemel(r); setPemelOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
                           <button onClick={() => deletePemel(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
-                        </div>
-                      </Td>
-                    )}
+                        </>}
+                      </div>
+                    </Td>
                   </Tr>
                 ))}
               </Table>
@@ -1398,7 +1409,116 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
         onClose={() => { setPemelOpen(false); setEditingPemel(null) }}
         onSaved={() => { setPemelOpen(false); setEditingPemel(null); load() }}
       />
+      <DkaItemDetailModal detail={detail} onClose={() => setDetail(null)} />
+      <DkaCatatanRevisiModal data={catatan} onClose={() => setCatatan(null)} onSaved={() => { setCatatan(null); load() }} />
     </div>
+  )
+}
+
+// Kartu detail informasi satu item DKA (pengadaan / pemeliharaan) — read-only.
+function DkaItemDetailModal({ detail, onClose }) {
+  const open = !!detail
+  const r = detail?.item
+  const jenis = detail?.jenis
+  if (!open) return null
+
+  const rp = (v) => formatRupiah(v || 0)
+  const rows = jenis === 'pengadaan'
+    ? [
+        ['Kode Aset', r.aset_klasifikasi?.kode || '—', true],
+        ['Klasifikasi', r.aset_klasifikasi?.uraian || '—'],
+        ['Nama Aset', r.nama_aset || '—'],
+        ['Merk & Spesifikasi', r.spesifikasi || '—'],
+        ['Proker / Kegiatan', r.nama_kegiatan || '—'],
+        ['Lokasi / Ruangan', r.ruangan?.nama || r.lokasi || '—'],
+        ['Unit Kerja', r.unit_kerja || '—'],
+        ['Penanggung Jawab', r.penanggung_jawab || '—'],
+        ['Alasan Kebutuhan', r.alasan_kebutuhan || '—'],
+        ['Cara Pengadaan', r.cara_pengadaan || '—'],
+        ['Sumber Anggaran', r.sumber_anggaran || '—'],
+        ['Jumlah Maksimal (ideal)', `${Number(r.jumlah_maksimal ?? 0)} ${r.satuan || ''}`],
+        ['Tersedia (Inventaris)', `${Number(r.jumlah_tersedia ?? 0)} ${r.satuan || ''}`],
+        ['Riil (kekurangan)', `${Number(r.jumlah_riil ?? 0)} ${r.satuan || ''}`],
+        ['Jumlah Diajukan', `${Number(r.jumlah_pengajuan ?? 0)} ${r.satuan || ''}`],
+        ['Harga Satuan', rp(r.harga_satuan)],
+        ['Standar Harga', r.standar_harga == null ? '—' : rp(r.standar_harga)],
+        ['Jumlah Harga', rp(r.jumlah_harga)],
+        ['Justifikasi (harga di atas standar)', r.justifikasi || '—'],
+      ]
+    : [
+        ['Kode Aset', r.kode_aset || '—', true],
+        ['Nama Aset', r.nama_aset || '—'],
+        ['Jumlah Aset', `${Number(r.jumlah_aset ?? 0)} ${r.satuan || ''}`],
+        ['Lokasi', r.lokasi || '—'],
+        ['Kondisi', KONDISI_LABEL[r.kondisi] || r.kondisi || '—'],
+        ['Proker / Kegiatan', r.nama_kegiatan || '—'],
+        ['Jenis Pemeliharaan', r.jenis_pemeliharaan || '—'],
+        ['Volume', `${Number(r.volume ?? 0)} ${r.satuan || ''}`],
+        ['Harga Satuan', rp(r.harga_satuan)],
+        ['Jumlah Biaya', rp(r.jumlah_biaya)],
+        ['Sumber Anggaran', r.sumber_anggaran || '—'],
+        ['Keterangan', r.keterangan || '—'],
+      ]
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Detail Item — ${r.nama_aset || ''}`} width="max-w-xl">
+      <dl className="divide-y divide-[var(--color-border)]">
+        {rows.map(([label, value, mono]) => (
+          <div key={label} className="grid grid-cols-3 gap-3 py-2">
+            <dt className="text-[13px] text-[var(--color-ink-soft)]">{label}</dt>
+            <dd className={`col-span-2 text-sm text-[var(--color-ink)] ${mono ? 'font-mono text-xs' : ''}`}>{value}</dd>
+          </div>
+        ))}
+        {r.catatan_revisi && (
+          <div className="py-2">
+            <p className="rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-sm text-[var(--color-gold)]"><b>Catatan revisi Yayasan:</b> {r.catatan_revisi}</p>
+          </div>
+        )}
+      </dl>
+      <div className="mt-3 flex justify-end">
+        <Button variant="outline" onClick={onClose}>Tutup</Button>
+      </div>
+    </Modal>
+  )
+}
+
+// Editor catatan revisi per item (hanya Yayasan). Menulis ke kolom catatan_revisi.
+function DkaCatatanRevisiModal({ data, onClose, onSaved }) {
+  const open = !!data
+  const [teks, setTeks] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!open) return
+    setError('')
+    setTeks(data.item.catatan_revisi || '')
+  }, [open, data])
+
+  if (!open) return null
+
+  const table = data.jenis === 'pengadaan' ? 'dka_usulan_item' : 'dka_pemeliharaan_item'
+
+  const simpan = async () => {
+    setSaving(true); setError('')
+    const { error: err } = await supabase.from(table).update({ catatan_revisi: teks.trim() || null }).eq('id', data.item.id)
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onSaved()
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Catatan Revisi — ${data.item.nama_aset || ''}`} width="max-w-md">
+      <div className="flex flex-col gap-3">
+        <p className="text-xs text-[var(--color-ink-soft)]">Catatan ini tampil pada item terkait agar unit tahu bagian mana yang perlu diperbaiki. Kosongkan lalu simpan untuk menghapus.</p>
+        <Textarea label="Catatan perbaikan untuk item ini" rows={3} value={teks} onChange={(e) => setTeks(e.target.value)} placeholder="mis. Spesifikasi terlalu tinggi, sesuaikan dengan standar; atau harga perlu disurvei ulang." />
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Batal</Button>
+          <Button onClick={simpan} disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan Catatan'}</Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
