@@ -1176,7 +1176,7 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
     const [{ data: u }, { data: klas }, { data: ruang }] = await Promise.all([
       supabase.from('dka_usulan').select('*, diajukan_nama:dka_usulan_diajukan_nama').eq('school_id', schoolId).eq('tahun', tahun).maybeSingle(),
       supabase.from('aset_klasifikasi').select('*').order('kode'),
-      supabase.from('ruangan').select('id, nama').eq('school_id', schoolId).order('nama'),
+      supabase.from('ruangan').select('id, nama, jenis, pic_nama, employees:pic_employee_id(nama), rombel:rombel_id(wali:wali_kelas_employee_id(nama))').eq('school_id', schoolId).order('nama'),
     ])
     setUsulan(u || null)
     setKlasifikasiList(klas || [])
@@ -1716,6 +1716,17 @@ function DkaItemModal({ open, usulan, schoolId, editingItem, klasifikasiList, ru
 
   const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }))
 
+  // Penanggung jawab ruangan diambil dari PIC ruangan yang sudah dibuat —
+  // untuk ruang kelas, PIC = Wali Kelas (integrasi data Kesiswaan).
+  const picRuangan = (r) => (r?.jenis === 'kelas' && r?.rombel?.wali?.nama) ? r.rombel.wali.nama : (r?.employees?.nama || r?.pic_nama || '')
+
+  // Pilih ruangan → kosongkan lokasi manual & isi Penanggung Jawab dari PIC
+  // ruangan (bisa diganti bila perlu).
+  const pilihRuangan = (id) => {
+    const r = ruanganList.find((x) => x.id === id)
+    setF((prev) => ({ ...prev, ruangan_id: id, lokasi: id ? '' : prev.lokasi, penanggung_jawab: id ? (picRuangan(r) || prev.penanggung_jawab) : prev.penanggung_jawab }))
+  }
+
   // Saat klasifikasi dipilih: prefill nama & tarik Standar Harga tahun ybs.
   const onPickKlasifikasi = async (id) => {
     const k = klasifikasiList.find((x) => x.id === id)
@@ -1785,9 +1796,9 @@ function DkaItemModal({ open, usulan, schoolId, editingItem, klasifikasiList, ru
           <Input label="Unit Kerja" value={f.unit_kerja || ''} onChange={(e) => set('unit_kerja', e.target.value)} placeholder="Kurikulum / Tata Usaha…" />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Select label="Ruangan / Lokasi" value={f.ruangan_id || ''} onChange={(e) => set('ruangan_id', e.target.value)}>
+          <Select label="Ruangan / Lokasi" value={f.ruangan_id || ''} onChange={(e) => pilihRuangan(e.target.value)}>
             <option value="">— Isi manual di bawah —</option>
-            {ruanganList.map((r) => <option key={r.id} value={r.id}>{r.nama}</option>)}
+            {ruanganList.map((r) => <option key={r.id} value={r.id}>{r.nama}{picRuangan(r) ? ` — ${picRuangan(r)}` : ''}</option>)}
           </Select>
           {!f.ruangan_id
             ? <Input label="Lokasi (manual)" value={f.lokasi || ''} onChange={(e) => set('lokasi', e.target.value)} />
