@@ -3303,14 +3303,21 @@ function StandarHargaPanel({ tahun, canEdit = true }) {
 function StandarRefPanel({ tahun, canEdit, def }) {
   const [open, setOpen] = useState(false)
   const [rows, setRows] = useState([])
+  const [klasifikasiList, setKlasifikasiList] = useState([])
   const [loading, setLoading] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase.from(def.table).select('*').eq('tahun', tahun).order('kode_ref')
+    // Join kodefikasi (aset_klasifikasi) untuk menarik Kode Ref resmi. Daftar
+    // klasifikasi dimuat sekali untuk pemilih di form.
+    const [{ data }, { data: klas }] = await Promise.all([
+      supabase.from(def.table).select('*, aset_klasifikasi(kode, uraian)').eq('tahun', tahun).order('kode_ref'),
+      supabase.from('aset_klasifikasi').select('*').order('kode'),
+    ])
     setRows(data || [])
+    setKlasifikasiList(klas || [])
     setLoading(false)
   }, [tahun, def.table])
   useEffect(() => { if (open) load() }, [open, load])
@@ -3341,7 +3348,9 @@ function StandarRefPanel({ tahun, canEdit, def }) {
             {rows.map((r) => (
               <Tr key={r.id}>
                 {def.columns.map((c) => (
-                  <Td key={c.key} className={c.mono ? 'font-mono text-xs' : (c.small ? 'text-xs text-[var(--color-ink-soft)]' : '')}>{r[c.key] || '—'}</Td>
+                  <Td key={c.key} className={c.mono ? 'font-mono text-xs' : (c.small ? 'text-xs text-[var(--color-ink-soft)]' : '')}>
+                    {c.key === 'kode_ref' ? (r.aset_klasifikasi?.kode || r.kode_ref || '—') : (r[c.key] || '—')}
+                  </Td>
                 ))}
                 {canEdit && (
                   <Td>
@@ -3356,13 +3365,14 @@ function StandarRefPanel({ tahun, canEdit, def }) {
           </Table>
         </div>
       )}
-      {canEdit && <StandarRefModal open={formOpen} tahun={tahun} editing={editing} def={def} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={() => { setFormOpen(false); setEditing(null); load() }} />}
+      {canEdit && <StandarRefModal open={formOpen} tahun={tahun} editing={editing} def={def} klasifikasiList={klasifikasiList} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={() => { setFormOpen(false); setEditing(null); load() }} />}
     </SectionCard>
   )
 }
 
-function StandarRefModal({ open, tahun, editing, def, onClose, onSaved }) {
+function StandarRefModal({ open, tahun, editing, def, klasifikasiList = [], onClose, onSaved }) {
   const [f, setF] = useState({})
+  const [klasifikasiId, setKlasifikasiId] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const isEdit = !!editing
@@ -3373,15 +3383,30 @@ function StandarRefModal({ open, tahun, editing, def, onClose, onSaved }) {
     const init = {}
     for (const fld of def.fields) init[fld.key] = editing ? (editing[fld.key] ?? '') : (fld.default ?? '')
     setF(init)
+    setKlasifikasiId(editing?.klasifikasi_id || '')
   }, [open, editing, def.fields])
 
   const set = (k, v) => setF((prev) => ({ ...prev, [k]: v }))
+
+  // Saat klasifikasi (kodefikasi) dipilih: Kode Ref & Nama Aset ikut terisi
+  // otomatis dari tabel kodefikasi — tapi hanya bila masih kosong, agar isian
+  // manual pengguna tidak ditimpa.
+  const pickKlasifikasi = (id) => {
+    setKlasifikasiId(id)
+    const k = klasifikasiList.find((x) => x.id === id)
+    if (!k) return
+    setF((prev) => ({
+      ...prev,
+      kode_ref: prev.kode_ref?.trim() ? prev.kode_ref : k.kode,
+      nama_aset: prev.nama_aset?.trim() ? prev.nama_aset : k.uraian,
+    }))
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!f.nama_aset?.trim()) { setError('Isi nama aset.'); return }
     setSaving(true); setError('')
-    const payload = { tahun }
+    const payload = { tahun, klasifikasi_id: klasifikasiId || null }
     for (const fld of def.fields) {
       let v = f[fld.key]
       if (fld.type === 'number') v = v === '' || v == null ? null : Number(v)
@@ -3399,10 +3424,12 @@ function StandarRefModal({ open, tahun, editing, def, onClose, onSaved }) {
   return (
     <Modal open={open} onClose={onClose} title={isEdit ? `Ubah ${def.title}` : `Tambah ${def.title} ${tahun}`} width="max-w-lg">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <KlasifikasiPicker klasifikasiList={klasifikasiList} value={klasifikasiId} onChange={pickKlasifikasi} />
+        <p className="-mt-1 text-xs text-[var(--color-ink-soft)]">Pilih dari kodefikasi aset — Kode Ref & Nama Aset terisi otomatis dan konsisten dengan Standar Harga. Kode Ref manual di bawah hanya cadangan bila belum ada di kodefikasi.</p>
         {def.fields.map((fld) => (
           fld.multiline
             ? <Textarea key={fld.key} label={fld.label} rows={2} value={f[fld.key] || ''} onChange={(e) => set(fld.key, e.target.value)} />
-            : <Input key={fld.key} label={fld.label} type={fld.type === 'number' ? 'number' : 'text'} required={fld.key === 'nama_aset'} value={f[fld.key] ?? ''} onChange={(e) => set(fld.key, e.target.value)} placeholder={fld.placeholder || ''} />
+            : <Input key={fld.key} label={fld.key === 'kode_ref' ? 'Kode Ref (manual, opsional)' : fld.label} type={fld.type === 'number' ? 'number' : 'text'} required={fld.key === 'nama_aset'} value={f[fld.key] ?? ''} onChange={(e) => set(fld.key, e.target.value)} placeholder={fld.placeholder || ''} />
         ))}
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2">
