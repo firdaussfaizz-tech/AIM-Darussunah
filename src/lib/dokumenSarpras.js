@@ -269,9 +269,10 @@ const BUILDERS = {
   }),
   ba_pemeriksaan: ({ p, item, school }) => ({
     judul: 'BERITA ACARA PEMERIKSAAN',
-    nomor: blank,
+    nomor: p?.nomor_ba_pemeriksaan || blank,
     unit: unitName(school),
     tanggalTempat: `${school?.nama || blank}, ${tgl(p?.ba_pemeriksaan_tanggal)}`,
+    meta: [['Nomor', p?.nomor_ba_pemeriksaan || '—'], ['Tanggal', tgl(p?.ba_pemeriksaan_tanggal)], ['No. SPK', p?.nomor_spk || '—'], ['Penyedia', p?.penyedia || '—']],
     intro: `Pada hari ini, ${tgl(p?.ba_pemeriksaan_tanggal)}, Panitia/Pemeriksa pada ${unitName(school)} telah memeriksa aset hasil pengadaan sebagai berikut:`,
     tables: [{ columns: ['Nama Aset', 'Spesifikasi', 'Jumlah', 'Penyedia', 'Hasil Pemeriksaan'],
       rows: [[item?.nama_aset || '—', item?.spesifikasi || '—', Number(p?.jumlah_realisasi ?? 0), p?.penyedia || '—', p?.ba_pemeriksaan_hasil === 'sesuai' ? 'SESUAI' : (p?.ba_pemeriksaan_hasil === 'tidak_sesuai' ? 'TIDAK SESUAI' : '—')]] }],
@@ -280,9 +281,10 @@ const BUILDERS = {
   }),
   bast_pengadaan: ({ p, item, school }) => ({
     judul: 'BERITA ACARA SERAH TERIMA',
-    nomor: blank,
+    nomor: p?.nomor_ba_serah_terima || blank,
     unit: unitName(school),
     tanggalTempat: `${school?.nama || blank}, ${tgl(p?.ba_serah_terima_tanggal)}`,
+    meta: [['Nomor', p?.nomor_ba_serah_terima || '—'], ['Tanggal', tgl(p?.ba_serah_terima_tanggal)], ['No. SPK', p?.nomor_spk || '—'], ['Penyedia', p?.penyedia || '—']],
     intro: `Pada hari ini, ${tgl(p?.ba_serah_terima_tanggal)}, telah dilaksanakan serah terima aset hasil pengadaan dari Penyedia kepada ${unitName(school)}:`,
     tables: [{ columns: ['Nama Aset', 'Spesifikasi', 'Jumlah', 'No. SPK', 'Nilai'],
       rows: [[item?.nama_aset || '—', item?.spesifikasi || '—', Number(p?.jumlah_realisasi ?? 0), p?.nomor_spk || '—', rp(Number(p?.jumlah_realisasi ?? 0) * Number(p?.harga_realisasi ?? 0))]] }],

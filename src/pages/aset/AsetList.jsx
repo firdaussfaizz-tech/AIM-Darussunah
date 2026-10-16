@@ -465,6 +465,8 @@ function InventarisTab({ hasFullAccess, mySchools }) {
         )}
       </SectionCard>
 
+      {schoolId && <DokumenAreaCard area="Inventaris" schoolId={schoolId} />}
+
       <AsetFormModal
         open={formOpen}
         editingRow={editingRow}
@@ -1406,6 +1408,8 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
         </SectionCard>
       )}
 
+      <DokumenAreaCard area="Perencanaan" schoolId={schoolId} />
+
       <DkaItemModal
         open={formOpen}
         usulan={usulan}
@@ -2082,6 +2086,8 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
         )}
       </SectionCard>
 
+      <DokumenAreaCard area="Pengadaan" schoolId={schoolId} />
+
       <PengadaanPesanModal open={pesanOpen} item={activeItem} schoolId={schoolId} onClose={() => { setPesanOpen(false); setActiveItem(null) }} onSaved={() => { setPesanOpen(false); setActiveItem(null); load() }} />
       <PengadaanPeriksaModal open={periksaOpen} item={activeItem} schoolId={schoolId} onClose={() => { setPeriksaOpen(false); setActiveItem(null) }} onSaved={() => { setPeriksaOpen(false); setActiveItem(null); load() }} />
       <PengadaanBastModal open={bastOpen} item={activeItem} schoolId={schoolId} onClose={() => { setBastOpen(false); setActiveItem(null) }} onSaved={() => { setBastOpen(false); setActiveItem(null); load() }} />
@@ -2117,11 +2123,14 @@ function PengadaanPesanModal({ open, item, schoolId, onClose, onSaved }) {
     setError('')
     if (!f.metode_realisasi) { setError('Pilih metode realisasi pengadaan.'); return }
     setSaving(true)
+    // Nomor SPK di-assign saat SIMPAN bila masih kosong — satu sumber (counter)
+    // agar tidak dobel/terburn saat form dibuka-tutup.
+    const nomorSpk = f.nomor_spk?.trim() || (schoolId ? await autoNo(schoolId, 'SPK') : null)
     const payload = {
       status: 'dipesan',
       metode_realisasi: f.metode_realisasi,
       penyedia: f.penyedia?.trim() || null,
-      nomor_spk: f.nomor_spk?.trim() || null,
+      nomor_spk: nomorSpk,
       tanggal_spk: f.tanggal_spk || null,
       nomor_bukti: f.nomor_bukti?.trim() || null,
       jumlah_realisasi: Number(f.jumlah_realisasi) || 0,
@@ -2199,12 +2208,16 @@ function PengadaanPeriksaModal({ open, item, schoolId, onClose, onSaved }) {
     setError('')
     if (f.ba_pemeriksaan_hasil === 'tidak_sesuai' && !f.ba_pemeriksaan_catatan?.trim()) { setError('Isi catatan ketidaksesuaian agar penyedia bisa menindaklanjuti.'); return }
     setSaving(true)
+    // Nomor BA hanya di-assign saat hasil 'sesuai' (lanjut), bila masih kosong.
+    const nomorBap = f.ba_pemeriksaan_hasil === 'sesuai'
+      ? (f.nomor_ba_pemeriksaan?.trim() || (schoolId ? await autoNo(schoolId, 'BAP') : null))
+      : (f.nomor_ba_pemeriksaan?.trim() || null)
     const payload = {
       status: f.ba_pemeriksaan_hasil === 'sesuai' ? 'pemeriksaan' : 'ditolak',
       ba_pemeriksaan_tanggal: f.ba_pemeriksaan_tanggal || null,
       ba_pemeriksaan_hasil: f.ba_pemeriksaan_hasil,
       ba_pemeriksaan_catatan: f.ba_pemeriksaan_catatan?.trim() || null,
-      nomor_ba_pemeriksaan: f.nomor_ba_pemeriksaan?.trim() || null,
+      nomor_ba_pemeriksaan: nomorBap,
     }
     const { error: err } = await supabase.from('dka_pengadaan_proses').update(payload).eq('id', item.proses.id)
     setSaving(false)
@@ -2257,11 +2270,12 @@ function PengadaanBastModal({ open, item, schoolId, onClose, onSaved }) {
     e.preventDefault()
     setError('')
     setSaving(true)
+    const nomorBast = f.nomor_ba_serah_terima?.trim() || (schoolId ? await autoNo(schoolId, 'BAST') : null)
     const payload = {
       status: 'diterima',
       ba_serah_terima_tanggal: f.ba_serah_terima_tanggal || null,
       ba_serah_terima_catatan: f.ba_serah_terima_catatan?.trim() || null,
-      nomor_ba_serah_terima: f.nomor_ba_serah_terima?.trim() || null,
+      nomor_ba_serah_terima: nomorBast,
     }
     const { error: err } = await supabase.from('dka_pengadaan_proses').update(payload).eq('id', item.proses.id)
     setSaving(false)
@@ -2599,6 +2613,19 @@ function DokumenRow({ doc, schoolId }) {
   )
 }
 
+// Kartu Dokumen & Formulir khusus satu area/alur — ditempel di tab alurnya
+// (selain menu "Dokumen & Formulir"). Dokumen kerja SOP area tsb, terisi
+// otomatis dari data; pilih data lalu Cetak/Simpan PDF.
+function DokumenAreaCard({ area, schoolId }) {
+  const docs = DOKUMEN_LIST.filter((d) => d.area === area)
+  if (docs.length === 0) return null
+  return (
+    <SectionCard title={`Dokumen & Formulir — ${area}`} description="Dokumen kerja sesuai SOP area ini. Dokumen berbasis data terisi otomatis (pilih data → Cetak/Simpan PDF); formulir kosong langsung bisa dicetak sebagai blanko.">
+      <div>{docs.map((doc) => <DokumenRow key={doc.jenis} doc={doc} schoolId={schoolId} />)}</div>
+    </SectionCard>
+  )
+}
+
 function DokumenTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
   const areas = useMemo(() => [...new Set(DOKUMEN_LIST.map((d) => d.area))], [])
@@ -2657,39 +2684,51 @@ function PenggunaanTab({ hasFullAccess, mySchools }) {
   return (
     <div className="flex flex-col gap-5">
       <UnitBar hasFullAccess={hasFullAccess} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}
-        right={canManage && schoolId && <Button onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tetapkan Penggunaan</Button>} />
+        right={canManage && schoolId && (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => openCetak('surat_pengajuan_penggunaan')}><Printer className="h-4 w-4" /> Surat Pengajuan (blanko)</Button>
+            <Button onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tetapkan Penggunaan</Button>
+          </div>
+        )} />
       {!schoolId ? (
         <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
       ) : loading ? <FullPageSpinner /> : (
-        <SectionCard title="Status Penggunaan Aset" description="Penetapan pemakaian aset ke pegawai/unit (Berita Acara Status Penggunaan).">
-          {rows.length === 0 ? (
-            <EmptyState icon={UserCheck} title="Belum ada penetapan" description="Tetapkan status penggunaan aset kepada pegawai/unit." />
-          ) : (
-            <div className="overflow-x-auto">
-              <Table columns={['Aset', 'Pengguna', 'Unit Kerja', 'Tgl Penetapan', 'No. BA', 'Status', canManage ? '' : null].filter((c) => c !== null)}>
-                {rows.map((r) => (
-                  <Tr key={r.id}>
-                    <Td><span className="font-medium">{r.aset?.nama}</span><span className="block font-mono text-[11px] text-[var(--color-ink-soft)]">{r.aset?.kode_aset || '—'}</span></Td>
-                    <Td>{r.employees?.nama || r.pengguna_nama || '—'}</Td>
-                    <Td className="text-xs">{r.unit_kerja || '—'}</Td>
-                    <Td className="text-xs">{r.tanggal_penetapan ? new Date(r.tanggal_penetapan).toLocaleDateString('id-ID') : '—'}</Td>
-                    <Td className="text-xs">{r.nomor_ba || '—'}</Td>
-                    <Td><Badge color={PENGGUNAAN_STATUS_BADGE[r.status]}>{PENGGUNAAN_STATUS_LABEL[r.status]}</Badge></Td>
-                    {canManage && (
+        <>
+          <Card className="bg-[var(--color-navy-50)]">
+            <p className="text-[13px] text-[var(--color-ink)]"><b>Alur SOP (BAB VI):</b> Pemohon mengajukan <b>Surat Pengajuan Status Penggunaan</b> → Kepala Sekolah/PKS Sarpras meneliti → disetujui → terbit <b>Berita Acara Status Penggunaan</b> → pemegang menatausahakan aset. Tidak berlaku untuk barang persediaan & konstruksi dalam pengerjaan.</p>
+          </Card>
+
+          <SectionCard title="Status Penggunaan Aset" description="Penetapan pemakaian aset ke pegawai/unit (Berita Acara Status Penggunaan). Aset hasil penyaluran (SPPA) tercatat otomatis di sini.">
+            {rows.length === 0 ? (
+              <EmptyState icon={UserCheck} title="Belum ada penetapan" description="Tetapkan status penggunaan aset kepada pegawai/unit." />
+            ) : (
+              <div className="overflow-x-auto">
+                <Table columns={['Aset', 'Pengguna', 'Unit Kerja', 'Tgl Penetapan', 'No. BA', 'Status', 'Aksi']}>
+                  {rows.map((r) => (
+                    <Tr key={r.id}>
+                      <Td><span className="font-medium">{r.aset?.nama}</span><span className="block font-mono text-[11px] text-[var(--color-ink-soft)]">{r.aset?.kode_aset || '—'}</span></Td>
+                      <Td>{r.employees?.nama || r.pengguna_nama || '—'}</Td>
+                      <Td className="text-xs">{r.unit_kerja || '—'}</Td>
+                      <Td className="text-xs">{r.tanggal_penetapan ? new Date(r.tanggal_penetapan).toLocaleDateString('id-ID') : '—'}</Td>
+                      <Td className="text-xs">{r.nomor_ba || '—'}</Td>
+                      <Td><Badge color={PENGGUNAAN_STATUS_BADGE[r.status]}>{PENGGUNAAN_STATUS_LABEL[r.status]}</Badge></Td>
                       <Td>
                         <div className="flex justify-end gap-1.5">
-                          {r.status === 'aktif' && <button onClick={() => handleReturn(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Kembalikan"><RotateCcw className="h-4 w-4" /></button>}
-                          <button onClick={() => { setEditing(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
-                          <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                          <button onClick={() => openCetak('ba_penggunaan', r.id)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Cetak BA Status Penggunaan"><Printer className="h-4 w-4" /></button>
+                          {canManage && r.status === 'aktif' && <button onClick={() => handleReturn(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Kembalikan"><RotateCcw className="h-4 w-4" /></button>}
+                          {canManage && <button onClick={() => { setEditing(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>}
+                          {canManage && <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>}
                         </div>
                       </Td>
-                    )}
-                  </Tr>
-                ))}
-              </Table>
-            </div>
-          )}
-        </SectionCard>
+                    </Tr>
+                  ))}
+                </Table>
+              </div>
+            )}
+          </SectionCard>
+
+          <DokumenAreaCard area="Penggunaan" schoolId={schoolId} />
+        </>
       )}
       <PenggunaanModal open={formOpen} schoolId={schoolId} editing={editing} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={() => { setFormOpen(false); setEditing(null); load() }} />
     </div>
@@ -2722,13 +2761,14 @@ function PenggunaanModal({ open, schoolId, editing, onClose, onSaved }) {
     e.preventDefault()
     if (!f.aset_id) { setError('Pilih aset dulu.'); return }
     setError(''); setSaving(true)
+    const nomorBa = f.nomor_ba?.trim() || (schoolId ? await autoNo(schoolId, 'BA') : null)
     const payload = {
       aset_id: f.aset_id,
       pengguna_employee_id: f.pengguna_employee_id || null,
       pengguna_nama: f.pengguna_nama?.trim() || null,
       unit_kerja: f.unit_kerja?.trim() || null,
       tanggal_penetapan: f.tanggal_penetapan || null,
-      nomor_ba: f.nomor_ba?.trim() || null,
+      nomor_ba: nomorBa,
       keterangan: f.keterangan?.trim() || null,
     }
     const q = isEdit ? supabase.from('aset_penggunaan').update(payload).eq('id', editing.id) : supabase.from('aset_penggunaan').insert(payload)
@@ -2845,6 +2885,7 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
           </SectionCard>
         </>
       )}
+      {schoolId && <DokumenAreaCard area="Pemeliharaan" schoolId={schoolId} />}
       <PemeliharaanModal open={formOpen} schoolId={schoolId} editing={editing} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={() => { setFormOpen(false); setEditing(null); load() }} />
     </div>
   )
@@ -3073,6 +3114,8 @@ function PenyaluranTab({ hasFullAccess, mySchools }) {
               </div>
             )}
           </SectionCard>
+
+          <DokumenAreaCard area="Penerimaan & Penyaluran" schoolId={schoolId} />
         </>
       )}
       <PenyaluranModal open={formOpen} schoolId={schoolId} onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); load() }} />
@@ -3101,6 +3144,7 @@ function PenyaluranModal({ open, schoolId, onClose, onSaved }) {
     e.preventDefault()
     if (!f.aset_id) { setError('Pilih aset dulu.'); return }
     setError(''); setSaving(true)
+    const nomorSpa = f.nomor_spa?.trim() || (schoolId ? await autoNo(schoolId, 'SPA') : null)
     const payload = {
       aset_id: f.aset_id,
       ruangan_tujuan_id: f.ruangan_tujuan_id || null,
@@ -3108,7 +3152,7 @@ function PenyaluranModal({ open, schoolId, onClose, onSaved }) {
       penerima: f.penerima?.trim() || null,
       jumlah: Number(f.jumlah) || 1,
       tanggal_permintaan: f.tanggal_permintaan || null,
-      nomor_spa: f.nomor_spa?.trim() || null,
+      nomor_spa: nomorSpa,
       keterangan: f.keterangan?.trim() || null,
     }
     const { error: err } = await supabase.from('aset_penyaluran').insert(payload)
@@ -3285,6 +3329,7 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
           </div>
         )}
       </SectionCard>
+      {schoolId && <DokumenAreaCard area="Inventarisasi" schoolId={schoolId} />}
       <OpnameItemModal open={!!periksa} item={periksa} onClose={() => setPeriksa(null)} onSaved={() => { setPeriksa(null); load() }} />
     </div>
   )
@@ -3490,6 +3535,7 @@ function PenghapusanDetail({ penghapusanId, hasFullAccess, managesUnit, schoolId
         )}
       </SectionCard>
 
+      {schoolId && <DokumenAreaCard area="Penghapusan" schoolId={schoolId} />}
       <PenghapusanItemModal open={itemOpen} penghapusanId={penghapusanId} schoolId={schoolId} onClose={() => setItemOpen(false)} onSaved={() => { setItemOpen(false); load() }} />
     </div>
   )
