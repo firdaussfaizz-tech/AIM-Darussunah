@@ -1976,6 +1976,7 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
   const [periksaOpen, setPeriksaOpen] = useState(false)
   const [bastOpen, setBastOpen] = useState(false)
   const [activeItem, setActiveItem] = useState(null)
+  const [detailItem, setDetailItem] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1986,7 +1987,7 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
       const itemIds = (it || []).map((x) => x.id)
       let prosesMap = {}
       if (itemIds.length) {
-        const { data: pr } = await supabase.from('dka_pengadaan_proses').select('*').in('usulan_item_id', itemIds)
+        const { data: pr } = await supabase.from('dka_pengadaan_proses').select('*, pemesan:dipesan_by(nama), pemeriksa:ba_pemeriksaan_by(nama), penyerah:ba_serah_terima_by(nama), aset:aset_id(kode_aset, nama)').in('usulan_item_id', itemIds)
         for (const p of (pr || [])) prosesMap[p.usulan_item_id] = p
       }
       setItems((it || []).map((x) => ({ ...x, proses: prosesMap[x.id] || null })))
@@ -2027,7 +2028,7 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
           <EmptyState icon={ClipboardList} title="Tidak ada item pengadaan" description="DKA unit ini tidak memiliki item rencana pengadaan." />
         ) : (
           <div className="overflow-x-auto">
-            <Table columns={['Nama & Spesifikasi', 'Jumlah', 'Cara Rencana', 'Status', canAct ? 'Aksi' : null].filter(Boolean)}>
+            <Table columns={['Nama & Spesifikasi', 'Jumlah', 'Cara Rencana', 'Status', 'Aksi']}>
               {items.map((r) => {
                 const st = r.proses?.status || 'menunggu'
                 return (
@@ -2041,22 +2042,23 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
                     <Td className="text-xs">{r.cara_pengadaan || '—'}</Td>
                     <Td>
                       <Badge color={PENGADAAN_STATUS_BADGE[st]}>{PENGADAAN_STATUS_LABEL[st]}</Badge>
-                      {r.proses?.aset_id && <span className="block text-[11px] text-[var(--color-success)]">✓ masuk Inventaris</span>}
+                      {r.proses?.aset_id && <span className="block text-[11px] text-[var(--color-success)]">✓ masuk Inventaris &amp; Penyaluran</span>}
                     </Td>
-                    {canAct && (
-                      <Td className="text-right">
-                        {(st === 'menunggu' || st === 'ditolak') && (
+                    <Td className="text-right">
+                      <div className="inline-flex items-center gap-1.5">
+                        <button onClick={() => setDetailItem(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Detail informasi"><Info className="h-4 w-4" /></button>
+                        {canAct && (st === 'menunggu' || st === 'ditolak') && (
                           <Button size="sm" variant="outline" onClick={() => { setActiveItem(r); setPesanOpen(true) }}><Truck className="h-3.5 w-3.5" /> {st === 'ditolak' ? 'Pesan Ulang' : 'Catat Pemesanan'}</Button>
                         )}
-                        {st === 'dipesan' && (
+                        {canAct && st === 'dipesan' && (
                           <Button size="sm" variant="outline" onClick={() => { setActiveItem(r); setPeriksaOpen(true) }}><ClipboardCheck className="h-3.5 w-3.5" /> BA Pemeriksaan</Button>
                         )}
-                        {st === 'pemeriksaan' && (
+                        {canAct && st === 'pemeriksaan' && (
                           <Button size="sm" onClick={() => { setActiveItem(r); setBastOpen(true) }}><PackageCheck className="h-3.5 w-3.5" /> BA Serah Terima</Button>
                         )}
-                        {st === 'diterima' && <span className="text-xs text-[var(--color-ink-soft)]">Selesai</span>}
-                      </Td>
-                    )}
+                        {canAct && st === 'diterima' && <span className="text-xs text-[var(--color-ink-soft)]">Selesai</span>}
+                      </div>
+                    </Td>
                   </Tr>
                 )
               })}
@@ -2066,8 +2068,9 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
       </SectionCard>
 
       <PengadaanPesanModal open={pesanOpen} item={activeItem} schoolId={schoolId} onClose={() => { setPesanOpen(false); setActiveItem(null) }} onSaved={() => { setPesanOpen(false); setActiveItem(null); load() }} />
-      <PengadaanPeriksaModal open={periksaOpen} item={activeItem} onClose={() => { setPeriksaOpen(false); setActiveItem(null) }} onSaved={() => { setPeriksaOpen(false); setActiveItem(null); load() }} />
-      <PengadaanBastModal open={bastOpen} item={activeItem} onClose={() => { setBastOpen(false); setActiveItem(null) }} onSaved={() => { setBastOpen(false); setActiveItem(null); load() }} />
+      <PengadaanPeriksaModal open={periksaOpen} item={activeItem} schoolId={schoolId} onClose={() => { setPeriksaOpen(false); setActiveItem(null) }} onSaved={() => { setPeriksaOpen(false); setActiveItem(null); load() }} />
+      <PengadaanBastModal open={bastOpen} item={activeItem} schoolId={schoolId} onClose={() => { setBastOpen(false); setActiveItem(null) }} onSaved={() => { setBastOpen(false); setActiveItem(null); load() }} />
+      <PengadaanDetailModal item={detailItem} onClose={() => setDetailItem(null)} />
     </div>
   )
 }
@@ -2150,7 +2153,7 @@ function PengadaanPesanModal({ open, item, schoolId, onClose, onSaved }) {
   )
 }
 
-function PengadaanPeriksaModal({ open, item, onClose, onSaved }) {
+function PengadaanPeriksaModal({ open, item, schoolId, onClose, onSaved }) {
   const [f, setF] = useState({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -2158,7 +2161,8 @@ function PengadaanPeriksaModal({ open, item, onClose, onSaved }) {
   useEffect(() => {
     if (!open || !item) return
     setError('')
-    setF({ ba_pemeriksaan_tanggal: new Date().toISOString().slice(0, 10), ba_pemeriksaan_hasil: 'sesuai', ba_pemeriksaan_catatan: '' })
+    const p = item.proses
+    setF({ ba_pemeriksaan_tanggal: p?.ba_pemeriksaan_tanggal || new Date().toISOString().slice(0, 10), ba_pemeriksaan_hasil: 'sesuai', ba_pemeriksaan_catatan: p?.ba_pemeriksaan_catatan || '', nomor_ba_pemeriksaan: p?.nomor_ba_pemeriksaan || '' })
   }, [open, item])
 
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
@@ -2173,6 +2177,7 @@ function PengadaanPeriksaModal({ open, item, onClose, onSaved }) {
       ba_pemeriksaan_tanggal: f.ba_pemeriksaan_tanggal || null,
       ba_pemeriksaan_hasil: f.ba_pemeriksaan_hasil,
       ba_pemeriksaan_catatan: f.ba_pemeriksaan_catatan?.trim() || null,
+      nomor_ba_pemeriksaan: f.nomor_ba_pemeriksaan?.trim() || null,
     }
     const { error: err } = await supabase.from('dka_pengadaan_proses').update(payload).eq('id', item.proses.id)
     setSaving(false)
@@ -2185,7 +2190,13 @@ function PengadaanPeriksaModal({ open, item, onClose, onSaved }) {
   return (
     <Modal open={open} onClose={onClose} title={`Berita Acara Pemeriksaan — ${item.nama_aset}`} width="max-w-lg">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <Input label="Tanggal Pemeriksaan" type="date" value={f.ba_pemeriksaan_tanggal || ''} onChange={(e) => set('ba_pemeriksaan_tanggal', e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Tanggal Pemeriksaan" type="date" value={f.ba_pemeriksaan_tanggal || ''} onChange={(e) => set('ba_pemeriksaan_tanggal', e.target.value)} />
+          <div>
+            <Input label="Nomor BA Pemeriksaan" value={f.nomor_ba_pemeriksaan || ''} onChange={(e) => set('nomor_ba_pemeriksaan', e.target.value)} placeholder="opsional" />
+            <button type="button" onClick={async () => set('nomor_ba_pemeriksaan', await autoNo(schoolId, 'BAP'))} className="mt-1 text-[11px] text-[var(--color-navy)] hover:underline">buat nomor otomatis</button>
+          </div>
+        </div>
         <Select label="Hasil Pemeriksaan" value={f.ba_pemeriksaan_hasil || 'sesuai'} onChange={(e) => set('ba_pemeriksaan_hasil', e.target.value)}>
           <option value="sesuai">Sesuai — lanjut Serah Terima</option>
           <option value="tidak_sesuai">Tidak Sesuai — minta penyedia menyesuaikan</option>
@@ -2201,7 +2212,7 @@ function PengadaanPeriksaModal({ open, item, onClose, onSaved }) {
   )
 }
 
-function PengadaanBastModal({ open, item, onClose, onSaved }) {
+function PengadaanBastModal({ open, item, schoolId, onClose, onSaved }) {
   const [f, setF] = useState({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -2209,7 +2220,8 @@ function PengadaanBastModal({ open, item, onClose, onSaved }) {
   useEffect(() => {
     if (!open || !item) return
     setError('')
-    setF({ ba_serah_terima_tanggal: new Date().toISOString().slice(0, 10), ba_serah_terima_catatan: '' })
+    const p = item.proses
+    setF({ ba_serah_terima_tanggal: new Date().toISOString().slice(0, 10), ba_serah_terima_catatan: '', nomor_ba_serah_terima: p?.nomor_ba_serah_terima || '' })
   }, [open, item])
 
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
@@ -2222,6 +2234,7 @@ function PengadaanBastModal({ open, item, onClose, onSaved }) {
       status: 'diterima',
       ba_serah_terima_tanggal: f.ba_serah_terima_tanggal || null,
       ba_serah_terima_catatan: f.ba_serah_terima_catatan?.trim() || null,
+      nomor_ba_serah_terima: f.nomor_ba_serah_terima?.trim() || null,
     }
     const { error: err } = await supabase.from('dka_pengadaan_proses').update(payload).eq('id', item.proses.id)
     setSaving(false)
@@ -2234,8 +2247,14 @@ function PengadaanBastModal({ open, item, onClose, onSaved }) {
   return (
     <Modal open={open} onClose={onClose} title={`Berita Acara Serah Terima — ${item.nama_aset}`} width="max-w-lg">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <p className="rounded-md bg-[var(--color-navy-50)] px-3 py-2 text-xs text-[var(--color-ink)]">Menyimpan BAST akan langsung menambahkan aset ini ke Inventaris (kode aset & lokasi dibuat otomatis).</p>
-        <Input label="Tanggal Serah Terima" type="date" value={f.ba_serah_terima_tanggal || ''} onChange={(e) => set('ba_serah_terima_tanggal', e.target.value)} />
+        <p className="rounded-md bg-[var(--color-navy-50)] px-3 py-2 text-xs text-[var(--color-ink)]">Menyimpan BAST akan langsung menambahkan aset ini ke <b>Inventaris</b> (jumlah &amp; nilai total, kode &amp; lokasi otomatis) dan mencatatnya di <b>Penerimaan &amp; Penyaluran</b> (tersalur ke ruangan tujuan).</p>
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Tanggal Serah Terima" type="date" value={f.ba_serah_terima_tanggal || ''} onChange={(e) => set('ba_serah_terima_tanggal', e.target.value)} />
+          <div>
+            <Input label="Nomor BA Serah Terima" value={f.nomor_ba_serah_terima || ''} onChange={(e) => set('nomor_ba_serah_terima', e.target.value)} placeholder="opsional" />
+            <button type="button" onClick={async () => set('nomor_ba_serah_terima', await autoNo(schoolId, 'BAST'))} className="mt-1 text-[11px] text-[var(--color-navy)] hover:underline">buat nomor otomatis</button>
+          </div>
+        </div>
         <Textarea label="Catatan" rows={2} value={f.ba_serah_terima_catatan || ''} onChange={(e) => set('ba_serah_terima_catatan', e.target.value)} />
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2">
@@ -2243,6 +2262,85 @@ function PengadaanBastModal({ open, item, onClose, onSaved }) {
           <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan & Masuk Inventaris'}</Button>
         </div>
       </form>
+    </Modal>
+  )
+}
+
+// Kartu detail informasi satu item hasil pengadaan — alur lengkap BAB IV.
+function PengadaanDetailModal({ item, onClose }) {
+  const open = !!item
+  if (!open) return null
+  const p = item.proses || {}
+  const tgl = (d) => d ? new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+  const st = p.status || 'menunggu'
+
+  const Baris = ({ label, value, mono }) => (
+    <div className="grid grid-cols-3 gap-3 py-1.5">
+      <dt className="text-[13px] text-[var(--color-ink-soft)]">{label}</dt>
+      <dd className={`col-span-2 text-sm text-[var(--color-ink)] ${mono ? 'font-mono text-xs' : ''}`}>{value || '—'}</dd>
+    </div>
+  )
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Detail Pengadaan — ${item.nama_aset}`} width="max-w-xl">
+      <div className="flex flex-col gap-3">
+        <div>
+          <Badge color={PENGADAAN_STATUS_BADGE[st]}>{PENGADAAN_STATUS_LABEL[st]}</Badge>
+          {p.aset_id && <span className="ml-2 text-[11px] text-[var(--color-success)]">✓ masuk Inventaris &amp; Penyaluran</span>}
+        </div>
+
+        <div className="rounded-lg border border-[var(--color-border)] p-3">
+          <p className="mb-1 text-xs font-semibold text-[var(--color-ink-soft)]">Item</p>
+          <dl className="divide-y divide-[var(--color-border)]">
+            <Baris label="Nama Aset" value={item.nama_aset} />
+            <Baris label="Spesifikasi" value={item.spesifikasi} />
+            <Baris label="Jumlah Diajukan" value={`${Number(item.jumlah_pengajuan ?? 0)} ${item.satuan || ''}`} />
+            <Baris label="Ruangan / Lokasi" value={item.ruangan?.nama || item.lokasi} />
+            <Baris label="Penanggung Jawab" value={item.penanggung_jawab} />
+          </dl>
+        </div>
+
+        <div className="rounded-lg border border-[var(--color-border)] p-3">
+          <p className="mb-1 text-xs font-semibold text-[var(--color-ink-soft)]">Pemesanan (SPK)</p>
+          <dl className="divide-y divide-[var(--color-border)]">
+            <Baris label="Metode Realisasi" value={p.metode_realisasi} />
+            <Baris label="Penyedia / Rekanan" value={p.penyedia} />
+            <Baris label="Nomor SPK" value={p.nomor_spk} mono />
+            <Baris label="Tanggal SPK" value={tgl(p.tanggal_spk)} />
+            <Baris label="Nomor Nota/Kuitansi" value={p.nomor_bukti} mono />
+            <Baris label="Jumlah Realisasi" value={p.jumlah_realisasi != null ? `${Number(p.jumlah_realisasi)} ${item.satuan || ''}` : '—'} />
+            <Baris label="Harga Satuan Realisasi" value={p.harga_realisasi != null ? formatRupiah(p.harga_realisasi) : '—'} />
+            <Baris label="Nilai Total" value={p.jumlah_realisasi != null && p.harga_realisasi != null ? formatRupiah(Number(p.jumlah_realisasi) * Number(p.harga_realisasi)) : '—'} />
+            <Baris label="Dipesan oleh" value={p.pemesan?.nama} />
+          </dl>
+        </div>
+
+        <div className="rounded-lg border border-[var(--color-border)] p-3">
+          <p className="mb-1 text-xs font-semibold text-[var(--color-ink-soft)]">Berita Acara Pemeriksaan</p>
+          <dl className="divide-y divide-[var(--color-border)]">
+            <Baris label="Nomor BA Pemeriksaan" value={p.nomor_ba_pemeriksaan} mono />
+            <Baris label="Tanggal" value={tgl(p.ba_pemeriksaan_tanggal)} />
+            <Baris label="Hasil" value={p.ba_pemeriksaan_hasil === 'sesuai' ? 'Sesuai' : p.ba_pemeriksaan_hasil === 'tidak_sesuai' ? 'Tidak Sesuai' : '—'} />
+            <Baris label="Catatan" value={p.ba_pemeriksaan_catatan} />
+            <Baris label="Diperiksa oleh" value={p.pemeriksa?.nama} />
+          </dl>
+        </div>
+
+        <div className="rounded-lg border border-[var(--color-border)] p-3">
+          <p className="mb-1 text-xs font-semibold text-[var(--color-ink-soft)]">Berita Acara Serah Terima</p>
+          <dl className="divide-y divide-[var(--color-border)]">
+            <Baris label="Nomor BA Serah Terima" value={p.nomor_ba_serah_terima} mono />
+            <Baris label="Tanggal" value={tgl(p.ba_serah_terima_tanggal)} />
+            <Baris label="Catatan" value={p.ba_serah_terima_catatan} />
+            <Baris label="Diterima oleh" value={p.penyerah?.nama} />
+            <Baris label="Kode Aset (Inventaris)" value={p.aset?.kode_aset} mono />
+          </dl>
+        </div>
+
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={onClose}>Tutup</Button>
+        </div>
+      </div>
     </Modal>
   )
 }
