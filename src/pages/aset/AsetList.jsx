@@ -2013,6 +2013,15 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
 
   const byStatus = (s) => items.filter((i) => (i.proses?.status || 'menunggu') === s).length
 
+  // Serapan anggaran: nilai DKA (rencana) vs nilai realisasi (pesanan/diterima).
+  const nilaiDKA = items.reduce((a, r) => a + Number(r.jumlah_harga || 0), 0)
+  const nilaiRealisasi = items.reduce((a, r) => {
+    const p = r.proses
+    if (p && p.jumlah_realisasi != null && p.harga_realisasi != null) return a + Number(p.jumlah_realisasi) * Number(p.harga_realisasi)
+    return a
+  }, 0)
+  const serapanPersen = nilaiDKA > 0 ? Math.round((nilaiRealisasi / nilaiDKA) * 100) : 0
+
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -2021,6 +2030,12 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
         <StatCard label="Dipesan" value={byStatus('dipesan')} accent="gold" />
         <StatCard label="Lolos Periksa" value={byStatus('pemeriksaan')} />
         <StatCard label="Diterima" value={byStatus('diterima')} accent="gold" />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatCard label="Nilai DKA (Rencana)" value={formatRupiah(nilaiDKA)} />
+        <StatCard label="Nilai Realisasi" value={formatRupiah(nilaiRealisasi)} accent="gold" />
+        <StatCard label="Serapan Anggaran" value={`${serapanPersen}%`} sub={nilaiRealisasi > nilaiDKA ? 'Realisasi melebihi rencana DKA' : `Sisa ${formatRupiah(Math.max(nilaiDKA - nilaiRealisasi, 0))}`} />
       </div>
 
       <SectionCard title="Daftar Hasil Pengadaan" description="Berdasarkan DKA disahkan. Ikuti tahap: Catat Pemesanan (SPK) → BA Pemeriksaan → BA Serah Terima (otomatis masuk Inventaris).">
@@ -2143,6 +2158,18 @@ function PengadaanPesanModal({ open, item, schoolId, onClose, onSaved }) {
           <Input label="Jumlah Realisasi" type="number" value={f.jumlah_realisasi ?? ''} onChange={(e) => set('jumlah_realisasi', e.target.value)} />
           <Input label="Harga Satuan Realisasi (Rp)" type="number" value={f.harga_realisasi ?? ''} onChange={(e) => set('harga_realisasi', e.target.value)} />
         </div>
+        {(() => {
+          const beda = []
+          if (Number(f.jumlah_realisasi || 0) !== Number(item.jumlah_pengajuan || 0)) beda.push(`jumlah ajuan ${Number(item.jumlah_pengajuan || 0)} ${item.satuan || ''}`)
+          if (Number(f.harga_realisasi || 0) !== Number(item.harga_satuan || 0)) beda.push(`harga ajuan ${formatRupiah(item.harga_satuan)}`)
+          const total = Number(f.jumlah_realisasi || 0) * Number(f.harga_realisasi || 0)
+          return (
+            <div className="rounded-md bg-[var(--color-navy-50)] px-3 py-2 text-xs text-[var(--color-ink)]">
+              Nilai realisasi: <b>{formatRupiah(total)}</b>
+              {beda.length > 0 && <span className="mt-1 block text-[var(--color-gold)]">⚠ Berbeda dari {beda.join(' & ')}. Pastikan sesuai bukti; selisih memengaruhi serapan anggaran.</span>}
+            </div>
+          )
+        })()}
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
@@ -2337,8 +2364,11 @@ function PengadaanDetailModal({ item, onClose }) {
           </dl>
         </div>
 
-        <div className="flex justify-end">
-          <Button variant="outline" onClick={onClose}>Tutup</Button>
+        <div className="flex flex-wrap justify-end gap-2">
+          {p.id && p.nomor_spk && <Button size="sm" variant="outline" onClick={() => openCetak('spk', p.id)}><Printer className="h-3.5 w-3.5" /> SPK</Button>}
+          {p.id && p.ba_pemeriksaan_tanggal && <Button size="sm" variant="outline" onClick={() => openCetak('ba_pemeriksaan', p.id)}><Printer className="h-3.5 w-3.5" /> BA Pemeriksaan</Button>}
+          {p.id && st === 'diterima' && <Button size="sm" variant="outline" onClick={() => openCetak('bast_pengadaan', p.id)}><Printer className="h-3.5 w-3.5" /> BAST</Button>}
+          <Button size="sm" variant="outline" onClick={onClose}>Tutup</Button>
         </div>
       </div>
     </Modal>
@@ -2958,41 +2988,92 @@ function PenyaluranTab({ hasFullAccess, mySchools }) {
     load()
   }
 
+  const menunggu = rows.filter((r) => r.status === 'diminta')     // Penyimpanan: diterima, menunggu disalurkan
+  const riwayat = rows.filter((r) => r.status !== 'diminta')      // Penyaluran: sudah disalurkan / ditolak
+  const tersalur = rows.filter((r) => r.status === 'disalurkan').length
+
   return (
     <div className="flex flex-col gap-5">
       <UnitBar hasFullAccess={hasFullAccess} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}
-        right={canManage && schoolId && <Button onClick={() => setFormOpen(true)}><Plus className="h-4 w-4" /> Permintaan Aset (SPA)</Button>} />
+        right={canManage && schoolId && (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => openCetak('buku_pengeluaran', schoolId)}><Printer className="h-4 w-4" /> Buku Pengeluaran</Button>
+            <Button onClick={() => setFormOpen(true)}><Plus className="h-4 w-4" /> Permintaan Aset (SPA)</Button>
+          </div>
+        )} />
       {!schoolId ? (
         <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
       ) : loading ? <FullPageSpinner /> : (
-        <SectionCard title="Penerimaan & Penyaluran Aset" description="Permintaan (SPA) → penyaluran (SPPA). Saat disalurkan, lokasi aset otomatis dipindah ke ruangan tujuan.">
-          {rows.length === 0 ? (
-            <EmptyState icon={Send} title="Belum ada permintaan" description="Buat Surat Permintaan Aset (SPA) untuk menyalurkan aset ke ruangan/unit." />
-          ) : (
-            <div className="overflow-x-auto">
-              <Table columns={['Aset', 'Tujuan', 'Penerima', 'SPA', 'SPPA', 'Status', canManage ? 'Aksi' : null].filter((c) => c !== null)}>
-                {rows.map((r) => (
-                  <Tr key={r.id}>
-                    <Td><span className="font-medium">{r.aset?.nama}</span><span className="block font-mono text-[11px] text-[var(--color-ink-soft)]">{r.aset?.kode_aset || '—'}</span></Td>
-                    <Td className="text-xs">{r.ruangan?.nama || r.tujuan_lokasi || '—'}</Td>
-                    <Td className="text-xs">{r.penerima || '—'}</Td>
-                    <Td className="text-xs">{r.nomor_spa || '—'}<span className="block text-[11px] text-[var(--color-ink-soft)]">{r.tanggal_permintaan ? new Date(r.tanggal_permintaan).toLocaleDateString('id-ID') : ''}</span></Td>
-                    <Td className="text-xs">{r.nomor_sppa || '—'}<span className="block text-[11px] text-[var(--color-ink-soft)]">{r.tanggal_penyaluran ? new Date(r.tanggal_penyaluran).toLocaleDateString('id-ID') : ''}</span></Td>
-                    <Td><Badge color={PENYALURAN_STATUS_BADGE[r.status]}>{PENYALURAN_STATUS_LABEL[r.status]}</Badge></Td>
-                    {canManage && (
-                      <Td className="text-right">
-                        <div className="flex justify-end gap-1.5">
-                          {r.status === 'diminta' && <><Button size="sm" variant="outline" onClick={() => handleSalurkan(r)}><Truck className="h-3.5 w-3.5" /> Salurkan</Button><button onClick={() => handleTolak(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Tolak"><RotateCcw className="h-4 w-4" /></button></>}
-                          <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
-                        </div>
-                      </Td>
-                    )}
-                  </Tr>
-                ))}
-              </Table>
-            </div>
-          )}
-        </SectionCard>
+        <>
+          <Card className="bg-[var(--color-navy-50)]">
+            <p className="text-[13px] text-[var(--color-ink)]"><b>Alur SOP (BAB V):</b> Penerimaan (BA Pemeriksaan → BAST, di tab Pengadaan) → <b>Penyimpanan</b> (aset diterima & disimpan, belum ditempatkan) → <b>Penyaluran</b> (SPA → SPPA, aset ditempatkan ke ruangan tujuan). Aset hasil pengadaan masuk ke antrean penyaluran secara otomatis.</p>
+          </Card>
+
+          <div className="grid grid-cols-3 gap-3">
+            <StatCard label="Menunggu Penyaluran" value={menunggu.length} accent="gold" />
+            <StatCard label="Tersalur (SPPA)" value={tersalur} />
+            <StatCard label="Total Catatan" value={rows.length} />
+          </div>
+
+          <SectionCard title="Penyimpanan — Menunggu Penyaluran" description="Aset yang sudah diterima (hasil pengadaan / permintaan manual) dan disimpan, menunggu diterbitkan SPPA untuk ditempatkan ke ruangan tujuan.">
+            {menunggu.length === 0 ? (
+              <EmptyState icon={Package} title="Tidak ada aset menunggu penyaluran" description="Aset hasil pengadaan yang sudah di-BAST akan muncul di sini otomatis." />
+            ) : (
+              <div className="overflow-x-auto">
+                <Table columns={['Aset', 'Tujuan', 'Penerima', 'SPA', canManage ? 'Aksi' : null].filter((c) => c !== null)}>
+                  {menunggu.map((r) => (
+                    <Tr key={r.id}>
+                      <Td><span className="font-medium">{r.aset?.nama}</span><span className="block font-mono text-[11px] text-[var(--color-ink-soft)]">{r.aset?.kode_aset || '—'}</span></Td>
+                      <Td className="text-xs">{r.ruangan?.nama || r.tujuan_lokasi || '—'}</Td>
+                      <Td className="text-xs">{r.penerima || '—'}</Td>
+                      <Td className="text-xs">{r.nomor_spa || '—'}<span className="block text-[11px] text-[var(--color-ink-soft)]">{r.tanggal_permintaan ? new Date(r.tanggal_permintaan).toLocaleDateString('id-ID') : ''}</span></Td>
+                      {canManage && (
+                        <Td className="text-right">
+                          <div className="flex justify-end gap-1.5">
+                            <Button size="sm" onClick={() => handleSalurkan(r)}><Truck className="h-3.5 w-3.5" /> Terbitkan SPPA</Button>
+                            <button onClick={() => openCetak('spa', r.id)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Cetak SPA"><Printer className="h-4 w-4" /></button>
+                            <button onClick={() => handleTolak(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Tolak"><RotateCcw className="h-4 w-4" /></button>
+                            <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                          </div>
+                        </Td>
+                      )}
+                    </Tr>
+                  ))}
+                </Table>
+              </div>
+            )}
+          </SectionCard>
+
+          <SectionCard title="Riwayat Penyaluran" description="Aset yang sudah disalurkan (SPPA) atau permintaan yang ditolak. Saat disalurkan, lokasi aset dipindah ke ruangan tujuan dan Kartu Inventaris Ruangan (Penggunaan) dibuat otomatis.">
+            {riwayat.length === 0 ? (
+              <EmptyState icon={Send} title="Belum ada riwayat penyaluran" />
+            ) : (
+              <div className="overflow-x-auto">
+                <Table columns={['Aset', 'Tujuan', 'Penerima', 'SPA', 'SPPA', 'Status', canManage ? 'Aksi' : null].filter((c) => c !== null)}>
+                  {riwayat.map((r) => (
+                    <Tr key={r.id}>
+                      <Td><span className="font-medium">{r.aset?.nama}</span><span className="block font-mono text-[11px] text-[var(--color-ink-soft)]">{r.aset?.kode_aset || '—'}</span></Td>
+                      <Td className="text-xs">{r.ruangan?.nama || r.tujuan_lokasi || '—'}</Td>
+                      <Td className="text-xs">{r.penerima || '—'}</Td>
+                      <Td className="text-xs">{r.nomor_spa || '—'}<span className="block text-[11px] text-[var(--color-ink-soft)]">{r.tanggal_permintaan ? new Date(r.tanggal_permintaan).toLocaleDateString('id-ID') : ''}</span></Td>
+                      <Td className="text-xs">{r.nomor_sppa || '—'}<span className="block text-[11px] text-[var(--color-ink-soft)]">{r.tanggal_penyaluran ? new Date(r.tanggal_penyaluran).toLocaleDateString('id-ID') : ''}</span></Td>
+                      <Td><Badge color={PENYALURAN_STATUS_BADGE[r.status]}>{PENYALURAN_STATUS_LABEL[r.status]}</Badge></Td>
+                      {canManage && (
+                        <Td className="text-right">
+                          <div className="flex justify-end gap-1.5">
+                            <button onClick={() => openCetak('spa', r.id)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Cetak SPA"><Printer className="h-4 w-4" /></button>
+                            {r.status === 'disalurkan' && <button onClick={() => openCetak('sppa', r.id)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Cetak SPPA"><Printer className="h-4 w-4" /></button>}
+                            <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                          </div>
+                        </Td>
+                      )}
+                    </Tr>
+                  ))}
+                </Table>
+              </div>
+            )}
+          </SectionCard>
+        </>
       )}
       <PenyaluranModal open={formOpen} schoolId={schoolId} onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); load() }} />
     </div>
