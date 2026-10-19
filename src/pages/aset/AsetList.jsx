@@ -422,7 +422,10 @@ function InventarisTab({ hasFullAccess, mySchools }) {
             <input type="checkbox" checked={showDihapus} onChange={(e) => setShowDihapus(e.target.checked)} /> Tampilkan dihapus
           </label>
         </div>
-        <Button onClick={() => { setEditingRow(null); setFormOpen(true) }} disabled={!schoolId && !hasFullAccess}><Plus className="h-4 w-4" /> Tambah Aset</Button>
+        <div className="flex flex-wrap gap-2">
+          {hasFullAccess && <Button variant="outline" onClick={() => openCetak('buku_induk_inventaris')} title="Himpunan Buku Inventaris seluruh unit (Yayasan)"><Printer className="h-4 w-4" /> Buku Induk Inventaris</Button>}
+          <Button onClick={() => { setEditingRow(null); setFormOpen(true) }} disabled={!schoolId && !hasFullAccess}><Plus className="h-4 w-4" /> Tambah Aset</Button>
+        </div>
       </div>
 
       {loadError && <Card className="border-[var(--color-danger)] bg-[var(--color-danger-soft)]"><p className="text-sm text-[var(--color-danger)]">Gagal memuat: {loadError}</p></Card>}
@@ -3403,23 +3406,29 @@ function InventarisasiTab({ hasFullAccess, mySchools }) {
       {!schoolId ? (
         hasFullAccess ? <OpnameRekap onOpen={setSchoolId} /> : <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
       ) : loading ? <FullPageSpinner /> : (
-        <SectionCard title="Sesi Inventarisasi (Opname)" description="Sensus aset vs Buku Inventaris. Kondisi aktual otomatis memperbarui kondisi aset.">
-          {sessions.length === 0 ? (
-            <EmptyState icon={ScanLine} title="Belum ada sesi" description="Buat sesi opname untuk mencocokkan aset fisik dengan Buku Inventaris." />
-          ) : (
-            <Table columns={['Judul', 'Tahun', 'Mulai', 'Status', '']}>
-              {sessions.map((s) => (
-                <Tr key={s.id}>
-                  <Td className="font-medium">{s.judul || '—'}</Td>
-                  <Td>{s.tahun}</Td>
-                  <Td className="text-xs">{s.tanggal_mulai ? new Date(s.tanggal_mulai).toLocaleDateString('id-ID') : '—'}</Td>
-                  <Td><Badge color={OPNAME_STATUS_BADGE[s.status]}>{OPNAME_STATUS_LABEL[s.status]}</Badge></Td>
-                  <Td><button onClick={() => setOpenId(s.id)} className="text-sm font-medium text-[var(--color-navy)] hover:underline">Buka →</button></Td>
-                </Tr>
-              ))}
-            </Table>
-          )}
-        </SectionCard>
+        <>
+          <Card className="bg-[var(--color-navy-50)]">
+            <p className="text-[13px] text-[var(--color-ink)]"><b>Alur SOP (BAB VII):</b> Persiapan (Tim Inventarisasi, KIA/KIR, format LHI) → Pelaksanaan (tarik aset dari Inventaris → cek temuan & kondisi) → Identifikasi & penilaian → <b>LHI + Berita Acara Hasil Inventarisasi</b> → <b>Tindak lanjut otomatis</b>: aset hilang/rusak berat diusulkan ke Penghapusan, kondisi aktual memperbarui Inventaris/KIA/KIR → Laporan Aset Semester/Tahunan dihimpun Yayasan.</p>
+          </Card>
+          <SectionCard title="Sesi Inventarisasi (Opname)" description="Sensus aset vs Buku Inventaris. Kondisi aktual otomatis memperbarui kondisi aset; aset hilang/rusak berat otomatis masuk draft Penghapusan saat sesi diselesaikan.">
+            {sessions.length === 0 ? (
+              <EmptyState icon={ScanLine} title="Belum ada sesi" description="Buat sesi opname untuk mencocokkan aset fisik dengan Buku Inventaris." />
+            ) : (
+              <Table columns={['Judul', 'Tahun', 'Mulai', 'Status', '']}>
+                {sessions.map((s) => (
+                  <Tr key={s.id}>
+                    <Td className="font-medium">{s.judul || '—'}</Td>
+                    <Td>{s.tahun}</Td>
+                    <Td className="text-xs">{s.tanggal_mulai ? new Date(s.tanggal_mulai).toLocaleDateString('id-ID') : '—'}</Td>
+                    <Td><Badge color={OPNAME_STATUS_BADGE[s.status]}>{OPNAME_STATUS_LABEL[s.status]}</Badge></Td>
+                    <Td><button onClick={() => setOpenId(s.id)} className="text-sm font-medium text-[var(--color-navy)] hover:underline">Buka →</button></Td>
+                  </Tr>
+                ))}
+              </Table>
+            )}
+          </SectionCard>
+          <DokumenAreaCard area="Inventarisasi" schoolId={schoolId} />
+        </>
       )}
     </div>
   )
@@ -3449,10 +3458,20 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
     if (error) { alert('Gagal: ' + error.message); return }
     load()
   }
+  const simpanMeta = async (patch) => {
+    const { error } = await supabase.from('aset_opname').update(patch).eq('id', opnameId)
+    if (error) { alert('Gagal: ' + error.message); return }
+    load()
+  }
   const selesaikan = async () => {
-    if (!confirm('Selesaikan sesi opname ini?')) return
+    const rusakBerat = items.filter((i) => i.kondisi_aktual === 'rusak_berat').length
+    const hilangN = items.filter((i) => i.ditemukan === false).length
+    const tl = rusakBerat + hilangN
+    if (!confirm(`Selesaikan sesi opname ini?${tl > 0 ? `\n\n${tl} aset (hilang/rusak berat) akan otomatis dibuatkan draft usulan Penghapusan sebagai tindak lanjut.` : ''}`)) return
     setBusy(true)
-    const { error } = await supabase.from('aset_opname').update({ status: 'selesai', tanggal_selesai: new Date().toISOString().slice(0, 10) }).eq('id', opnameId)
+    // Auto-nomor Berita Acara Hasil Inventarisasi bila belum ada.
+    const nomorBa = sesi.nomor_ba?.trim() || await autoNo(sesi.school_id, 'BAI')
+    const { error } = await supabase.from('aset_opname').update({ status: 'selesai', tanggal_selesai: new Date().toISOString().slice(0, 10), nomor_ba: nomorBa }).eq('id', opnameId)
     setBusy(false)
     if (error) { alert('Gagal: ' + error.message); return }
     load()
@@ -3463,6 +3482,7 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
 
   const dicek = items.filter((i) => i.ditemukan !== null).length
   const hilang = items.filter((i) => i.ditemukan === false).length
+  const rusakBerat = items.filter((i) => i.kondisi_aktual === 'rusak_berat').length
   const editable = canManage && sesi.status === 'berjalan'
 
   return (
@@ -3472,14 +3492,24 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2"><h3 className="text-base font-semibold text-[var(--color-ink)]">{sesi.judul || 'Opname'} — {sesi.tahun}</h3><Badge color={OPNAME_STATUS_BADGE[sesi.status]}>{OPNAME_STATUS_LABEL[sesi.status]}</Badge></div>
-            <p className="mt-1 text-xs text-[var(--color-ink-soft)]">{items.length} aset · {dicek} dicek · {hilang} tidak ditemukan</p>
+            <p className="mt-1 text-xs text-[var(--color-ink-soft)]">{items.length} aset · {dicek} dicek · {hilang} tidak ditemukan · {rusakBerat} rusak berat{sesi.nomor_ba ? ` · BA ${sesi.nomor_ba}` : ''}{sesi.tim ? ` · Tim: ${sesi.tim}` : ''}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => openCetak('lhi', opnameId)}><Printer className="h-4 w-4" /> Cetak LHI</Button>
+            <Button variant="outline" onClick={() => openCetak('ba_inventarisasi', opnameId)}><Printer className="h-4 w-4" /> Cetak BA</Button>
             {editable && <Button variant="outline" onClick={generate} disabled={busy}><Download className="h-4 w-4" /> {items.length ? 'Tarik Ulang' : 'Tarik dari Inventaris'}</Button>}
             {editable && <Button onClick={selesaikan} disabled={busy}><CheckCircle2 className="h-4 w-4" /> Selesaikan</Button>}
           </div>
         </div>
+        {editable && (
+          <div className="mt-3 grid grid-cols-1 gap-3 border-t border-[var(--color-border)] pt-3 sm:grid-cols-2">
+            <Input label="Tim Inventarisasi" defaultValue={sesi.tim || ''} onBlur={(e) => { if ((e.target.value || '') !== (sesi.tim || '')) simpanMeta({ tim: e.target.value.trim() || null }) }} placeholder="mis. Tata Usaha & PKS Sarpras" />
+            <Input label="No. Berita Acara (opsional — otomatis saat selesai)" defaultValue={sesi.nomor_ba || ''} onBlur={(e) => { if ((e.target.value || '') !== (sesi.nomor_ba || '')) simpanMeta({ nomor_ba: e.target.value.trim() || null }) }} />
+          </div>
+        )}
+        {sesi.penghapusan_id && (
+          <p className="mt-3 rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-sm text-[var(--color-gold)]"><b>Tindak lanjut:</b> aset hilang/rusak berat telah dibuatkan <b>draft usulan Penghapusan</b> otomatis. Buka menu <b>Penghapusan</b> untuk mengajukannya ke Yayasan.</p>
+        )}
       </Card>
       <SectionCard title="Daftar Hasil Inventarisasi (LHI)">
         {items.length === 0 ? (
@@ -3501,7 +3531,7 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
           </div>
         )}
       </SectionCard>
-      {schoolId && <DokumenAreaCard area="Inventarisasi" schoolId={schoolId} />}
+      {sesi.school_id && <DokumenAreaCard area="Inventarisasi" schoolId={sesi.school_id} />}
       <OpnameItemModal open={!!periksa} item={periksa} onClose={() => setPeriksa(null)} onSaved={() => { setPeriksa(null); load() }} />
     </div>
   )

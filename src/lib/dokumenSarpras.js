@@ -58,6 +58,7 @@ export const DOKUMEN_LIST = [
   { jenis: 'kia', area: 'Inventaris', label: 'Kartu Inventaris Aset (KIA)', pick: 'aset' },
   { jenis: 'kir', area: 'Inventaris', label: 'Kartu Inventaris Ruangan (KIR)', pick: 'ruangan' },
   { jenis: 'buku_inventaris', area: 'Inventaris', label: 'Buku Inventaris Aset Satuan Pendidikan', pick: 'school' },
+  { jenis: 'buku_induk_inventaris', area: 'Inventaris', label: 'Buku Induk Inventaris Aset (Himpunan Seluruh Unit)', pick: null },
   { jenis: 'label_aset', area: 'Inventaris', label: 'Label Kode Aset & Kode Lokasi', pick: 'aset' },
   // Inventarisasi
   { jenis: 'rencana_inventarisasi', area: 'Inventarisasi', label: 'Rencana Kerja Inventarisasi (formulir)', pick: null },
@@ -130,6 +131,15 @@ export async function listRecords(pick, schoolId) {
 export async function loadDokumen(jenis, id) {
   const meta = DOKUMEN_BY_JENIS[jenis]
   if (!meta) return null
+  // Buku Induk Inventaris = himpunan seluruh unit (dibatasi RLS ke unit yang
+  // boleh diakses). Tidak perlu memilih satu record.
+  if (jenis === 'buku_induk_inventaris') {
+    const { data: aset } = await supabase.from('aset')
+      .select('*, aset_klasifikasi(uraian), ruangan(nama), schools!school_id(nama, jenjang)')
+      .eq('status', 'aktif')
+      .order('school_id').order('kode_aset', { nullsFirst: false })
+    return { _meta: meta, aset: aset || [] }
+  }
   if (!meta.pick || !id) return { _meta: meta }
   const g = meta.pick
 
@@ -354,6 +364,15 @@ const BUILDERS = {
       rows: aset.map((r, i) => [i + 1, r.kode_aset || '—', r.kode_lokasi || '—', r.nama, r.aset_klasifikasi?.uraian || '—', r.ruangan?.nama || '—', Number(r.jumlah ?? 1), kon(r.kondisi), rp(r.nilai_perolehan)]),
       footer: ['', '', '', '', '', '', '', 'Total', rp(aset.reduce((a, r) => a + Number(r.nilai_perolehan || 0), 0))] }],
     ttd: ttdDua({ peran: 'Mengetahui,\nPengurus Yayasan Bidang Sarpras', jabatan: '', nama: blank }, { peran: 'Kepala Satuan Pendidikan', jabatan: '', nama: blank }),
+  }),
+  buku_induk_inventaris: ({ aset = [] }) => ({
+    judul: 'BUKU INDUK INVENTARIS ASET — YAYASAN',
+    nomor: 'Himpunan seluruh satuan pendidikan',
+    tables: [{ columns: ['No', 'Unit', 'Kode Aset', 'Nama Aset', 'Klasifikasi', 'Ruangan', 'Jml', 'Kondisi', 'Nilai Perolehan'],
+      rows: aset.map((r, i) => [i + 1, (r.schools?.jenjang ? r.schools.jenjang + ' — ' : '') + (r.schools?.nama || '—'), r.kode_aset || '—', r.nama, r.aset_klasifikasi?.uraian || '—', r.ruangan?.nama || '—', Number(r.jumlah ?? 1), kon(r.kondisi), rp(r.nilai_perolehan)]),
+      footer: ['', '', '', '', '', '', '', 'Total', rp(aset.reduce((a, r) => a + Number(r.nilai_perolehan || 0), 0))] }],
+    narasi: [`Jumlah aset tercatat: ${aset.length}. Dihimpun dari Buku Inventaris seluruh satuan pendidikan sebagai bahan neraca Yayasan.`],
+    ttd: ttdDua({ peran: 'Mengetahui,\nKetua Yayasan', jabatan: '', nama: blank }, { peran: 'Pengurus Yayasan Bidang Sarpras', jabatan: '', nama: blank }),
   }),
   label_aset: ({ a, school }) => ({
     judul: 'LABEL KODE ASET',
