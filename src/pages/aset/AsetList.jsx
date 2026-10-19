@@ -1766,10 +1766,18 @@ function DkaPemeliharaanModal({ open, usulan, schoolId, editingItem, onClose, on
 
 function DkaItemModal({ open, usulan, schoolId, editingItem, klasifikasiList, ruanganList, onClose, onSaved }) {
   const [f, setF] = useState({})
+  const [bhpList, setBhpList] = useState([])
   const [saving, setSaving] = useState(false)
   const [ambil, setAmbil] = useState(false)
   const [error, setError] = useState('')
   const isEdit = !!editingItem
+
+  // Daftar barang habis pakai yang sudah ada (untuk pemilih, bila item persediaan).
+  useEffect(() => {
+    if (!open || !schoolId) return
+    supabase.from('barang_habis_pakai').select('id, nama, satuan').eq('school_id', schoolId).order('nama')
+      .then(({ data }) => setBhpList(data || []))
+  }, [open, schoolId])
 
   useEffect(() => {
     if (!open) return
@@ -1782,12 +1790,13 @@ function DkaItemModal({ open, usulan, schoolId, editingItem, klasifikasiList, ru
         sumber_anggaran: editingItem.sumber_anggaran || '', jumlah_maksimal: String(editingItem.jumlah_maksimal ?? '0'), jumlah_tersedia: String(editingItem.jumlah_tersedia ?? '0'),
         jumlah_pengajuan: String(editingItem.jumlah_pengajuan ?? '0'), satuan: editingItem.satuan || 'unit', harga_satuan: String(editingItem.harga_satuan ?? '0'),
         standar_harga: editingItem.standar_harga == null ? '' : String(editingItem.standar_harga), justifikasi: editingItem.justifikasi || '',
+        is_habis_pakai: !!editingItem.is_habis_pakai, bhp_id: editingItem.bhp_id || '',
       })
     } else {
       setF({
         klasifikasi_id: '', nama_aset: '', spesifikasi: '', unit_kerja: '', nama_kegiatan: '', ruangan_id: '', lokasi: '', penanggung_jawab: '',
         alasan_kebutuhan: '', cara_pengadaan: '', sumber_anggaran: '', jumlah_maksimal: '1', jumlah_tersedia: '0', jumlah_pengajuan: '1', satuan: 'unit',
-        harga_satuan: '0', standar_harga: '', justifikasi: '',
+        harga_satuan: '0', standar_harga: '', justifikasi: '', is_habis_pakai: false, bhp_id: '',
       })
     }
   }, [open, editingItem])
@@ -1803,6 +1812,13 @@ function DkaItemModal({ open, usulan, schoolId, editingItem, klasifikasiList, ru
   const pilihRuangan = (id) => {
     const r = ruanganList.find((x) => x.id === id)
     setF((prev) => ({ ...prev, ruangan_id: id, lokasi: id ? '' : prev.lokasi, penanggung_jawab: id ? (picRuangan(r) || prev.penanggung_jawab) : prev.penanggung_jawab }))
+  }
+
+  // Pilih barang BHP yang sudah ada → tautkan (bhp_id) + samakan nama & satuan,
+  // agar stok masuk ke barang itu tanpa bergantung kecocokan nama.
+  const pilihBhp = (id) => {
+    const b = bhpList.find((x) => x.id === id)
+    setF((prev) => ({ ...prev, bhp_id: id, nama_aset: b ? b.nama : prev.nama_aset, satuan: b?.satuan || prev.satuan }))
   }
 
   // Saat klasifikasi dipilih: prefill nama & tarik Standar Harga tahun ybs.
@@ -1853,6 +1869,8 @@ function DkaItemModal({ open, usulan, schoolId, editingItem, klasifikasiList, ru
       harga_satuan: Number(f.harga_satuan) || 0,
       standar_harga: f.standar_harga === '' ? null : Number(f.standar_harga),
       justifikasi: f.justifikasi?.trim() || null,
+      is_habis_pakai: !!f.is_habis_pakai,
+      bhp_id: f.is_habis_pakai ? (f.bhp_id || null) : null,
     }
     const query = isEdit ? supabase.from('dka_usulan_item').update(payload).eq('id', editingItem.id) : supabase.from('dka_usulan_item').insert(payload)
     const { error: err } = await query
@@ -1864,7 +1882,17 @@ function DkaItemModal({ open, usulan, schoolId, editingItem, klasifikasiList, ru
   return (
     <Modal open={open} onClose={onClose} title={isEdit ? 'Ubah Item DKA' : 'Tambah Item DKA'} width="max-w-2xl">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <KlasifikasiPicker klasifikasiList={klasifikasiList} value={f.klasifikasi_id} onChange={onPickKlasifikasi} />
+        <label className="flex items-start gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-paper)] px-3 py-2">
+          <input type="checkbox" className="mt-0.5" checked={!!f.is_habis_pakai} onChange={(e) => set('is_habis_pakai', e.target.checked)} />
+          <span className="text-sm text-[var(--color-ink)]">Barang Habis Pakai (persediaan)<span className="block text-xs text-[var(--color-ink-soft)]">Saat diterima, otomatis menambah stok di <b>Barang Habis Pakai</b> (bukan aset tetap/Inventaris). Mis. ATK, bahan pembersih, tinta. Klasifikasi & ruangan boleh dikosongkan.</span></span>
+        </label>
+        {f.is_habis_pakai && (
+          <Select label="Barang Persediaan (pilih yang sudah ada)" value={f.bhp_id || ''} onChange={(e) => pilihBhp(e.target.value)}>
+            <option value="">— Buat baru dari Nama Aset di bawah —</option>
+            {bhpList.map((b) => <option key={b.id} value={b.id}>{b.nama} ({b.satuan})</option>)}
+          </Select>
+        )}
+        {!f.is_habis_pakai && <KlasifikasiPicker klasifikasiList={klasifikasiList} value={f.klasifikasi_id} onChange={onPickKlasifikasi} />}
         <div className="grid grid-cols-2 gap-3">
           <Input label="Nama Aset" required value={f.nama_aset || ''} onChange={(e) => set('nama_aset', e.target.value)} placeholder="mis. Laptop" />
           <Input label="Merk & Spesifikasi" value={f.spesifikasi || ''} onChange={(e) => set('spesifikasi', e.target.value)} placeholder="mis. Core i5, 8GB" />
@@ -2128,6 +2156,7 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
                   <Tr key={r.id}>
                     <Td>
                       <span className="font-medium">{r.nama_aset}</span>
+                      {r.is_habis_pakai && <Badge color="gold">Habis Pakai</Badge>}
                       {r.spesifikasi && <span className="block text-xs text-[var(--color-ink-soft)]">{r.spesifikasi}</span>}
                       {r.proses?.nomor_spk && <span className="block text-[11px] text-[var(--color-ink-soft)]">SPK {r.proses.nomor_spk}</span>}
                     </Td>
@@ -2136,6 +2165,7 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
                     <Td>
                       <Badge color={PENGADAAN_STATUS_BADGE[st]}>{PENGADAAN_STATUS_LABEL[st]}</Badge>
                       {r.proses?.aset_id && <span className="block text-[11px] text-[var(--color-success)]">✓ masuk Inventaris &amp; Penyaluran</span>}
+                      {r.proses?.bhp_id && <span className="block text-[11px] text-[var(--color-success)]">✓ masuk Persediaan (BHP)</span>}
                     </Td>
                     <Td className="text-right">
                       <div className="inline-flex items-center gap-1.5">
@@ -2402,6 +2432,7 @@ function PengadaanDetailModal({ item, onClose }) {
         <div>
           <Badge color={PENGADAAN_STATUS_BADGE[st]}>{PENGADAAN_STATUS_LABEL[st]}</Badge>
           {p.aset_id && <span className="ml-2 text-[11px] text-[var(--color-success)]">✓ masuk Inventaris &amp; Penyaluran</span>}
+          {p.bhp_id && <span className="ml-2 text-[11px] text-[var(--color-success)]">✓ masuk Persediaan (BHP)</span>}
         </div>
 
         <div className="rounded-lg border border-[var(--color-border)] p-3">
@@ -3736,12 +3767,33 @@ function PenghapusanItemModal({ open, penghapusanId, schoolId, onClose, onSaved 
 // =========================================================================
 // TAB: BARANG HABIS PAKAI (BHP) — persediaan + buku transaksi (stok otomatis).
 // =========================================================================
+// Daftar standar barang habis pakai (preset) — untuk mengisi katalog cepat
+// tanpa mengetik satu per satu. Stok awal 0; diisi lewat transaksi/pengadaan.
+const BHP_PRESET = [
+  { nama: 'Kertas HVS A4 70gr', satuan: 'rim' }, { nama: 'Kertas HVS F4 70gr', satuan: 'rim' },
+  { nama: 'Pulpen', satuan: 'pcs' }, { nama: 'Pensil', satuan: 'pcs' },
+  { nama: 'Spidol Whiteboard', satuan: 'pcs' }, { nama: 'Spidol Permanen', satuan: 'pcs' },
+  { nama: 'Tinta Printer', satuan: 'botol' }, { nama: 'Tinta Stempel', satuan: 'botol' },
+  { nama: 'Penghapus Papan Tulis', satuan: 'pcs' }, { nama: 'Isi Staples', satuan: 'kotak' },
+  { nama: 'Klip Kertas', satuan: 'kotak' }, { nama: 'Map Folder', satuan: 'pcs' },
+  { nama: 'Amplop', satuan: 'pcs' }, { nama: 'Lem Kertas', satuan: 'pcs' },
+  { nama: 'Buku Tulis', satuan: 'pcs' }, { nama: 'Buku Folio', satuan: 'pcs' },
+  { nama: 'Baterai AA', satuan: 'pcs' },
+  { nama: 'Sabun Cuci Tangan', satuan: 'botol' }, { nama: 'Pembersih Lantai', satuan: 'botol' },
+  { nama: 'Pembersih Kaca', satuan: 'botol' }, { nama: 'Pengharum Ruangan', satuan: 'pcs' },
+  { nama: 'Tisu', satuan: 'pack' }, { nama: 'Kantong Sampah', satuan: 'pack' },
+  { nama: 'Sapu', satuan: 'pcs' }, { nama: 'Kain Pel', satuan: 'pcs' },
+  { nama: 'Masker', satuan: 'box' }, { nama: 'Hand Sanitizer', satuan: 'botol' },
+  { nama: 'Kapas', satuan: 'pack' }, { nama: 'Plester Luka', satuan: 'box' },
+]
+
 function BhpTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
   const managesUnit = useMemo(() => mySchools.some((s) => s.id === schoolId), [mySchools, schoolId])
   const canManage = hasFullAccess || managesUnit
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
+  const [seeding, setSeeding] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [trxItem, setTrxItem] = useState(null)
@@ -3761,21 +3813,36 @@ function BhpTab({ hasFullAccess, mySchools }) {
     load()
   }
 
+  // Isi daftar dari preset standar (lewati nama yang sudah ada).
+  const seedPreset = async () => {
+    if (!schoolId) return
+    const ada = new Set(rows.map((r) => (r.nama || '').trim().toLowerCase()))
+    const toCreate = BHP_PRESET.filter((p) => !ada.has(p.nama.toLowerCase())).map((p) => ({ school_id: schoolId, nama: p.nama, satuan: p.satuan, stok_min: 0 }))
+    if (toCreate.length === 0) { alert('Semua barang standar sudah ada di daftar.'); return }
+    if (!confirm(`Tambahkan ${toCreate.length} barang habis pakai standar ke daftar? Stok awal 0 — diisi lewat transaksi/pengadaan. Barang yang sudah ada dilewati.`)) return
+    setSeeding(true)
+    const { error } = await supabase.from('barang_habis_pakai').insert(toCreate)
+    setSeeding(false)
+    if (error) { alert('Gagal: ' + error.message); return }
+    load()
+  }
+
   return (
     <div className="flex flex-col gap-5">
       <UnitBar hasFullAccess={hasFullAccess} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}
         right={schoolId && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => openCetak('buku_pengeluaran', schoolId)}><Printer className="h-4 w-4" /> Buku Pengeluaran</Button>
+            {canManage && <Button variant="outline" onClick={seedPreset} disabled={seeding}><Download className="h-4 w-4" /> {seeding ? 'Mengisi…' : 'Isi dari daftar standar'}</Button>}
             {canManage && <Button onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Tambah Barang</Button>}
           </div>
         )} />
       {!schoolId ? (
         <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
       ) : loading ? <FullPageSpinner /> : (
-        <SectionCard title="Barang Habis Pakai (Persediaan)" description="Stok diperbarui otomatis dari transaksi masuk/keluar. Kartu stok bisa dicetak sebagai Buku Persediaan.">
+        <SectionCard title="Barang Habis Pakai (Persediaan)" description="Terisi otomatis: (1) klik “Isi dari daftar standar” untuk katalog umum, dan (2) item pengadaan yang ditandai “Barang Habis Pakai” otomatis menambah stok saat diterima. Stok diperbarui otomatis dari transaksi masuk/keluar; kartu stok dicetak sebagai Buku Persediaan.">
           {rows.length === 0 ? (
-            <EmptyState icon={Package} title="Belum ada barang" description="Tambahkan barang habis pakai (ATK, bahan pembersih, dll)." />
+            <EmptyState icon={Package} title="Belum ada barang" description="Klik “Isi dari daftar standar” untuk mengisi katalog umum, atau tandai item pengadaan sebagai barang habis pakai agar stoknya terisi otomatis." />
           ) : (
             <div className="overflow-x-auto">
               <Table columns={['Nama', 'Satuan', 'Stok', 'Stok Min', 'Status', canManage ? 'Aksi' : 'Aksi']}>
