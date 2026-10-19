@@ -16,7 +16,7 @@ import {
 import { useParams, Navigate } from 'react-router-dom'
 import { SOP_SARPRAS, PIC_SARPRAS } from '../../lib/sopSarpras'
 import { SARPRAS_AREAS, SARPRAS_DEFAULT } from '../../lib/sarpras'
-import { DOKUMEN_LIST, listRecords } from '../../lib/dokumenSarpras'
+import { DOKUMEN_LIST, listRecords, loadDokumen, buildDokumen } from '../../lib/dokumenSarpras'
 
 // Buka halaman cetak dokumen di tab baru (siap print/PDF).
 function openCetak(jenis, id) {
@@ -611,6 +611,7 @@ function RuanganTab({ hasFullAccess, mySchools }) {
   const [generating, setGenerating] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
   const [editingRow, setEditingRow] = useState(null)
+  const [asetRoom, setAsetRoom] = useState(null)   // ruangan yang dilihat daftar asetnya (KIR)
 
   // Master unit kerja dimuat sekali (lintas sekolah).
   useEffect(() => {
@@ -711,9 +712,10 @@ function RuanganTab({ hasFullAccess, mySchools }) {
                 <Td>{r.jenis === 'kelas' && r.rombel?.wali?.nama
                   ? <span>{r.rombel.wali.nama} <span className="block text-[11px] text-[var(--color-ink-soft)]">Wali Kelas{r.rombel?.nama_rombel ? ` ${r.rombel.nama_rombel}` : ''}</span></span>
                   : (r.employees?.nama || r.pic_nama || '—')}</Td>
-                <Td>{counts[r.id] || 0}</Td>
+                <Td><button onClick={() => setAsetRoom(r)} className="font-medium text-[var(--color-navy)] hover:underline" aria-label="Lihat aset di ruangan">{counts[r.id] || 0}</button></Td>
                 <Td>
                   <div className="flex justify-end gap-1.5">
+                    <button onClick={() => setAsetRoom(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Lihat Aset (KIR)" title="Lihat aset di ruangan (KIR)"><Info className="h-4 w-4" /></button>
                     <button onClick={() => { setEditingRow(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
                     <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
                   </div>
@@ -725,7 +727,79 @@ function RuanganTab({ hasFullAccess, mySchools }) {
       </SectionCard>
 
       <RuanganFormModal open={formOpen} editingRow={editingRow} schoolId={schoolId} unitKerjaList={unitKerjaList} rombelList={rombelList} existingRows={rows} onClose={() => { setFormOpen(false); setEditingRow(null) }} onSaved={() => { setFormOpen(false); setEditingRow(null); load() }} />
+      <RuanganAsetModal room={asetRoom} onClose={() => setAsetRoom(null)} />
     </div>
+  )
+}
+
+// Daftar aset di satu ruangan = isi Kartu Inventaris Ruangan (KIR).
+// Terintegrasi dengan dokumen KIR: bisa dipratinjau & dicetak langsung.
+function RuanganAsetModal({ room, onClose }) {
+  const open = !!room
+  const [aset, setAset] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [previewKir, setPreviewKir] = useState(false)
+
+  useEffect(() => {
+    if (!room) { setAset([]); return }
+    let batal = false
+    setLoading(true)
+    supabase.from('aset')
+      .select('id, kode_aset, nama, merk_tipe, jumlah, satuan, kondisi, nilai_perolehan, tahun_perolehan, aset_klasifikasi(uraian)')
+      .eq('ruangan_id', room.id).eq('status', 'aktif').order('nama')
+      .then(({ data }) => { if (!batal) { setAset(data || []); setLoading(false) } })
+    return () => { batal = true }
+  }, [room])
+
+  if (!open) return null
+  const totalNilai = aset.reduce((s, a) => s + Number(a.nilai_perolehan || 0), 0)
+  const totalUnit = aset.reduce((s, a) => s + Number(a.jumlah || 0), 0)
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Aset di ${room.nama} — KIR`} width="max-w-3xl">
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-ink-soft)]">
+          <span>Kode Unit <b className="font-mono text-[var(--color-ink)]">{room.kode_unit_kerja || '—'}</b></span>
+          <span>Kode Ruang <b className="font-mono text-[var(--color-ink)]">{room.kode_ruangan || '—'}</b></span>
+          {room.lantai && <span>Lantai <b className="text-[var(--color-ink)]">{room.lantai}</b></span>}
+          <span>PIC <b className="text-[var(--color-ink)]">{room.jenis === 'kelas' && room.rombel?.wali?.nama ? `${room.rombel.wali.nama} (Wali Kelas)` : (room.employees?.nama || room.pic_nama || '—')}</b></span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <StatCard label="Jenis Aset" value={aset.length} />
+          <StatCard label="Total Unit" value={totalUnit} />
+          <StatCard label="Nilai Perolehan" value={formatRupiah(totalNilai)} accent="gold" />
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-[var(--color-ink-soft)]">Memuat…</p>
+        ) : aset.length === 0 ? (
+          <EmptyState icon={Package} title="Belum ada aset di ruangan ini" description="Aset yang disalurkan/ditempatkan ke ruangan ini akan muncul di sini." />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table columns={['Kode Aset', 'Nama & Klasifikasi', 'Merk/Tipe', 'Jumlah', 'Kondisi', 'Nilai']}>
+              {aset.map((a) => (
+                <Tr key={a.id}>
+                  <Td><span className="font-mono text-xs">{a.kode_aset || '—'}</span></Td>
+                  <Td><span className="font-medium">{a.nama}</span>{a.aset_klasifikasi?.uraian && <span className="block text-[11px] text-[var(--color-ink-soft)]">{a.aset_klasifikasi.uraian}</span>}</Td>
+                  <Td className="text-xs">{a.merk_tipe || '—'}</Td>
+                  <Td>{Number(a.jumlah ?? 1)} <span className="text-[11px] text-[var(--color-ink-soft)]">{a.satuan}</span></Td>
+                  <Td><Badge color={KONDISI_BADGE[a.kondisi]}>{KONDISI_LABEL[a.kondisi]}</Badge></Td>
+                  <Td className="text-xs">{formatRupiah(a.nilai_perolehan)}</Td>
+                </Tr>
+              ))}
+            </Table>
+          </div>
+        )}
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="outline" onClick={() => setPreviewKir(true)}><Info className="h-4 w-4" /> Pratinjau KIR</Button>
+          <Button variant="outline" onClick={() => openCetak('kir', room.id)}><Printer className="h-4 w-4" /> Cetak KIR</Button>
+          <Button onClick={onClose}>Tutup</Button>
+        </div>
+      </div>
+      {previewKir && <DokumenPreviewModal jenis="kir" id={room.id} onClose={() => setPreviewKir(false)} />}
+    </Modal>
   )
 }
 
@@ -2577,16 +2651,81 @@ function DashboardTab({ hasFullAccess, mySchools }) {
 // =========================================================================
 // TAB: DOKUMEN & FORMULIR — cetak semua dokumen kerja SOP (auto-isi data).
 // =========================================================================
+// Pratinjau ringkas sebuah dokumen SEBELUM Cetak — memakai data & builder yang
+// sama dengan halaman cetak (loadDokumen + buildDokumen), ditampilkan ringkas.
+function DokumenPreviewModal({ jenis, id, onClose }) {
+  const open = !!jenis
+  const [def, setDef] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!jenis) { setDef(null); return }
+    let batal = false
+    setLoading(true)
+    loadDokumen(jenis, id || null)
+      .then((data) => { if (!batal) { setDef(buildDokumen(jenis, data)); setLoading(false) } })
+      .catch(() => { if (!batal) { setDef({ judul: 'DOKUMEN', narasi: ['Gagal memuat data.'] }); setLoading(false) } })
+    return () => { batal = true }
+  }, [jenis, id])
+
+  if (!open) return null
+  return (
+    <Modal open={open} onClose={onClose} title="Pratinjau Dokumen" width="max-w-2xl">
+      {loading || !def ? <p className="text-sm text-[var(--color-ink-soft)]">Memuat…</p> : (
+        <div className="flex flex-col gap-3">
+          <div className="text-center">
+            <h3 className="text-base font-semibold uppercase text-[var(--color-ink)]">{def.judul}</h3>
+            {def.nomor && <p className="text-xs text-[var(--color-ink-soft)]">Nomor: {def.nomor}</p>}
+            {def.tanggalTempat && <p className="text-xs text-[var(--color-ink-soft)]">{def.tanggalTempat}</p>}
+          </div>
+          {def.intro && <p className="text-sm text-[var(--color-ink)]">{def.intro}</p>}
+          {def.meta?.length > 0 && (
+            <dl className="divide-y divide-[var(--color-border)] rounded-lg border border-[var(--color-border)] px-3">
+              {def.meta.map(([k, v], i) => (
+                <div key={i} className="grid grid-cols-3 gap-2 py-1.5">
+                  <dt className="text-[13px] text-[var(--color-ink-soft)]">{k}</dt>
+                  <dd className="col-span-2 text-sm text-[var(--color-ink)]">{String(v ?? '—')}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {(def.tables || []).map((t, ti) => (
+            <div key={ti} className="overflow-x-auto">
+              <Table columns={t.columns}>
+                {(t.rows || []).map((row, ri) => (
+                  <Tr key={ri}>{row.map((cell, ci) => <Td key={ci} className="text-xs">{String(cell ?? '')}</Td>)}</Tr>
+                ))}
+              </Table>
+              {(t.rows || []).length === 0 && <p className="py-2 text-xs text-[var(--color-ink-soft)]">(formulir kosong — akan dicetak sebagai blanko)</p>}
+            </div>
+          ))}
+          {(def.narasi || []).map((n, ni) => <p key={ni} className="text-sm text-[var(--color-ink-soft)]">{n}</p>)}
+          <p className="text-[11px] text-[var(--color-ink-soft)]">Pratinjau ringkas untuk memeriksa data. Kop surat & tata letak resmi muncul di hasil Cetak/PDF.</p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose}>Tutup</Button>
+            <Button onClick={() => openCetak(jenis, id || undefined)}><Printer className="h-4 w-4" /> Cetak / Simpan PDF</Button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
 function DokumenRow({ doc, schoolId }) {
   const [recs, setRecs] = useState(null)
   const [sel, setSel] = useState('')
   const [loading, setLoading] = useState(false)
+  const [preview, setPreview] = useState(false)
 
   if (!doc.pick) {
     return (
       <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] py-2 last:border-0">
         <span className="text-sm text-[var(--color-ink)]">{doc.label}</span>
-        <Button size="sm" variant="outline" onClick={() => openCetak(doc.jenis)}><Printer className="h-3.5 w-3.5" /> Cetak</Button>
+        <div className="flex items-center gap-1.5">
+          <Button size="sm" variant="ghost" onClick={() => setPreview(true)}><Info className="h-3.5 w-3.5" /> Lihat detail</Button>
+          <Button size="sm" variant="outline" onClick={() => openCetak(doc.jenis)}><Printer className="h-3.5 w-3.5" /> Cetak</Button>
+        </div>
+        {preview && <DokumenPreviewModal jenis={doc.jenis} id={null} onClose={() => setPreview(false)} />}
       </div>
     )
   }
@@ -2594,7 +2733,7 @@ function DokumenRow({ doc, schoolId }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] py-2 last:border-0">
       <span className="text-sm text-[var(--color-ink)]">{doc.label}</span>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         {recs === null ? (
           <Button size="sm" variant="outline" onClick={loadRecs} disabled={!schoolId || loading}>{loading ? 'Memuat…' : 'Pilih data'}</Button>
         ) : recs.length === 0 ? (
@@ -2605,10 +2744,12 @@ function DokumenRow({ doc, schoolId }) {
               <option value="">— pilih data —</option>
               {recs.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
             </Select>
+            <Button size="sm" variant="ghost" disabled={!sel} onClick={() => setPreview(true)}><Info className="h-3.5 w-3.5" /> Detail</Button>
             <Button size="sm" disabled={!sel} onClick={() => openCetak(doc.jenis, sel)}><Printer className="h-3.5 w-3.5" /> Cetak</Button>
           </>
         )}
       </div>
+      {preview && sel && <DokumenPreviewModal jenis={doc.jenis} id={sel} onClose={() => setPreview(false)} />}
     </div>
   )
 }
