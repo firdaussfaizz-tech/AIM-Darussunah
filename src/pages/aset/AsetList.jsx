@@ -3021,11 +3021,14 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
         hasFullAccess ? <PemeliharaanRekap onOpen={setSchoolId} /> : <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
       ) : loading ? <FullPageSpinner /> : (
         <>
+          <Card className="bg-[var(--color-navy-50)]">
+            <p className="text-[13px] text-[var(--color-ink)]"><b>Alur SOP (BAB IX):</b> <b>Pemeliharaan</b> terjadwal berpedoman Daftar Kebutuhan Pemeliharaan (DKA) → catat Logbook. <b>Perbaikan</b>: Laporan Kerusakan → verifikasi → bila perlu sparepart ikuti prosedur Pengadaan → laksanakan (boleh eksternal + BAST Perbaikan) → catat Logbook. <b>Otomatis:</b> kondisi &quot;sesudah&quot; memperbarui Inventaris/KIA/KIR; biaya tercatat sebagai Belanja Pemeliharaan di Buku Kas; aset rusak ringan dari Inventarisasi muncul di sini sebagai &quot;perlu perbaikan&quot;.</p>
+          </Card>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <StatCard label="Catatan Pemeliharaan" value={rows.length} />
             <StatCard label="Total Biaya" value={formatRupiah(totalBiaya)} accent="gold" />
           </div>
-          <SectionCard title="Logbook Pemeliharaan & Perbaikan" description="Kondisi 'sesudah' otomatis memperbarui kondisi aset di Inventaris.">
+          <SectionCard title="Logbook Pemeliharaan & Perbaikan" description="Kondisi 'sesudah' otomatis memperbarui kondisi aset di Inventaris; biaya otomatis tercatat sebagai Belanja Pemeliharaan di Buku Kas.">
             {rows.length === 0 ? (
               <EmptyState icon={Wrench} title="Belum ada catatan" description="Catat pelaksanaan pemeliharaan/perbaikan aset." />
             ) : (
