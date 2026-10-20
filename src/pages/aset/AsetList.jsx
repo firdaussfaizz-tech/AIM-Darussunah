@@ -3621,23 +3621,29 @@ function PenghapusanTab({ hasFullAccess, mySchools }) {
       {!schoolId ? (
         hasFullAccess ? <PenghapusanRekap onOpen={setSchoolId} /> : <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
       ) : loading ? <FullPageSpinner /> : (
-        <SectionCard title="Usulan Penghapusan & Pemindahtanganan" description="Sekolah mengusulkan; Yayasan menyetujui. Setelah disetujui, aset otomatis ditandai dihapus di Inventaris.">
-          {rows.length === 0 ? (
-            <EmptyState icon={ArchiveX} title="Belum ada usulan" description={managesUnit ? 'Ajukan penghapusan aset rusak berat/idle/hilang.' : 'Unit ini belum mengajukan penghapusan.'} />
-          ) : (
-            <Table columns={['Judul', 'Cara', 'Diajukan Oleh', 'Status', '']}>
-              {rows.map((r) => (
-                <Tr key={r.id}>
-                  <Td className="font-medium">{r.judul || '—'}</Td>
-                  <Td className="text-xs">{r.cara || '—'}</Td>
-                  <Td className="text-xs">{r.diajukan_nama || '—'}</Td>
-                  <Td><Badge color={PENGHAPUSAN_STATUS_BADGE[r.status]}>{PENGHAPUSAN_STATUS_LABEL[r.status]}</Badge></Td>
-                  <Td><button onClick={() => setOpenId(r.id)} className="text-sm font-medium text-[var(--color-navy)] hover:underline">Buka →</button></Td>
-                </Tr>
-              ))}
-            </Table>
-          )}
-        </SectionCard>
+        <>
+          <Card className="bg-[var(--color-navy-50)]">
+            <p className="text-[13px] text-[var(--color-ink)]"><b>Alur SOP (BAB X &amp; XI):</b> sekolah membuat <b>Usulan Penghapusan</b> (lampirkan aset + kondisi + nilai) → ajukan ke Yayasan → Yayasan meneliti → bila disetujui terbit <b>Surat Persetujuan + SK Penghapusan</b> → pelaksanaan: <b>Penjualan</b> (hasil disetor ke rekening Yayasan) atau <b>Hibah/Pemindahtanganan</b> (BAST). <b>Otomatis saat disahkan:</b> aset keluar dari Inventaris &amp; Buku Induk, KIR (status penggunaan) ditutup, permintaan penyaluran yang menunggu dibatalkan, dan hasil penjualan tercatat sebagai pemasukan di Buku Kas.</p>
+          </Card>
+          <SectionCard title="Usulan Penghapusan & Pemindahtanganan" description="Sekolah mengusulkan; Yayasan menyetujui. Setelah disetujui, aset otomatis ditandai dihapus di Inventaris.">
+            {rows.length === 0 ? (
+              <EmptyState icon={ArchiveX} title="Belum ada usulan" description={managesUnit ? 'Ajukan penghapusan aset rusak berat/idle/hilang.' : 'Unit ini belum mengajukan penghapusan.'} />
+            ) : (
+              <Table columns={['Judul', 'Cara', 'Diajukan Oleh', 'Status', '']}>
+                {rows.map((r) => (
+                  <Tr key={r.id}>
+                    <Td className="font-medium">{r.judul || '—'}</Td>
+                    <Td className="text-xs">{r.cara || '—'}</Td>
+                    <Td className="text-xs">{r.diajukan_nama || '—'}</Td>
+                    <Td><Badge color={PENGHAPUSAN_STATUS_BADGE[r.status]}>{PENGHAPUSAN_STATUS_LABEL[r.status]}</Badge></Td>
+                    <Td><button onClick={() => setOpenId(r.id)} className="text-sm font-medium text-[var(--color-navy)] hover:underline">Buka →</button></Td>
+                  </Tr>
+                ))}
+              </Table>
+            )}
+          </SectionCard>
+          <DokumenAreaCard area="Penghapusan" schoolId={schoolId} />
+        </>
       )}
     </div>
   )
@@ -3694,7 +3700,7 @@ function PenghapusanDetail({ penghapusanId, hasFullAccess, managesUnit, schoolId
           <div className="flex-1 min-w-[240px]">
             <div className="flex items-center gap-2"><h3 className="text-base font-semibold text-[var(--color-ink)]">{u.judul || 'Usulan Penghapusan'}</h3><Badge color={PENGHAPUSAN_STATUS_BADGE[status]}>{PENGHAPUSAN_STATUS_LABEL[status]}</Badge></div>
             {u.diajukan_nama && <p className="mt-1 text-xs text-[var(--color-ink-soft)]">Diajukan oleh {u.diajukan_nama}{u.diajukan_at ? ` · ${new Date(u.diajukan_at).toLocaleDateString('id-ID')}` : ''}</p>}
-            {status === 'disahkan' && <p className="mt-2 rounded-md bg-[var(--color-success-soft)] px-3 py-2 text-sm text-[var(--color-success)]">Disetujui{u.nomor_sk ? ` · SK ${u.nomor_sk}` : ''} — aset telah ditandai dihapus di Inventaris.</p>}
+            {status === 'disahkan' && <p className="mt-2 rounded-md bg-[var(--color-success-soft)] px-3 py-2 text-sm text-[var(--color-success)]">Disetujui{u.nomor_sk ? ` · SK ${u.nomor_sk}` : ''} — aset telah ditandai dihapus (keluar dari Inventaris &amp; Buku Induk), KIR/status penggunaan ditutup, dan permintaan penyaluran yang menunggu dibatalkan.{(u.cara || '').toLowerCase().startsWith('penjualan') ? ' Hasil penjualan otomatis tercatat sebagai pemasukan di Buku Kas.' : ''}</p>}
             {status === 'dikembalikan' && u.catatan_yayasan && <p className="mt-2 rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]"><b>Catatan Yayasan:</b> {u.catatan_yayasan}</p>}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -3702,6 +3708,7 @@ function PenghapusanDetail({ penghapusanId, hasFullAccess, managesUnit, schoolId
             {canDecide && <Button onClick={handleSetujui} disabled={busy}><CheckCircle2 className="h-4 w-4" /> Setujui</Button>}
             {canDecide && <Button variant="outline" onClick={handleTolak} disabled={busy}><RotateCcw className="h-4 w-4" /> Tolak</Button>}
             <Button variant="outline" onClick={() => openCetak('permohonan_penghapusan', u.id)}><Printer className="h-4 w-4" /> Permohonan</Button>
+            {status === 'disahkan' && <Button variant="outline" onClick={() => openCetak('persetujuan_penghapusan', u.id)}><Printer className="h-4 w-4" /> Persetujuan</Button>}
             {status === 'disahkan' && <Button variant="outline" onClick={() => openCetak('sk_penghapusan', u.id)}><Printer className="h-4 w-4" /> SK</Button>}
           </div>
         </div>
