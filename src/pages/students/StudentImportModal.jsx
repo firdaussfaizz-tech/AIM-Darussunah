@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { Download, Upload, FileSpreadsheet } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { Modal, Button, Select, Table, Tr, Td, Badge } from '../../components/ui'
@@ -32,13 +32,22 @@ const KOLOM = [
 const STATUS_VALID = ['aktif', 'lulus', 'pindah', 'keluar']
 const norm = (s) => String(s ?? '').trim().toLowerCase()
 
-// Peta header (apa pun ejaannya) → field. Terima label manusiawi & nama field.
+// Peta header (apa pun ejaannya) → field. Terima label manusiawi, nama field,
+// dan beberapa sinonim umum.
 const HEADER_MAP = {}
 for (const [field, label] of KOLOM) {
   HEADER_MAP[norm(field)] = field
   HEADER_MAP[norm(label)] = field
   HEADER_MAP[norm(label.replace(/\*.*$/, '').replace(/\(.*\)/, ''))] = field
 }
+// Sinonim tambahan agar toleran terhadap file sekolah yang sudah ada.
+Object.assign(HEADER_MAP, {
+  'nama': 'nama_lengkap', 'nama siswa': 'nama_lengkap', 'nama peserta didik': 'nama_lengkap',
+  'l/p': 'jenis_kelamin', 'jk': 'jenis_kelamin', 'jenis kelamin': 'jenis_kelamin', 'gender': 'jenis_kelamin',
+  'tgl lahir': 'tanggal_lahir', 'tanggal lahir': 'tanggal_lahir', 'ttl': 'tanggal_lahir',
+  'unit': 'unit', 'sekolah': 'unit', 'jenjang': 'unit', 'satuan pendidikan': 'unit',
+  'no hp ayah': 'no_hp_ayah', 'no hp ibu': 'no_hp_ibu', 'email': 'email_ortu', 'email orang tua': 'email_ortu',
+})
 
 function normalTanggal(v) {
   if (v == null || v === '') return null
@@ -65,16 +74,21 @@ function toInt(v) {
   const n = parseInt(String(v).replace(/\D/g, ''), 10)
   return Number.isNaN(n) ? null : n
 }
+function ringkasError(msg) {
+  if (/siswa_nisn_unik_idx/.test(msg)) return 'NISN sudah dipakai siswa lain.'
+  if (/siswa_nis_per_sekolah_idx/.test(msg)) return 'NIS sudah dipakai di unit yang sama.'
+  if (/null value in column "nama_lengkap"/.test(msg)) return 'Nama lengkap kosong.'
+  return msg
+}
 
 export default function StudentImportModal({ open, onClose, onImported, schools = [], lockedSchoolId = null }) {
-  const [rows, setRows] = useState([]) // baris terpetakan + resolusi unit
+  const [rows, setRows] = useState([])
   const [fileName, setFileName] = useState('')
   const [defaultSchool, setDefaultSchool] = useState(lockedSchoolId || '')
   const [parsing, setParsing] = useState(false)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
-  const fileRef = useRef(null)
 
   const resolveSchool = (unitStr) => {
     if (lockedSchoolId) return lockedSchoolId
@@ -89,30 +103,37 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
   }
 
   const unduhTemplate = async () => {
-    const XLSX = await import('xlsx')
-    const aoa = [KOLOM.map((k) => k[1]), KOLOM.map((k) => k[2])]
-    const ws = XLSX.utils.aoa_to_sheet(aoa)
-    ws['!cols'] = KOLOM.map((k) => ({ wch: Math.max(14, k[1].length + 2) }))
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Siswa')
-    const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
-    const url = URL.createObjectURL(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
-    const a = document.createElement('a')
-    a.href = url; a.download = 'Template-Impor-Siswa.xlsx'
-    document.body.appendChild(a); a.click(); document.body.removeChild(a)
-    setTimeout(() => URL.revokeObjectURL(url), 2000)
+    try {
+      const XLSX = await import('xlsx')
+      const aoa = [KOLOM.map((k) => k[1]), KOLOM.map((k) => k[2])]
+      const ws = XLSX.utils.aoa_to_sheet(aoa)
+      ws['!cols'] = KOLOM.map((k) => ({ wch: Math.max(14, k[1].length + 2) }))
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Siswa')
+      const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+      const url = URL.createObjectURL(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      const a = document.createElement('a')
+      a.href = url; a.download = 'Template-Impor-Siswa.xlsx'
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 2000)
+    } catch (err) {
+      setError('Gagal membuat template: ' + (err?.message || err))
+    }
   }
 
   const onPilihFile = async (e) => {
-    const file = e.target.files?.[0]
+    const input = e.target
+    const file = input.files && input.files[0]
     if (!file) return
-    setParsing(true); setError(''); setResult(null); setFileName(file.name)
+    setParsing(true); setError(''); setResult(null); setRows([]); setFileName(file.name)
     try {
       const XLSX = await import('xlsx')
       const buf = await file.arrayBuffer()
-      const wb = XLSX.read(buf, { type: 'array', cellDates: true })
+      const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true })
       const ws = wb.Sheets[wb.SheetNames[0]]
+      if (!ws) { setError('File tidak memiliki sheet data.'); setParsing(false); return }
       const raw = XLSX.utils.sheet_to_json(ws, { defval: '' })
+      const detected = raw.length ? Object.keys(raw[0]) : []
       const mapped = []
       for (const r of raw) {
         const obj = {}
@@ -120,9 +141,8 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
           const field = HEADER_MAP[norm(key)]
           if (field) obj[field] = val
         }
-        if (!String(obj.nama_lengkap ?? '').trim()) continue // lewati baris kosong
+        if (!String(obj.nama_lengkap ?? '').trim()) continue
         const unitStr = obj.unit
-        const school_id = resolveSchool(unitStr)
         mapped.push({
           payload: {
             nama_lengkap: String(obj.nama_lengkap).trim(),
@@ -139,7 +159,7 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
             alamat: obj.alamat ? String(obj.alamat).trim() : null,
             program: norm(obj.program).includes('boarding') || norm(obj.program).includes('asrama') ? 'boarding' : 'fullday',
             status: STATUS_VALID.includes(norm(obj.status)) ? norm(obj.status) : 'aktif',
-            school_id,
+            school_id: resolveSchool(unitStr),
             nama_ayah: obj.nama_ayah ? String(obj.nama_ayah).trim() : null,
             no_hp_ayah: obj.no_hp_ayah ? String(obj.no_hp_ayah).trim() : null,
             nama_ibu: obj.nama_ibu ? String(obj.nama_ibu).trim() : null,
@@ -148,17 +168,20 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
             no_hp_wali: obj.no_hp_wali ? String(obj.no_hp_wali).trim() : null,
             email_ortu: obj.email_ortu ? String(obj.email_ortu).trim() : null,
           },
-          unitAsli: unitStr ? String(unitStr).trim() : '',
         })
       }
       setRows(mapped)
-      if (mapped.length === 0) setError('Tidak ada baris siswa terbaca. Pastikan ada kolom "Nama Lengkap" dan baris data.')
+      if (mapped.length === 0) {
+        setError(detected.length
+          ? `Tidak ada baris dengan "Nama Lengkap" terisi. Kolom terdeteksi: ${detected.join(', ')}.`
+          : 'File kosong atau tidak terbaca. Pastikan baris pertama berisi judul kolom (gunakan template).')
+      }
     } catch (err) {
-      setError('Gagal membaca file: ' + err.message)
+      setError('Gagal membaca file: ' + (err?.message || err))
       setRows([])
     } finally {
       setParsing(false)
-      if (fileRef.current) fileRef.current.value = ''
+      input.value = '' // izinkan pilih file yang sama lagi
     }
   }
 
@@ -174,7 +197,6 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
       const batch = payloads.slice(i, i + CHUNK)
       const { error: err } = await supabase.from('siswa').insert(batch)
       if (!err) { sukses += batch.length; continue }
-      // Chunk gagal (mis. 1 baris duplikat) → coba satu per satu untuk isolasi.
       for (const p of batch) {
         const { error: e2 } = await supabase.from('siswa').insert(p)
         if (e2) gagal.push({ nama: p.nama_lengkap, pesan: ringkasError(e2.message) })
@@ -193,7 +215,7 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
 
   return (
     <Modal open={open} onClose={() => { reset(); onClose() }} title="Impor Siswa dari Excel" width="max-w-3xl">
-      <div className="flex flex-col gap-4">
+      <div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto">
         <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-navy-50)] p-3 text-sm text-[var(--color-ink)]">
           <p className="font-medium">Cara impor:</p>
           <ol className="ml-4 mt-1 list-decimal space-y-0.5 text-[13px] text-[var(--color-ink-soft)]">
@@ -211,11 +233,15 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
               {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
             </Select>
           )}
-          <div>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={onPilihFile} className="hidden" id="impor-siswa-file" />
-            <Button type="button" onClick={() => fileRef.current?.click()} disabled={parsing}><Upload className="h-4 w-4" /> {parsing ? 'Membaca…' : 'Pilih File'}</Button>
-          </div>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-[var(--color-navy)] px-4 py-2 text-sm font-medium text-white hover:brightness-110">
+            <Upload className="h-4 w-4" /> {parsing ? 'Membaca…' : 'Pilih File Excel'}
+            <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onPilihFile} />
+          </label>
         </div>
+
+        {fileName && !error && !result && (
+          <p className="text-xs text-[var(--color-ink-soft)]"><FileSpreadsheet className="mr-1 inline h-3.5 w-3.5" />{fileName}{parsing ? ' — membaca…' : ''}</p>
+        )}
 
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
 
@@ -269,11 +295,4 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
       </div>
     </Modal>
   )
-}
-
-function ringkasError(msg) {
-  if (/siswa_nisn_unik_idx/.test(msg)) return 'NISN sudah dipakai siswa lain.'
-  if (/siswa_nis_per_sekolah_idx/.test(msg)) return 'NIS sudah dipakai di unit yang sama.'
-  if (/null value in column "nama_lengkap"/.test(msg)) return 'Nama lengkap kosong.'
-  return msg
 }
