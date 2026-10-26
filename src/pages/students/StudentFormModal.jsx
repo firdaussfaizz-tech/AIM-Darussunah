@@ -6,7 +6,7 @@ import { SISWA_STATUS_OPTIONS, SISWA_STATUS_LABELS } from '../../lib/format'
 const emptyForm = {
   nama_lengkap: '', nama_panggilan: '', nis: '', nisn: '', nik: '', jenis_kelamin: 'L',
   tempat_lahir: '', tanggal_lahir: '', agama: '', alamat: '', anak_ke: '', jumlah_saudara: '',
-  school_id: '', status: 'aktif', program: 'fullday',
+  school_id: '', status: 'aktif', program: 'fullday', employee_ortu_id: '',
   nama_ayah: '', nik_ayah: '', tahun_lahir_ayah: '', pendidikan_ayah: '', pekerjaan_ayah: '', no_hp_ayah: '',
   nama_ibu: '', nik_ibu: '', tahun_lahir_ibu: '', pendidikan_ibu: '', pekerjaan_ibu: '', no_hp_ibu: '',
   nama_wali: '', hubungan_wali: '', no_hp_wali: '',
@@ -49,6 +49,23 @@ export default function StudentFormModal({ open, onClose, onSaved, schools, init
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [draftRestored, setDraftRestored] = useState(false)
+  const [ortuNama, setOrtuNama] = useState('')
+  const [ortuCari, setOrtuCari] = useState('')
+  const [ortuHasil, setOrtuHasil] = useState([])
+
+  // Tampilkan nama pegawai (orang tua) yang sudah tertaut saat membuka edit.
+  useEffect(() => {
+    if (!open) { setOrtuNama(''); setOrtuCari(''); setOrtuHasil([]); return }
+    const id = initialData?.employee_ortu_id
+    if (id) supabase.from('employees').select('nama').eq('id', id).maybeSingle().then(({ data }) => setOrtuNama(data?.nama || ''))
+    else setOrtuNama('')
+  }, [open, initialData])
+
+  const cariOrtu = async (q) => {
+    if (!q || q.trim().length < 2) { setOrtuHasil([]); return }
+    const { data } = await supabase.from('employees').select('id, nama').ilike('nama', `%${q.trim()}%`).limit(12)
+    setOrtuHasil(data || [])
+  }
 
   useEffect(() => {
     if (open) {
@@ -86,6 +103,7 @@ export default function StudentFormModal({ open, onClose, onSaved, schools, init
     payload.school_id = payload.school_id || null
     payload.nis = payload.nis || null
     payload.nisn = payload.nisn || null
+    payload.employee_ortu_id = payload.employee_ortu_id || null
 
     const query = initialData
       ? supabase.from('siswa').update(payload).eq('id', initialData.id)
@@ -147,6 +165,28 @@ export default function StudentFormModal({ open, onClose, onSaved, schools, init
           <option value="fullday">Fullday</option>
           <option value="boarding">Boarding</option>
         </Select>
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-[13px] font-medium text-[var(--color-ink)]">Orang Tua Pegawai (opsional — dasar potongan "anak pegawai")</label>
+          {form.employee_ortu_id ? (
+            <div className="flex items-center justify-between rounded-md border border-[var(--color-border)] px-3 py-2 text-sm">
+              <span>Tertaut ke pegawai: <b>{ortuNama || '—'}</b></span>
+              <button type="button" onClick={() => { setForm((f) => ({ ...f, employee_ortu_id: '' })); setOrtuNama('') }} className="text-xs font-medium text-[var(--color-navy)] hover:underline">Lepas</button>
+            </div>
+          ) : (
+            <div>
+              <input value={ortuCari} onChange={(e) => { setOrtuCari(e.target.value); cariOrtu(e.target.value) }} placeholder="Cari nama pegawai (min. 2 huruf)…"
+                className="w-full rounded-md border border-[var(--color-border)] px-3 py-2 text-sm outline-none focus:border-[var(--color-navy)]" />
+              {ortuHasil.length > 0 && (
+                <div className="mt-1 flex max-h-36 flex-col gap-1 overflow-y-auto">
+                  {ortuHasil.map((p) => (
+                    <button type="button" key={p.id} onClick={() => { setForm((f) => ({ ...f, employee_ortu_id: p.id })); setOrtuNama(p.nama); setOrtuHasil([]); setOrtuCari('') }}
+                      className="rounded border border-[var(--color-border)] px-2 py-1.5 text-left text-sm hover:border-[var(--color-navy)]">{p.nama}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <Input label="Alamat" value={form.alamat} onChange={update('alamat')} containerClassName="sm:col-span-2" />
 
         <p className="sm:col-span-2 mt-2 text-[13px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">Data Ayah</p>

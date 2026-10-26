@@ -75,7 +75,7 @@ export default function StudentTagihanTab({ siswaId }) {
                       <Badge color={PROGRAM_BADGE[t.program]}>{PROGRAM_LABEL[t.program]}</Badge>
                       <Badge color={STATUS_BADGE_COLOR[t.status]}>{SPP_TAGIHAN_STATUS_LABELS[t.status]}</Badge>
                     </div>
-                    <div className="text-sm text-[var(--color-ink-soft)]">Dibayar {formatRupiah(dibayar)} / {formatRupiah(t.nominal_tagihan)}{sisa > 0 && <span className="text-[var(--color-danger)]"> · sisa {formatRupiah(sisa)}</span>}</div>
+                    <div className="text-sm text-[var(--color-ink-soft)]">{Number(t.potongan || 0) > 0 && <span className="mr-1 text-[var(--color-gold)]">potongan {formatRupiah(t.potongan)} · </span>}Dibayar {formatRupiah(dibayar)} / {formatRupiah(t.nominal_tagihan)}{sisa > 0 && <span className="text-[var(--color-danger)]"> · sisa {formatRupiah(sisa)}</span>}</div>
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
                     <div>
@@ -119,7 +119,7 @@ export default function StudentTagihanTab({ siswaId }) {
                 <Tr key={t.id}>
                   <Td className="font-medium">{BULAN[t.bulan - 1]} {t.tahun}</Td>
                   <Td className="text-[var(--color-ink-soft)]">{t.tahun_ajaran?.nama || '—'}</Td>
-                  <Td>{formatRupiah(t.nominal_tagihan)}</Td>
+                  <Td>{formatRupiah(t.nominal_tagihan)}{Number(t.potongan || 0) > 0 && <span className="block text-[11px] text-[var(--color-gold)]">potongan {formatRupiah(t.potongan)}</span>}</Td>
                   <Td className="text-[var(--color-success)]">{formatRupiah(d)}</Td>
                   <Td><Badge color={STATUS_BADGE_COLOR[t.status]}>{SPP_TAGIHAN_STATUS_LABELS[t.status]}</Badge></Td>
                 </Tr>

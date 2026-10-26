@@ -6,6 +6,7 @@ import { PageHeader, SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Inp
 import { formatRupiah, formatDate, STATUS_BADGE_COLOR, SPP_TAGIHAN_STATUS_LABELS } from '../../lib/format'
 import { useAutoRefresh } from '../../lib/useAutoRefresh'
 import { PROGRAM_OPTIONS, PROGRAM_LABEL, PROGRAM_BADGE, UP_KOMPONEN_PRESET, KOMPONEN_SPP } from '../../lib/uangPangkal'
+import { hitungPotongan } from '../../lib/keringanan'
 
 const TABS = ['Tagihan & Pembayaran', 'Rekap & Tunggakan', 'Tarif Uang Pangkal']
 const METODE_OPTIONS = ['Tunai', 'Transfer Bank', 'Lainnya']
@@ -115,10 +116,17 @@ function TagihanTab({ employeeId, lockedSchoolId }) {
     const sppTahun = mulai.getFullYear()
 
     // Siswa aktif (enrollment) di unit + program yang belum punya tagihan.
-    const [{ data: enroll }, { data: existing }] = await Promise.all([
-      supabase.from('riwayat_siswa').select('siswa_id, siswa!siswa_id(id, nama_lengkap, school_id, status, program)').eq('tahun_ajaran_id', tahunAjaranId).eq('status', 'aktif'),
+    const [{ data: enroll }, { data: existing }, { data: kebijakan }, { data: kerSiswa }] = await Promise.all([
+      supabase.from('riwayat_siswa').select('siswa_id, siswa!siswa_id(id, nama_lengkap, school_id, status, program, anak_ke, employee_ortu_id)').eq('tahun_ajaran_id', tahunAjaranId).eq('status', 'aktif'),
       supabase.from('up_tagihan').select('siswa_id').eq('tahun_ajaran_id', tahunAjaranId),
+      supabase.from('keringanan_kebijakan').select('*').eq('tahun_ajaran_id', tahunAjaranId).eq('sasaran', 'uang_pangkal').eq('aktif', true),
+      supabase.from('keringanan_siswa').select('*').eq('sasaran', 'uang_pangkal').eq('aktif', true),
     ])
+    const kerBySiswa = {}
+    for (const g of kerSiswa || []) (kerBySiswa[g.siswa_id] = kerBySiswa[g.siswa_id] || []).push(g)
+    const komponenMap = {}
+    for (const it of items) komponenMap[it.komponen] = Number(it.nominal || 0)
+    const today = new Date().toISOString().slice(0, 10)
     const sudah = new Set((existing || []).map((e) => e.siswa_id))
     const target = []
     const seen = new Set()
@@ -132,19 +140,28 @@ function TagihanTab({ employeeId, lockedSchoolId }) {
     }
 
     let dibuat = 0
+    let adaPotongan = 0
     for (const s of target) {
+      const { potongan, net, lines, catatan } = hitungPotongan({
+        sasaran: 'uang_pangkal', totalBruto: total, komponenMap, siswa: s,
+        kebijakanList: kebijakan || [], keringananSiswaList: kerBySiswa[s.id] || [],
+        ctx: { tahunAjaranId, schoolId: s.school_id, program: programFilter, tanggal: today },
+      })
       const { data: tag, error } = await supabase.from('up_tagihan').insert({
         siswa_id: s.id, tahun_ajaran_id: tahunAjaranId, program: programFilter,
-        nominal_tagihan: total, spp_termasuk: adaSpp, spp_bulan: adaSpp ? sppBulan : null, spp_tahun: adaSpp ? sppTahun : null,
+        nominal_bruto: total, potongan, potongan_catatan: catatan, nominal_tagihan: net,
+        status: net <= 0 ? 'lunas' : 'belum_bayar',
+        spp_termasuk: adaSpp, spp_bulan: adaSpp ? sppBulan : null, spp_tahun: adaSpp ? sppTahun : null,
       }).select('id').single()
       if (error) continue
-      if (items.length) {
-        await supabase.from('up_tagihan_item').insert(items.map((it) => ({ tagihan_id: tag.id, komponen: it.komponen, nominal: it.nominal, urutan: it.urutan })))
-      }
+      const barisItem = items.map((it) => ({ tagihan_id: tag.id, komponen: it.komponen, nominal: it.nominal, urutan: it.urutan }))
+      lines.forEach((l, i) => barisItem.push({ tagihan_id: tag.id, komponen: `Potongan: ${l.label}`, nominal: -Math.abs(l.nominal), urutan: 100 + i }))
+      if (barisItem.length) await supabase.from('up_tagihan_item').insert(barisItem)
+      if (potongan > 0) adaPotongan++
       dibuat++
     }
     setGenerating(false)
-    setGenResult({ dibuat, target: target.length, adaSpp, sppBulan, sppTahun })
+    setGenResult({ dibuat, target: target.length, adaSpp, sppBulan, sppTahun, adaPotongan })
     load()
   }
 
@@ -199,6 +216,7 @@ function TagihanTab({ employeeId, lockedSchoolId }) {
         <Card className="mb-4 bg-[var(--color-navy-50)]">
           <p className="text-sm text-[var(--color-ink)]">
             {genResult.dibuat} tagihan uang pangkal dibuat dari {genResult.target} siswa target.
+            {genResult.adaPotongan > 0 && ` ${genResult.adaPotongan} mendapat keringanan/potongan.`}
             {genResult.adaSpp && ` Termasuk SPP bulan pertama (periode ${genResult.sppBulan}/${genResult.sppTahun}) — bulan tsb tidak akan ditagih lagi di SPP bulanan.`}
           </p>
         </Card>

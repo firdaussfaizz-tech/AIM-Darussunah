@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext'
 import { PageHeader, SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Input, Select, EmptyState, FullPageSpinner, StatCard } from '../../components/ui'
 import { BULAN, formatRupiah, formatDate, STATUS_BADGE_COLOR, SPP_TAGIHAN_STATUS_LABELS } from '../../lib/format'
 import { useAutoRefresh } from '../../lib/useAutoRefresh'
+import { hitungPotongan } from '../../lib/keringanan'
 
 const TABS = ['Tagihan & Pembayaran', 'Rekap & Tunggakan', 'Tarif SPP']
 
@@ -113,17 +114,23 @@ function TagihanTab({ employeeId, lockedSchoolId }) {
     setGenerating(true)
     setGenResult(null)
 
-    const [{ data: enroll }, { data: tarifRows }, { data: existing }, { data: upCover }] = await Promise.all([
-      supabase.from('riwayat_siswa').select('siswa_id, siswa!siswa_id(id, nama_lengkap, school_id, status), rombel(tingkat)').eq('tahun_ajaran_id', tahunAjaranId).eq('status', 'aktif'),
+    const [{ data: enroll }, { data: tarifRows }, { data: existing }, { data: upCover }, { data: kebijakan }, { data: kerSiswa }] = await Promise.all([
+      supabase.from('riwayat_siswa').select('siswa_id, siswa!siswa_id(id, nama_lengkap, school_id, status, program, anak_ke, employee_ortu_id), rombel(tingkat)').eq('tahun_ajaran_id', tahunAjaranId).eq('status', 'aktif'),
       supabase.from('spp_tarif').select('*').eq('tahun_ajaran_id', tahunAjaranId),
       supabase.from('spp_tagihan').select('siswa_id').eq('bulan', bulan).eq('tahun', tahun).eq('tahun_ajaran_id', tahunAjaranId),
       // SPP bulan pertama yang sudah termasuk Uang Pangkal → jangan ditagih lagi.
       supabase.from('up_tagihan').select('siswa_id, spp_bulan, spp_tahun').eq('tahun_ajaran_id', tahunAjaranId).eq('spp_termasuk', true),
+      supabase.from('keringanan_kebijakan').select('*').eq('tahun_ajaran_id', tahunAjaranId).eq('sasaran', 'spp').eq('aktif', true),
+      supabase.from('keringanan_siswa').select('*').eq('sasaran', 'spp').eq('aktif', true),
     ])
     const existingIds = new Set((existing || []).map((e) => e.siswa_id))
     const coveredByUp = new Set((upCover || []).filter((u) => u.spp_bulan === bulan && u.spp_tahun === tahun).map((u) => u.siswa_id))
+    const kerBySiswa = {}
+    for (const g of kerSiswa || []) (kerBySiswa[g.siswa_id] = kerBySiswa[g.siswa_id] || []).push(g)
+    const today = new Date().toISOString().slice(0, 10)
     const dilewati = []
     let dilewatiUp = 0
+    let adaPotongan = 0
     const rows = []
 
     for (const e of enroll || []) {
@@ -133,9 +140,18 @@ function TagihanTab({ employeeId, lockedSchoolId }) {
       const tarifUmum = (tarifRows || []).find((t) => t.school_id === e.siswa.school_id && t.tingkat === null)
       const tarif = tarifSpesifik || tarifUmum
       if (!tarif) { dilewati.push(e.siswa.nama_lengkap); continue }
+      const bruto = Number(tarif.nominal || 0)
+      const { potongan, net, catatan } = hitungPotongan({
+        sasaran: 'spp', totalBruto: bruto, siswa: e.siswa,
+        kebijakanList: kebijakan || [], keringananSiswaList: kerBySiswa[e.siswa_id] || [],
+        ctx: { tahunAjaranId, schoolId: e.siswa.school_id, program: e.siswa.program, tanggal: today },
+      })
+      if (potongan > 0) adaPotongan++
       rows.push({
         siswa_id: e.siswa_id, tahun_ajaran_id: tahunAjaranId, bulan, tahun,
-        nominal_tagihan: tarif.nominal, jatuh_tempo: `${tahun}-${String(bulan).padStart(2, '0')}-10`,
+        nominal_bruto: bruto, potongan, potongan_catatan: catatan,
+        nominal_tagihan: net, status: net <= 0 ? 'lunas' : 'belum_bayar',
+        jatuh_tempo: `${tahun}-${String(bulan).padStart(2, '0')}-10`,
       })
     }
 
@@ -144,7 +160,7 @@ function TagihanTab({ employeeId, lockedSchoolId }) {
       if (error) { setGenerating(false); alert('Gagal membuat tagihan: ' + error.message); return }
     }
     setGenerating(false)
-    setGenResult({ dibuat: rows.length, dilewati, dilewatiUp })
+    setGenResult({ dibuat: rows.length, dilewati, dilewatiUp, adaPotongan })
     loadTagihan()
   }
 
@@ -198,6 +214,7 @@ function TagihanTab({ employeeId, lockedSchoolId }) {
         <Card className="mb-4 bg-[var(--color-navy-50)]">
           <p className="text-sm text-[var(--color-ink)]">
             {genResult.dibuat} tagihan baru dibuat.
+            {genResult.adaPotongan > 0 && ` ${genResult.adaPotongan} di antaranya mendapat keringanan/potongan.`}
             {genResult.dilewatiUp > 0 && ` ${genResult.dilewatiUp} siswa dilewati karena bulan ini sudah termasuk Uang Pangkal (SPP bulan pertama).`}
             {genResult.dilewati.length > 0 && ` ${genResult.dilewati.length} siswa dilewati karena unit sekolahnya belum memiliki tarif SPP untuk tahun ajaran ini (${genResult.dilewati.slice(0, 5).join(', ')}${genResult.dilewati.length > 5 ? ', …' : ''}).`}
           </p>
@@ -216,7 +233,7 @@ function TagihanTab({ employeeId, lockedSchoolId }) {
                 <Tr key={t.id}>
                   <Td className="font-medium text-[var(--color-ink)]">{t.siswa?.nama_lengkap}</Td>
                   <Td className="text-[var(--color-ink-soft)]">{t.siswa?.schools ? `${t.siswa.schools.jenjang} — ${t.siswa.schools.nama}` : '—'}</Td>
-                  <Td>{formatRupiah(t.nominal_tagihan)}</Td>
+                  <Td>{formatRupiah(t.nominal_tagihan)}{Number(t.potongan || 0) > 0 && <span className="block text-[11px] text-[var(--color-ink-soft)]">potongan {formatRupiah(t.potongan)}</span>}</Td>
                   <Td><Badge color={STATUS_BADGE_COLOR[t.status]}>{SPP_TAGIHAN_STATUS_LABELS[t.status]}</Badge></Td>
                   <Td className="text-right">
                     <button onClick={() => setDetailTagihan(t)} className="text-sm font-medium text-[var(--color-navy)] hover:underline">Kelola Pembayaran</button>
@@ -302,6 +319,9 @@ function PembayaranModal({ tagihan, employeeId, onClose, onChanged }) {
           <div><p className="text-[var(--color-ink-soft)]">Dibayar</p><p className="font-semibold text-[var(--color-success)]">{formatRupiah(totalDibayar)}</p></div>
           <div><p className="text-[var(--color-ink-soft)]">Sisa</p><p className={`font-semibold ${sisa > 0 ? 'text-[var(--color-danger)]' : ''}`}>{formatRupiah(Math.max(sisa, 0))}</p></div>
         </div>
+        {Number(row.potongan || 0) > 0 && (
+          <p className="-mt-2 rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-xs text-[var(--color-ink)]">Keringanan {formatRupiah(row.potongan)} dari {formatRupiah(row.nominal_bruto || 0)}{row.potongan_catatan ? ` · ${row.potongan_catatan}` : ''}</p>
+        )}
 
         {loading ? <FullPageSpinner /> : (
           <div className="flex flex-col gap-2">

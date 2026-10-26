@@ -5,7 +5,7 @@ import {
   GraduationCap, Building2, UserCog, LogOut, Menu, X, Activity, CalendarOff,
   History, Mail, ChevronRight, BookOpen, Contact, CalendarRange, ClipboardCheck,
   ReceiptText, NotebookText, Target, Boxes,
-  ClipboardList, ShoppingCart, Truck, UserCheck, DoorOpen, Wrench, Trash2, Tag, ShieldCheck, FileText, Package, CalendarDays, UserPlus, Library,
+  ClipboardList, ShoppingCart, Truck, UserCheck, DoorOpen, Wrench, Trash2, Tag, ShieldCheck, FileText, Package, CalendarDays, UserPlus, Library, Percent,
   FileBarChart,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -85,6 +85,7 @@ function navGroupsFor({ isManager, hasFullAccess, employeeId, can, permsReady })
     { to: '/presensi-siswa', label: 'Presensi Siswa', icon: ClipboardCheck },
     { to: '/spp', label: 'SPP', icon: ReceiptText },
     { to: '/uang-pangkal', label: 'Uang Pangkal', icon: Wallet },
+    { to: '/kesiswaan/keringanan', label: 'Keringanan Biaya', icon: Percent },
     { to: '/kesiswaan/prestasi', label: 'Prestasi Siswa', icon: Star },
     { to: '/nilai-rapor', label: 'Nilai & Rapor', icon: NotebookText },
   ]
