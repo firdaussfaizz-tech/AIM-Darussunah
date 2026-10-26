@@ -233,6 +233,7 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
   return (
     <Modal open={open} onClose={() => { reset(); onClose() }} title="Impor Siswa dari Excel" width="max-w-3xl">
       <div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto">
+        <div className="rounded-md bg-[var(--color-success-soft)] px-3 py-2 text-xs font-semibold text-[var(--color-success)]">✓ Impor Siswa v3 — jika Anda melihat baris ini, versi terbaru sudah termuat.</div>
         <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-navy-50)] p-3 text-sm text-[var(--color-ink)]">
           <p className="font-medium">Cara impor:</p>
           <ol className="ml-4 mt-1 list-decimal space-y-0.5 text-[13px] text-[var(--color-ink-soft)]">
