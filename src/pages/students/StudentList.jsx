@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, GraduationCap, Trash2 } from 'lucide-react'
+import { Plus, Search, GraduationCap, Trash2, Upload } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Button, Select, Table, Tr, Td, Badge, EmptyState, FullPageSpinner } from '../../components/ui'
 import { STATUS_BADGE_COLOR, SISWA_STATUS_LABELS } from '../../lib/format'
 import StudentFormModal from './StudentFormModal'
+import StudentImportModal from './StudentImportModal'
 import { useAutoRefresh } from '../../lib/useAutoRefresh'
 
 export default function StudentList() {
@@ -32,6 +33,7 @@ export default function StudentList() {
   const [schoolFilter, setSchoolFilter] = useState(lockedSchoolId || '')
   const [statusFilter, setStatusFilter] = useState('')
   const [formOpen, setFormOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [loadError, setLoadError] = useState('')
 
   const load = useCallback(async () => {
@@ -94,9 +96,14 @@ export default function StudentList() {
         title="Data Siswa"
         description={lockedSchoolId ? `${siswa.length} siswa tercatat di unit Anda` : `${siswa.length} siswa tercatat di seluruh unit yayasan`}
         actions={bolehTambah && (
-          <Button onClick={() => setFormOpen(true)}>
-            <Plus className="h-4 w-4" /> Tambah Siswa
-          </Button>
+          <>
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4" /> Impor Excel
+            </Button>
+            <Button onClick={() => setFormOpen(true)}>
+              <Plus className="h-4 w-4" /> Tambah Siswa
+            </Button>
+          </>
         )}
       />
 
@@ -165,6 +172,15 @@ export default function StudentList() {
         onSaved={() => { setFormOpen(false); load() }}
         schools={lockedSchoolId ? schools.filter((s) => s.id === lockedSchoolId) : schools}
       />
+      {importOpen && (
+        <StudentImportModal
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          onImported={load}
+          schools={lockedSchoolId ? schools.filter((s) => s.id === lockedSchoolId) : schools}
+          lockedSchoolId={lockedSchoolId}
+        />
+      )}
     </div>
   )
 }
