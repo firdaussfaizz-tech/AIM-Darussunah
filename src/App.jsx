@@ -33,6 +33,9 @@ const StudentList = lazy(() => import('./pages/students/StudentList'))
 const StudentDetail = lazy(() => import('./pages/students/StudentDetail'))
 const AcademicSettings = lazy(() => import('./pages/academic/AcademicSettings'))
 const SppList = lazy(() => import('./pages/spp/SppList'))
+const UangPangkalList = lazy(() => import('./pages/spp/UangPangkalList'))
+const PrestasiList = lazy(() => import('./pages/kesiswaan/PrestasiList'))
+const PrestasiCetak = lazy(() => import('./pages/kesiswaan/PrestasiCetak'))
 const NilaiRapor = lazy(() => import('./pages/nilai/NilaiRapor'))
 const KesiswaanDashboard = lazy(() => import('./pages/kesiswaan/KesiswaanDashboard'))
 const AsetList = lazy(() => import('./pages/aset/AsetList'))
@@ -53,6 +56,8 @@ export default function App() {
           <Route path="/aset/cetak/:jenis/:id" element={<RequireAuth><DokumenCetak /></RequireAuth>} />
           <Route path="/cetak/:jenis" element={<RequireAuth><DokumenCetak /></RequireAuth>} />
           <Route path="/cetak/:jenis/:id" element={<RequireAuth><DokumenCetak /></RequireAuth>} />
+          <Route path="/kesiswaan/prestasi/piagam/:id" element={<RequireAuth><PrestasiCetak mode="piagam" /></RequireAuth>} />
+          <Route path="/kesiswaan/prestasi/lampiran/:id" element={<RequireAuth><PrestasiCetak mode="lampiran" /></RequireAuth>} />
           <Route
             path="/"
             element={
@@ -86,6 +91,8 @@ export default function App() {
             <Route path="akademik" element={<AcademicSettings />} />
             <Route path="presensi-siswa" element={<StudentAttendanceList />} />
             <Route path="spp" element={<SppList />} />
+            <Route path="uang-pangkal" element={<UangPangkalList />} />
+            <Route path="kesiswaan/prestasi" element={<PrestasiList />} />
             <Route path="nilai-rapor" element={<NilaiRapor />} />
             <Route path="aset" element={<Navigate to="/aset/inventaris" replace />} />
             <Route path="aset/:area" element={<AsetList />} />

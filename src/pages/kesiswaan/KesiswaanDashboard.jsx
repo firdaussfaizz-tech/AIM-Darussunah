@@ -57,6 +57,7 @@ function DashboardBody({ lockedSchoolId }) {
   const [sppRows, setSppRows] = useState([])
   const [nilaiSiswaIds, setNilaiSiswaIds] = useState([])
   const [rombelRows, setRombelRows] = useState([])
+  const [prestasiRows, setPrestasiRows] = useState([])
 
   // Rekap Presensi sebagai sub-panel yang MUNCUL saat kartu "Presensi Hari
   // Ini" diklik. Linimasa kehadiran dapat diatur rentang tanggalnya.
@@ -85,18 +86,21 @@ function DashboardBody({ lockedSchoolId }) {
 
       if (ta) {
         const semester = tebakSemester()
-        const [{ data: spp }, { data: nilai }, { data: rombel }] = await Promise.all([
+        const [{ data: spp }, { data: nilai }, { data: rombel }, { data: prestasi }] = await Promise.all([
           supabase.from('spp_tagihan').select('status, nominal_tagihan').eq('tahun_ajaran_id', ta.id).eq('bulan', now.getMonth() + 1).eq('tahun', now.getFullYear()),
           supabase.from('nilai_siswa').select('siswa_id').eq('tahun_ajaran_id', ta.id).eq('semester', semester),
           supabase.from('rombel').select('id, tingkat, school_id, schools!school_id(nama, jenjang)').eq('tahun_ajaran_id', ta.id),
+          supabase.from('prestasi_siswa').select('tingkat, kategori, poin').eq('tahun_ajaran_id', ta.id),
         ])
         setSppRows(spp || [])
         setNilaiSiswaIds([...new Set((nilai || []).map((n) => n.siswa_id))])
         setRombelRows(rombel || [])
+        setPrestasiRows(prestasi || [])
       } else {
         setSppRows([])
         setNilaiSiswaIds([])
         setRombelRows([])
+        setPrestasiRows([])
       }
       setLoading(false)
     }
@@ -123,6 +127,12 @@ function DashboardBody({ lockedSchoolId }) {
     for (const p of presensiRows) recap[p.status] = (recap[p.status] || 0) + 1
     return { ...recap, total: presensiRows.length }
   }, [presensiRows])
+
+  const prestasiStats = useMemo(() => {
+    const poin = prestasiRows.reduce((s, r) => s + Number(r.poin || 0), 0)
+    const nasPlus = prestasiRows.filter((r) => ['nasional', 'internasional'].includes(r.tingkat)).length
+    return { total: prestasiRows.length, poin, nasPlus }
+  }, [prestasiRows])
 
   // Daftar siswa izin/sakit/alpa HARI INI (dengan nama & rombel).
   const presensiDetail = useMemo(() => {
@@ -233,6 +243,11 @@ function DashboardBody({ lockedSchoolId }) {
           label={`Progres Nilai — ${semesterLabel}`}
           value={tahunAktif ? `${nilaiProgress}%` : '—'}
           sub={tahunAktif ? `${nilaiSiswaIds.length} dari ${siswaStats.totalAktif} siswa aktif sudah punya nilai tercatat` : 'Belum ada tahun ajaran aktif'}
+        />
+        <StatCard
+          label={`Prestasi${tahunAktif ? ` — ${tahunAktif.nama}` : ''}`}
+          value={tahunAktif ? prestasiStats.total : '—'}
+          sub={tahunAktif ? `${prestasiStats.poin} poin · ${prestasiStats.nasPlus} tingkat nasional+` : 'Belum ada tahun ajaran aktif'}
         />
       </div>
 

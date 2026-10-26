@@ -7,8 +7,11 @@ import { PageHeader, Card, Badge, Button, FullPageSpinner, EmptyState, Table, Tr
 import { STATUS_BADGE_COLOR, SISWA_STATUS_LABELS, RIWAYAT_STATUS_LABELS, formatDate } from '../../lib/format'
 import StudentFormModal from './StudentFormModal'
 import StudentDocumentsSection from '../../components/StudentDocumentsSection'
+import StudentTagihanTab from './StudentTagihanTab'
+import StudentPrestasiTab from './StudentPrestasiTab'
+import { PROGRAM_LABEL, PROGRAM_BADGE } from '../../lib/uangPangkal'
 
-const TABS = ['Biodata', 'Data Ortu/Wali', 'Riwayat Kelas', 'Dokumen']
+const TABS = ['Biodata', 'Data Ortu/Wali', 'Riwayat Kelas', 'Tagihan & Pembayaran', 'Prestasi', 'Dokumen']
 
 export default function StudentDetail() {
   const { id } = useParams()
@@ -83,6 +86,7 @@ export default function StudentDetail() {
         <Badge color={STATUS_BADGE_COLOR[siswa.status]}>{SISWA_STATUS_LABELS[siswa.status] || siswa.status}</Badge>
         {siswa.nis && <Badge color="neutral">NIS {siswa.nis}</Badge>}
         {siswa.nisn && <Badge color="navy">NISN {siswa.nisn}</Badge>}
+        {siswa.program && <Badge color={PROGRAM_BADGE[siswa.program]}>{PROGRAM_LABEL[siswa.program]}</Badge>}
       </div>
 
       <div className="mb-6 flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
@@ -194,6 +198,10 @@ export default function StudentDetail() {
           </div>
         </Card>
       )}
+
+      {tab === 'Tagihan & Pembayaran' && <StudentTagihanTab siswaId={siswa.id} />}
+
+      {tab === 'Prestasi' && <StudentPrestasiTab siswa={siswa} />}
 
       {tab === 'Dokumen' && <StudentDocumentsSection siswaId={siswa.id} canManage={canManage} />}
 

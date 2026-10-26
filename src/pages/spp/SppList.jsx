@@ -113,17 +113,22 @@ function TagihanTab({ employeeId, lockedSchoolId }) {
     setGenerating(true)
     setGenResult(null)
 
-    const [{ data: enroll }, { data: tarifRows }, { data: existing }] = await Promise.all([
+    const [{ data: enroll }, { data: tarifRows }, { data: existing }, { data: upCover }] = await Promise.all([
       supabase.from('riwayat_siswa').select('siswa_id, siswa!siswa_id(id, nama_lengkap, school_id, status), rombel(tingkat)').eq('tahun_ajaran_id', tahunAjaranId).eq('status', 'aktif'),
       supabase.from('spp_tarif').select('*').eq('tahun_ajaran_id', tahunAjaranId),
       supabase.from('spp_tagihan').select('siswa_id').eq('bulan', bulan).eq('tahun', tahun).eq('tahun_ajaran_id', tahunAjaranId),
+      // SPP bulan pertama yang sudah termasuk Uang Pangkal → jangan ditagih lagi.
+      supabase.from('up_tagihan').select('siswa_id, spp_bulan, spp_tahun').eq('tahun_ajaran_id', tahunAjaranId).eq('spp_termasuk', true),
     ])
     const existingIds = new Set((existing || []).map((e) => e.siswa_id))
+    const coveredByUp = new Set((upCover || []).filter((u) => u.spp_bulan === bulan && u.spp_tahun === tahun).map((u) => u.siswa_id))
     const dilewati = []
+    let dilewatiUp = 0
     const rows = []
 
     for (const e of enroll || []) {
       if (!e.siswa || e.siswa.status !== 'aktif' || existingIds.has(e.siswa_id)) continue
+      if (coveredByUp.has(e.siswa_id)) { dilewatiUp++; continue }
       const tarifSpesifik = (tarifRows || []).find((t) => t.school_id === e.siswa.school_id && t.tingkat === e.rombel?.tingkat)
       const tarifUmum = (tarifRows || []).find((t) => t.school_id === e.siswa.school_id && t.tingkat === null)
       const tarif = tarifSpesifik || tarifUmum
@@ -139,7 +144,7 @@ function TagihanTab({ employeeId, lockedSchoolId }) {
       if (error) { setGenerating(false); alert('Gagal membuat tagihan: ' + error.message); return }
     }
     setGenerating(false)
-    setGenResult({ dibuat: rows.length, dilewati })
+    setGenResult({ dibuat: rows.length, dilewati, dilewatiUp })
     loadTagihan()
   }
 
@@ -193,6 +198,7 @@ function TagihanTab({ employeeId, lockedSchoolId }) {
         <Card className="mb-4 bg-[var(--color-navy-50)]">
           <p className="text-sm text-[var(--color-ink)]">
             {genResult.dibuat} tagihan baru dibuat.
+            {genResult.dilewatiUp > 0 && ` ${genResult.dilewatiUp} siswa dilewati karena bulan ini sudah termasuk Uang Pangkal (SPP bulan pertama).`}
             {genResult.dilewati.length > 0 && ` ${genResult.dilewati.length} siswa dilewati karena unit sekolahnya belum memiliki tarif SPP untuk tahun ajaran ini (${genResult.dilewati.slice(0, 5).join(', ')}${genResult.dilewati.length > 5 ? ', …' : ''}).`}
           </p>
         </Card>

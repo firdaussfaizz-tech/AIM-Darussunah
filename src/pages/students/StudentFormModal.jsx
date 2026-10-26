@@ -6,7 +6,7 @@ import { SISWA_STATUS_OPTIONS, SISWA_STATUS_LABELS } from '../../lib/format'
 const emptyForm = {
   nama_lengkap: '', nama_panggilan: '', nis: '', nisn: '', nik: '', jenis_kelamin: 'L',
   tempat_lahir: '', tanggal_lahir: '', agama: '', alamat: '', anak_ke: '', jumlah_saudara: '',
-  school_id: '', status: 'aktif',
+  school_id: '', status: 'aktif', program: 'fullday',
   nama_ayah: '', nik_ayah: '', tahun_lahir_ayah: '', pendidikan_ayah: '', pekerjaan_ayah: '', no_hp_ayah: '',
   nama_ibu: '', nik_ibu: '', tahun_lahir_ibu: '', pendidikan_ibu: '', pekerjaan_ibu: '', no_hp_ibu: '',
   nama_wali: '', hubungan_wali: '', no_hp_wali: '',
@@ -142,6 +142,10 @@ export default function StudentFormModal({ open, onClose, onSaved, schools, init
         <Input label="Jumlah Saudara" type="number" min="0" value={form.jumlah_saudara} onChange={update('jumlah_saudara')} />
         <Select label="Status" value={form.status} onChange={update('status')}>
           {SISWA_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{SISWA_STATUS_LABELS[s]}</option>)}
+        </Select>
+        <Select label="Program" value={form.program} onChange={update('program')}>
+          <option value="fullday">Fullday</option>
+          <option value="boarding">Boarding</option>
         </Select>
         <Input label="Alamat" value={form.alamat} onChange={update('alamat')} containerClassName="sm:col-span-2" />
 

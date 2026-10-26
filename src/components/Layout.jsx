@@ -84,6 +84,8 @@ function navGroupsFor({ isManager, hasFullAccess, employeeId, can, permsReady })
     { to: '/akademik', label: 'Kelas & Tahun Ajaran', icon: CalendarRange },
     { to: '/presensi-siswa', label: 'Presensi Siswa', icon: ClipboardCheck },
     { to: '/spp', label: 'SPP', icon: ReceiptText },
+    { to: '/uang-pangkal', label: 'Uang Pangkal', icon: Wallet },
+    { to: '/kesiswaan/prestasi', label: 'Prestasi Siswa', icon: Star },
     { to: '/nilai-rapor', label: 'Nilai & Rapor', icon: NotebookText },
   ]
 

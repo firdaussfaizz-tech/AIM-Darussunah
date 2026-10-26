@@ -43,6 +43,7 @@ export const BIDANG_BELANJA_OPTIONS = [
 // otomatis oleh sistem (lihat referensi_tabel); sisanya dientri manual.
 export const KATEGORI_KAS_OPTIONS = [
   'SPP',
+  'Uang Pangkal',
   'Infak',
   'Donasi',
   'Bantuan Pemerintah',
@@ -62,6 +63,7 @@ export const JENIS_KAS_BADGE = { masuk: 'success', keluar: 'danger' }
 export const SUMBER_KAS_LABEL = {
   Manual: 'Entri Manual',
   SPP: 'Otomatis — Pembayaran SPP',
+  'Uang Pangkal': 'Otomatis — Pembayaran Uang Pangkal',
   Pengadaan: 'Otomatis — Realisasi Pengadaan',
   Penggajian: 'Otomatis — Penggajian',
 }
