@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { Download, FileSpreadsheet } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { Modal, Button, Select, Table, Tr, Td, Badge } from '../../components/ui'
@@ -91,6 +91,7 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
   const [error, setError] = useState('')
   const [log, setLog] = useState([])
   const addLog = (m) => setLog((l) => [...l, m])
+  const fileRef = useRef(null)
 
   const resolveSchool = (unitStr) => {
     if (lockedSchoolId) return lockedSchoolId
@@ -130,9 +131,7 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
     fr.readAsArrayBuffer(file)
   })
 
-  const onPilihFile = async (e) => {
-    const input = e.target
-    const file = input.files && input.files[0]
+  const prosesFile = async (file) => {
     setLog([])
     if (!file) { addLog('Tidak ada file terpilih.'); return }
     setParsing(true); setError(''); setResult(null); setRows([]); setFileName(file.name)
@@ -198,8 +197,16 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
       setRows([])
     } finally {
       setParsing(false)
-      input.value = '' // izinkan pilih file yang sama lagi
     }
+  }
+
+  // Dua jalur agar andal di semua browser: (1) event onChange input file,
+  // (2) tombol "Proses File" yang membaca langsung dari ref.
+  const onPilihFile = (e) => { const f = e.target.files && e.target.files[0]; prosesFile(f) }
+  const prosesDariTombol = () => {
+    const f = fileRef.current?.files?.[0]
+    if (!f) { setError('Pilih file dulu di kotak di atas, lalu klik "Proses File".'); return }
+    prosesFile(f)
   }
 
   const unitNama = (id) => { const s = schools.find((x) => x.id === id); return s ? `${s.jenjang} — ${s.nama}` : '— (tanpa unit)' }
@@ -253,8 +260,12 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
           )}
           <div className="flex flex-col gap-1">
             <span className="text-[13px] font-medium text-[var(--color-ink)]">Pilih File Excel/CSV {parsing && <span className="text-[var(--color-navy)]">— membaca…</span>}</span>
-            <input type="file" accept=".xlsx,.xls,.csv" onChange={onPilihFile}
-              className="block w-full text-sm text-[var(--color-ink)] file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-[var(--color-navy)] file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:brightness-110" />
+            <div className="flex items-center gap-2">
+              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={onPilihFile}
+                className="block text-sm text-[var(--color-ink)] file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-[var(--color-navy)] file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:brightness-110" />
+              <Button type="button" variant="outline" onClick={prosesDariTombol} disabled={parsing}>Proses File</Button>
+            </div>
+            <span className="text-[11px] text-[var(--color-ink-soft)]">Setelah memilih file, bila pratinjau tak muncul otomatis, klik <b>Proses File</b>.</span>
           </div>
         </div>
 
@@ -264,14 +275,14 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
 
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
 
-        {log.length > 0 && (
-          <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-paper)] px-3 py-2">
-            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">Status Proses</p>
-            <ul className="space-y-0.5 text-xs text-[var(--color-ink-soft)]">
-              {log.map((m, i) => <li key={i} className={m.startsWith('ERROR') ? 'text-[var(--color-danger)]' : ''}>• {m}</li>)}
-            </ul>
-          </div>
-        )}
+        <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-paper)] px-3 py-2">
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">Status Proses</p>
+          <ul className="space-y-0.5 text-xs text-[var(--color-ink-soft)]">
+            {log.length === 0
+              ? <li className="italic">Menunggu file dipilih…</li>
+              : log.map((m, i) => <li key={i} className={m.startsWith('ERROR') ? 'text-[var(--color-danger)]' : ''}>• {m}</li>)}
+          </ul>
+        </div>
 
         {rows.length > 0 && !result && (
           <div className="flex flex-col gap-2">
