@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Download, Upload, FileSpreadsheet } from 'lucide-react'
+import { Download, FileSpreadsheet } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { Modal, Button, Select, Table, Tr, Td, Badge } from '../../components/ui'
 
@@ -89,6 +89,8 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
+  const [log, setLog] = useState([])
+  const addLog = (m) => setLog((l) => [...l, m])
 
   const resolveSchool = (unitStr) => {
     if (lockedSchoolId) return lockedSchoolId
@@ -121,19 +123,32 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
     }
   }
 
+  const bacaBuffer = (file) => new Promise((resolve, reject) => {
+    const fr = new FileReader()
+    fr.onload = () => resolve(fr.result)
+    fr.onerror = () => reject(fr.error || new Error('FileReader gagal'))
+    fr.readAsArrayBuffer(file)
+  })
+
   const onPilihFile = async (e) => {
     const input = e.target
     const file = input.files && input.files[0]
-    if (!file) return
+    setLog([])
+    if (!file) { addLog('Tidak ada file terpilih.'); return }
     setParsing(true); setError(''); setResult(null); setRows([]); setFileName(file.name)
+    addLog(`File dipilih: ${file.name} (${Math.round(file.size / 1024)} KB)`)
     try {
+      addLog('Memuat pustaka Excel…')
       const XLSX = await import('xlsx')
-      const buf = await file.arrayBuffer()
+      addLog('Membaca isi file…')
+      const buf = await bacaBuffer(file)
       const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true })
+      addLog(`Sheet ditemukan: ${(wb.SheetNames || []).join(', ') || '(tidak ada)'}`)
       const ws = wb.Sheets[wb.SheetNames[0]]
       if (!ws) { setError('File tidak memiliki sheet data.'); setParsing(false); return }
       const raw = XLSX.utils.sheet_to_json(ws, { defval: '' })
       const detected = raw.length ? Object.keys(raw[0]) : []
+      addLog(`Baris data terbaca: ${raw.length}. Kolom: ${detected.join(' | ') || '(kosong)'}`)
       const mapped = []
       for (const r of raw) {
         const obj = {}
@@ -170,6 +185,7 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
           },
         })
       }
+      addLog(`Siswa valid (Nama Lengkap terisi): ${mapped.length}`)
       setRows(mapped)
       if (mapped.length === 0) {
         setError(detected.length
@@ -177,6 +193,7 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
           : 'File kosong atau tidak terbaca. Pastikan baris pertama berisi judul kolom (gunakan template).')
       }
     } catch (err) {
+      addLog('ERROR: ' + (err?.message || err))
       setError('Gagal membaca file: ' + (err?.message || err))
       setRows([])
     } finally {
@@ -208,7 +225,7 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
     if (sukses > 0) onImported?.()
   }
 
-  const reset = () => { setRows([]); setResult(null); setError(''); setFileName('') }
+  const reset = () => { setRows([]); setResult(null); setError(''); setFileName(''); setLog([]) }
 
   const valid = rows.length
   const tanpaUnit = rows.filter((r) => !r.payload.school_id).length
@@ -233,10 +250,11 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
               {schools.map((s) => <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>)}
             </Select>
           )}
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-[var(--color-navy)] px-4 py-2 text-sm font-medium text-white hover:brightness-110">
-            <Upload className="h-4 w-4" /> {parsing ? 'Membaca…' : 'Pilih File Excel'}
-            <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onPilihFile} />
-          </label>
+          <div className="flex flex-col gap-1">
+            <span className="text-[13px] font-medium text-[var(--color-ink)]">Pilih File Excel/CSV {parsing && <span className="text-[var(--color-navy)]">— membaca…</span>}</span>
+            <input type="file" accept=".xlsx,.xls,.csv" onChange={onPilihFile}
+              className="block w-full text-sm text-[var(--color-ink)] file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-[var(--color-navy)] file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:brightness-110" />
+          </div>
         </div>
 
         {fileName && !error && !result && (
@@ -244,6 +262,15 @@ export default function StudentImportModal({ open, onClose, onImported, schools 
         )}
 
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+
+        {log.length > 0 && (
+          <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-paper)] px-3 py-2">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">Status Proses</p>
+            <ul className="space-y-0.5 text-xs text-[var(--color-ink-soft)]">
+              {log.map((m, i) => <li key={i} className={m.startsWith('ERROR') ? 'text-[var(--color-danger)]' : ''}>• {m}</li>)}
+            </ul>
+          </div>
+        )}
 
         {rows.length > 0 && !result && (
           <div className="flex flex-col gap-2">
