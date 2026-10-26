@@ -9,9 +9,10 @@ import StudentFormModal from './StudentFormModal'
 import StudentDocumentsSection from '../../components/StudentDocumentsSection'
 import StudentTagihanTab from './StudentTagihanTab'
 import StudentPrestasiTab from './StudentPrestasiTab'
+import StudentCapaianTab from './StudentCapaianTab'
 import { PROGRAM_LABEL, PROGRAM_BADGE } from '../../lib/uangPangkal'
 
-const TABS = ['Biodata', 'Data Ortu/Wali', 'Riwayat Kelas', 'Tagihan & Pembayaran', 'Prestasi', 'Dokumen']
+const TABS = ['Biodata', 'Data Ortu/Wali', 'Riwayat Kelas', 'Tagihan & Pembayaran', 'Prestasi', 'Capaian Belajar', 'Dokumen']
 
 export default function StudentDetail() {
   const { id } = useParams()
@@ -202,6 +203,8 @@ export default function StudentDetail() {
       {tab === 'Tagihan & Pembayaran' && <StudentTagihanTab siswaId={siswa.id} />}
 
       {tab === 'Prestasi' && <StudentPrestasiTab siswa={siswa} />}
+
+      {tab === 'Capaian Belajar' && <StudentCapaianTab siswa={siswa} />}
 
       {tab === 'Dokumen' && <StudentDocumentsSection siswaId={siswa.id} canManage={canManage} />}
 
