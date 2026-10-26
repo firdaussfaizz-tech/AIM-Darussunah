@@ -17,6 +17,7 @@ import { useParams, Navigate } from 'react-router-dom'
 import { SOP_SARPRAS, PIC_SARPRAS } from '../../lib/sopSarpras'
 import { SARPRAS_AREAS, SARPRAS_DEFAULT } from '../../lib/sarpras'
 import { DOKUMEN_LIST, listRecords, loadDokumen, buildDokumen } from '../../lib/dokumenSarpras'
+import { exportExcel } from '../../lib/reportExport'
 
 // Buka halaman cetak dokumen di tab baru (siap print/PDF).
 function openCetak(jenis, id) {
@@ -934,39 +935,140 @@ function RuanganFormModal({ open, editingRow, schoolId, unitKerjaList = [], romb
 // =========================================================================
 // TAB: KODEFIKASI (Yayasan) — referensi klasifikasi + kebijakan penyusutan
 // =========================================================================
+// Pecah kode klasifikasi menjadi 5 segmen (Golongan..Sub-sub Kelompok).
+function splitKlas(kode) {
+  const p = String(kode || '').split('.')
+  return [p[0] || '', p[1] || '', p[2] || '', p[3] || '', p[4] || '']
+}
+
+function chipCls(active) {
+  return `rounded-full border px-3 py-1 text-xs font-medium transition ${active ? 'border-[var(--color-navy)] bg-[var(--color-navy)] text-white' : 'border-[var(--color-border)] text-[var(--color-ink-soft)] hover:border-[var(--color-navy)]'}`
+}
+
+// Satu segmen pada diagram anatomi kode.
+function SegChip({ ph, label, accent }) {
+  return (
+    <div className="flex flex-col items-center">
+      <span className={`rounded-md px-2.5 py-1 font-mono text-sm font-semibold ${accent ? 'bg-[var(--color-navy)] text-white' : 'bg-[var(--color-navy-50)] text-[var(--color-navy)]'}`}>{ph}</span>
+      <span className="mt-1 text-center text-[11px] leading-tight text-[var(--color-ink-soft)]">{label}</span>
+    </div>
+  )
+}
+
+// Diagram anatomi Kode Aset & Kode Lokasi (acuan SOP BAB VII).
+function KodeAnatomi() {
+  const dot = <span className="self-start px-0.5 pt-1 font-mono text-sm text-[var(--color-ink-soft)]">.</span>
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <div className="rounded-lg border border-[var(--color-border)] p-4">
+        <div className="flex items-center gap-2"><Tag className="h-4 w-4 text-[var(--color-navy)]" /><h4 className="text-sm font-semibold text-[var(--color-ink)]">Kode Aset</h4></div>
+        <p className="mt-0.5 text-xs text-[var(--color-ink-soft)]">Klasifikasi Permendagri + nomor register. Dibuat otomatis saat aset dicatat.</p>
+        <div className="mt-3 flex flex-wrap items-start gap-x-0.5 gap-y-2">
+          <SegChip ph="GG" label="Golongan" />{dot}
+          <SegChip ph="BB" label="Bidang" />{dot}
+          <SegChip ph="KK" label="Kelompok" />{dot}
+          <SegChip ph="SS" label="Sub" />{dot}
+          <SegChip ph="TT" label="Sub-sub" />{dot}
+          <SegChip ph="RRRR" label="No. Register" accent />
+        </div>
+        <p className="mt-3 text-xs text-[var(--color-ink-soft)]">Contoh: <span className="font-mono text-[var(--color-navy)]">02.05.02.01.03.0003</span> — Lemari Besi (unit ke-3).</p>
+      </div>
+      <div className="rounded-lg border border-[var(--color-border)] p-4">
+        <div className="flex items-center gap-2"><DoorOpen className="h-4 w-4 text-[var(--color-navy)]" /><h4 className="text-sm font-semibold text-[var(--color-ink)]">Kode Lokasi</h4></div>
+        <p className="mt-0.5 text-xs text-[var(--color-ink-soft)]">Posisi aset: kepemilikan → lembaga → unit kerja → ruangan → tahun. Dibuat otomatis dari ruangan & tahun perolehan.</p>
+        <div className="mt-3 flex flex-wrap items-start gap-x-0.5 gap-y-2">
+          <SegChip ph="PP" label="Kepemilikan" />{dot}
+          <SegChip ph="LL" label="Lembaga" />{dot}
+          <SegChip ph="UU" label="Unit Kerja" />{dot}
+          <SegChip ph="RR" label="Ruangan" />{dot}
+          <SegChip ph="THN" label="Tahun" accent />
+        </div>
+        <p className="mt-3 text-xs text-[var(--color-ink-soft)]">Contoh: <span className="font-mono text-[var(--color-navy)]">05.02.01.01.2024</span> — Yayasan · Lembaga 02 · Unit 01 · Ruang 01 · 2024.</p>
+      </div>
+    </div>
+  )
+}
+
 function KodefikasiTab() {
   const [golongan, setGolongan] = useState([])
   const [klas, setKlas] = useState([])
   const [unitKerja, setUnitKerja] = useState([])
+  const [schools, setSchools] = useState([])
   const [q, setQ] = useState('')
+  const [golFilter, setGolFilter] = useState('') // '' = semua golongan
   const [loading, setLoading] = useState(true)
   const [editGol, setEditGol] = useState(null)
   const [editUnit, setEditUnit] = useState(null) // {kode,...} edit | 'new' tambah | null
+  const [editKlas, setEditKlas] = useState(null) // {id,...} edit | 'new' tambah | null
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: g }, { data: k }, { data: uk }] = await Promise.all([
+    const [{ data: g }, { data: k }, { data: uk }, { data: sc }] = await Promise.all([
       supabase.from('aset_golongan').select('*').order('kode'),
       supabase.from('aset_klasifikasi').select('*').order('kode'),
       supabase.from('unit_kerja_kode').select('*').order('urutan'),
+      supabase.from('schools').select('id, nama, jenjang, kode_lembaga').order('kode_lembaga'),
     ])
     setGolongan(g || [])
     setKlas(k || [])
     setUnitKerja(uk || [])
+    setSchools(sc || [])
     setLoading(false)
   }, [])
   useEffect(() => { load() }, [load])
 
-  const results = useMemo(() => {
+  const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
-    if (!s) return klas.slice(0, 30)
-    return klas.filter((k) => k.uraian.toLowerCase().includes(s) || k.kode.includes(s)).slice(0, 50)
-  }, [q, klas])
+    return klas
+      .filter((k) => (!golFilter || k.golongan === golFilter))
+      .filter((k) => !s || k.uraian.toLowerCase().includes(s) || k.kode.includes(s))
+      .slice()
+      .sort((a, b) => a.kode.localeCompare(b.kode))
+  }, [klas, golFilter, q])
+
+  const exportKodeAset = async () => {
+    const rows = klas.slice().sort((a, b) => a.kode.localeCompare(b.kode)).map((k) => {
+      const [g, b, kk, sk, ss] = splitKlas(k.kode)
+      return { g, b, kk, sk, ss, uraian: k.uraian }
+    })
+    await exportExcel({
+      filename: 'Tabel-Kode-Aset',
+      sheetName: 'Kode Aset',
+      title: 'Tabel Kode Aset (Klasifikasi Permendagri) — YPI Darussunah',
+      columns: [
+        { key: 'g', label: 'Golongan' }, { key: 'b', label: 'Bidang' }, { key: 'kk', label: 'Kelompok' },
+        { key: 'sk', label: 'Sub Kelompok' }, { key: 'ss', label: 'Sub-sub Kelompok' }, { key: 'uraian', label: 'Uraian' },
+      ],
+      rows,
+    })
+  }
+
+  const exportKodeLokasi = async () => {
+    const rows = [{ seg: 'Kepemilikan', kode: '05', nama: 'Milik Yayasan (YPI Darussunah)' }]
+    schools.forEach((s) => rows.push({ seg: 'Lembaga', kode: s.kode_lembaga || '00', nama: s.nama }))
+    unitKerja.forEach((u) => rows.push({ seg: 'Unit Kerja', kode: u.kode, nama: u.nama + (u.aktif ? '' : ' (nonaktif)') }))
+    rows.push({ seg: 'Ruangan', kode: 'RR', nama: 'Nomor urut ruangan pada unit (otomatis)' })
+    rows.push({ seg: 'Tahun', kode: 'THN', nama: 'Tahun perolehan aset' })
+    await exportExcel({
+      filename: 'Tabel-Kode-Lokasi',
+      sheetName: 'Kode Lokasi',
+      title: 'Tabel Kode Lokasi — YPI Darussunah',
+      meta: ['Format: Kepemilikan.Lembaga.Unit Kerja.Ruangan.Tahun'],
+      columns: [
+        { key: 'seg', label: 'Segmen' }, { key: 'kode', label: 'Kode' }, { key: 'nama', label: 'Nama / Keterangan' },
+      ],
+      rows,
+    })
+  }
 
   if (loading) return <FullPageSpinner />
 
   return (
     <div className="flex flex-col gap-6">
+      <SectionCard title="Anatomi Kode Aset & Kode Lokasi" description="Acuan pelabelan sesuai SOP (BAB VII). Kode dibuat otomatis oleh sistem — pegawai tidak mengetik kode manual.">
+        <KodeAnatomi />
+      </SectionCard>
+
       <SectionCard title="Kebijakan Penyusutan per Golongan" description="Umur ekonomis & nilai residu — dipakai menghitung Nilai Buku semua aset di golongan tsb.">
         <Table columns={['Kode', 'Golongan', 'Umur Ekonomis', 'Nilai Residu', '']}>
           {golongan.map((g) => (
@@ -981,20 +1083,73 @@ function KodefikasiTab() {
         </Table>
       </SectionCard>
 
-      <SectionCard title="Tabel Kode Aset (Klasifikasi)" description={`${klas.length} klasifikasi — referensi kode yang dipakai auto-generate. Cari untuk memeriksa.`}>
+      <SectionCard
+        title="Tabel Kode Aset (Klasifikasi)"
+        description={`${klas.length} klasifikasi Permendagri — referensi kode yang dipakai auto-generate Kode Aset. Format sama seperti Tabel Kode Aset standar.`}
+        actions={
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={exportKodeAset}><Download className="h-4 w-4" /> Export Excel</Button>
+            <Button size="sm" onClick={() => setEditKlas('new')}><Plus className="h-4 w-4" /> Tambah</Button>
+          </div>
+        }
+      >
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <button onClick={() => setGolFilter('')} className={chipCls(golFilter === '')}>Semua</button>
+          {golongan.map((g) => (
+            <button key={g.kode} onClick={() => setGolFilter(g.kode)} className={chipCls(golFilter === g.kode)}>{g.kode} · {g.nama}</button>
+          ))}
+        </div>
         <div className="mb-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-3">
           <Search className="h-4 w-4 text-[var(--color-ink-soft)]" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari kode atau nama klasifikasi…" className="w-full bg-transparent py-2 text-sm outline-none" />
         </div>
-        <Table columns={['Kode', 'Uraian', 'Golongan']}>
-          {results.map((k) => (
-            <Tr key={k.id}>
-              <Td><span className="font-mono text-xs">{k.kode}</span></Td>
-              <Td>{k.uraian}</Td>
-              <Td className="text-xs text-[var(--color-ink-soft)]">{k.golongan}</Td>
-            </Tr>
-          ))}
-        </Table>
+        <p className="mb-2 text-xs text-[var(--color-ink-soft)]">Menampilkan {filtered.length} baris.</p>
+        <div className="overflow-x-auto">
+          <Table columns={['Golongan', 'Bidang', 'Kelompok', 'Sub Kelompok', 'Sub-sub', 'Uraian', '']}>
+            {filtered.map((k) => {
+              const [g, b, kk, sk, ss] = splitKlas(k.kode)
+              const seg = (v) => v ? <span className="font-mono text-xs">{v}</span> : <span className="text-[var(--color-ink-soft)]">·</span>
+              return (
+                <Tr key={k.id}>
+                  <Td>{seg(g)}</Td>
+                  <Td>{seg(b)}</Td>
+                  <Td>{seg(kk)}</Td>
+                  <Td>{seg(sk)}</Td>
+                  <Td>{seg(ss)}</Td>
+                  <Td><span className={k.level <= 2 ? 'font-semibold' : k.level === 3 ? 'font-medium' : ''}>{k.uraian}</span></Td>
+                  <Td><button onClick={() => setEditKlas(k)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button></Td>
+                </Tr>
+              )
+            })}
+          </Table>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Tabel Kode Lokasi"
+        description="Penyusun Kode Lokasi aset. Segmen Ruangan & Tahun terisi otomatis saat aset dicatat."
+        actions={<Button size="sm" variant="outline" onClick={exportKodeLokasi}><Download className="h-4 w-4" /> Export Excel</Button>}
+      >
+        <div className="grid gap-5 md:grid-cols-2">
+          <div>
+            <h4 className="mb-1.5 text-sm font-semibold text-[var(--color-ink)]">Kepemilikan</h4>
+            <Table columns={['Kode', 'Keterangan']}>
+              <Tr><Td><span className="font-mono text-xs">05</span></Td><Td>Milik Yayasan (YPI Darussunah)</Td></Tr>
+            </Table>
+          </div>
+          <div>
+            <h4 className="mb-1.5 text-sm font-semibold text-[var(--color-ink)]">Kode Lembaga (per unit)</h4>
+            <Table columns={['Kode', 'Lembaga', 'Jenjang']}>
+              {schools.map((s) => (
+                <Tr key={s.id}>
+                  <Td><span className="font-mono text-xs">{s.kode_lembaga || '—'}</span></Td>
+                  <Td>{s.nama}</Td>
+                  <Td className="text-xs text-[var(--color-ink-soft)]">{s.jenjang || '—'}</Td>
+                </Tr>
+              ))}
+            </Table>
+          </div>
+        </div>
       </SectionCard>
 
       <SectionCard
@@ -1016,7 +1171,64 @@ function KodefikasiTab() {
 
       <GolonganFormModal golongan={editGol} onClose={() => setEditGol(null)} onSaved={() => { setEditGol(null); load() }} />
       <UnitKerjaFormModal entry={editUnit} existing={unitKerja} onClose={() => setEditUnit(null)} onSaved={() => { setEditUnit(null); load() }} />
+      <KlasifikasiFormModal entry={editKlas} golongan={golongan} onClose={() => setEditKlas(null)} onSaved={() => { setEditKlas(null); load() }} />
     </div>
+  )
+}
+
+function KlasifikasiFormModal({ entry, golongan = [], onClose, onSaved }) {
+  const isNew = entry === 'new'
+  const open = !!entry
+  const [kode, setKode] = useState('')
+  const [uraian, setUraian] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!open) return
+    setError('')
+    setKode(isNew ? '' : (entry.kode || ''))
+    setUraian(isNew ? '' : (entry.uraian || ''))
+  }, [open, isNew, entry])
+
+  if (!open) return null
+
+  const golName = golongan.find((x) => x.kode === (kode.split('.')[0] || '').trim())?.nama || null
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    const raw = kode.trim()
+    if (isNew) {
+      if (!/^\d{2}(\.\d{2}){0,4}$/.test(raw)) { setError('Format kode: 2 digit per segmen, mis. 03.01 atau 02.07.01.'); return }
+      if (!golongan.some((x) => x.kode === raw.split('.')[0])) { setError(`Golongan ${raw.split('.')[0]} tidak dikenal (gunakan 01–06).`); return }
+    }
+    if (!uraian.trim()) { setError('Isi uraian klasifikasi.'); return }
+    setSaving(true)
+    const query = isNew
+      ? supabase.from('aset_klasifikasi').insert({ kode: raw, golongan: raw.split('.')[0], level: raw.split('.').length, uraian: uraian.trim() })
+      : supabase.from('aset_klasifikasi').update({ uraian: uraian.trim() }).eq('id', entry.id)
+    const { error: err } = await query
+    setSaving(false)
+    if (err) { setError(/duplicate|unique/i.test(err.message) ? `Kode ${raw} sudah ada.` : err.message); return }
+    onSaved()
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={isNew ? 'Tambah Klasifikasi' : `Ubah Klasifikasi ${entry.kode}`} width="max-w-md">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <Input label="Kode Klasifikasi" value={kode} onChange={(e) => setKode(e.target.value)} disabled={!isNew} placeholder="mis. 03.01" />
+        {isNew
+          ? <p className="-mt-1 text-xs text-[var(--color-ink-soft)]">2 digit per segmen (Golongan.Bidang.Kelompok.Sub.Sub-sub). Golongan &amp; level terisi otomatis dari kode.{golName ? ` Golongan: ${golName}.` : ''}</p>
+          : <p className="-mt-1 text-xs text-[var(--color-ink-soft)]">Kode tidak dapat diubah (dipakai aset yang sudah ada). Ubah uraian bila perlu.</p>}
+        <Input label="Uraian" required value={uraian} onChange={(e) => setUraian(e.target.value)} placeholder="Nama klasifikasi" />
+        {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 
