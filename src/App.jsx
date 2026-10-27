@@ -42,6 +42,7 @@ const KesiswaanDashboard = lazy(() => import('./pages/kesiswaan/KesiswaanDashboa
 const AsetList = lazy(() => import('./pages/aset/AsetList'))
 const DokumenCetak = lazy(() => import('./pages/aset/DokumenCetak'))
 const AcademicManagement = lazy(() => import('./pages/academic/AcademicManagement'))
+const ProgresCapaianPage = lazy(() => import('./pages/academic/ProgresCapaianPage'))
 const KeuanganManagement = lazy(() => import('./pages/keuangan/KeuanganManagement'))
 const Analitik = lazy(() => import('./pages/analitik/Analitik'))
 
@@ -99,6 +100,7 @@ export default function App() {
             <Route path="aset" element={<Navigate to="/aset/inventaris" replace />} />
             <Route path="aset/:area" element={<AsetList />} />
             <Route path="pembelajaran" element={<Navigate to="/pembelajaran/jadwal" replace />} />
+            <Route path="pembelajaran/progres/:kkmId" element={<ProgresCapaianPage />} />
             <Route path="pembelajaran/:area" element={<AcademicManagement />} />
             <Route path="keuangan" element={<Navigate to="/keuangan/dashboard" replace />} />
             <Route path="keuangan/:area" element={<KeuanganManagement />} />

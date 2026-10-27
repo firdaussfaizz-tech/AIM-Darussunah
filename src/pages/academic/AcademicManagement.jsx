@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { useParams, Navigate, Link } from 'react-router-dom'
-import { CalendarRange, ClipboardList, BookOpen, Users, GraduationCap, Plus, Pencil, Trash2, Upload, FileText, CheckCircle2, ShieldAlert, Award, ExternalLink, Printer, AlertTriangle, CalendarDays, UserPlus, ClipboardCheck, RefreshCw, Download } from 'lucide-react'
+import { useParams, Navigate, Link, useNavigate } from 'react-router-dom'
+import { CalendarRange, ClipboardList, BookOpen, Users, GraduationCap, Plus, Pencil, Trash2, Upload, FileText, CheckCircle2, ShieldAlert, Award, ExternalLink, Printer, AlertTriangle, CalendarDays, UserPlus, ClipboardCheck, RefreshCw, LineChart } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, SectionCard, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner, StatCard } from '../../components/ui'
@@ -13,8 +13,6 @@ import {
   hariIso, slotBentrok, openCetakAkd, isoLocal, hitungRekapKbm, liburDariKalender,
 } from '../../lib/academic'
 import { DEFAULT_BEBAN_KERJA_SETTINGS, hitungBebanKerja, STATUS_BADGE_COLOR_BEBAN_KERJA } from '../../lib/workload'
-import { nilaiAkhir, statusTuntas, pilihKkm } from '../../lib/capaian'
-import { exportExcel } from '../../lib/reportExport'
 
 const BUCKET = 'employee-files'
 const fmtTgl = (d) => (d ? new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
@@ -80,7 +78,6 @@ export default function AcademicManagement() {
       {active.slug === 'jadwal' && <JadwalTab ctx={ctx} />}
       {active.slug === 'jurnal' && <JurnalTab ctx={ctx} />}
       {active.slug === 'kurikulum' && <KurikulumTab ctx={ctx} />}
-      {active.slug === 'capaian' && <CapaianMonitorTab ctx={ctx} />}
       {active.slug === 'ekstrakurikuler' && <EkstraTab ctx={ctx} />}
       {active.slug === 'perangkat' && <PerangkatTab ctx={ctx} />}
       {active.slug === 'kalender' && <KalenderTab ctx={ctx} />}
@@ -129,181 +126,6 @@ function useAcademicLists(effSchoolId, tahunId) {
 
 function NeedUnit() {
   return <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit &amp; tahun ajaran lebih dulu.</p>
-}
-
-// =========================================================================
-// PEMANTAUAN CAPAIAN — progres ketuntasan siswa vs KKM capaian per tingkat.
-// Manajemen: pilih rombel unit. Wali kelas: otomatis rombel yang diampunya.
-// =========================================================================
-function CapaianMonitorTab({ ctx }) {
-  const { isManager, effSchoolId, tahunId, semester, employee } = ctx
-  const { rombel: unitRombel, mapel } = useAcademicLists(effSchoolId, tahunId)
-  const [myRombel, setMyRombel] = useState([])
-  const [rombelId, setRombelId] = useState('')
-  const [students, setStudents] = useState([])
-  const [nilai, setNilai] = useState([])
-  const [kkmRows, setKkmRows] = useState([])
-  const [loading, setLoading] = useState(false)
-
-  const sem = String(semester || '').toLowerCase()
-
-  useEffect(() => {
-    if (isManager) { setMyRombel(unitRombel); return }
-    if (employee?.id && tahunId) {
-      supabase.from('rombel').select('id, nama_rombel, tingkat, tahun_ajaran_id').eq('wali_kelas_employee_id', employee.id).eq('tahun_ajaran_id', tahunId).order('nama_rombel').then(({ data }) => setMyRombel(data || []))
-    } else setMyRombel([])
-  }, [isManager, unitRombel, employee?.id, tahunId])
-
-  useEffect(() => {
-    if (myRombel.length && !myRombel.some((r) => r.id === rombelId)) setRombelId(myRombel[0].id)
-    if (!myRombel.length) setRombelId('')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myRombel])
-
-  const rombel = myRombel.find((r) => r.id === rombelId) || null
-
-  const load = useCallback(async () => {
-    if (!rombelId || !tahunId) { setStudents([]); setNilai([]); return }
-    setLoading(true)
-    const [{ data: enroll }, { data: nil }, { data: kkm }] = await Promise.all([
-      supabase.from('riwayat_siswa').select('siswa_id, siswa!siswa_id(id, nama_lengkap, nis)').eq('rombel_id', rombelId).eq('status', 'aktif'),
-      supabase.from('nilai_siswa').select('siswa_id, mata_pelajaran_id, nilai_pengetahuan, nilai_keterampilan, nilai_sikap').eq('rombel_id', rombelId).eq('semester', sem).eq('tahun_ajaran_id', tahunId),
-      effSchoolId ? supabase.from('kurikulum_kkm').select('mata_pelajaran_id, tingkat, tahun_ajaran_id, semester, kkm').eq('school_id', effSchoolId).not('kkm', 'is', null) : Promise.resolve({ data: [] }),
-    ])
-    setStudents((enroll || []).map((e) => e.siswa).filter(Boolean).sort((a, b) => a.nama_lengkap.localeCompare(b.nama_lengkap)))
-    setNilai(nil || [])
-    setKkmRows(kkm || [])
-    setLoading(false)
-  }, [rombelId, sem, tahunId, effSchoolId])
-  useEffect(() => { load() }, [load])
-
-  const mapelNama = useMemo(() => Object.fromEntries(mapel.map((m) => [m.id, m.nama])), [mapel])
-
-  // Kolom = mapel yang punya KKM untuk tingkat ini (capaian tingkat), plus
-  // mapel yang sudah ada nilainya.
-  const kolom = useMemo(() => {
-    const tingkat = rombel?.tingkat
-    const set = new Map()
-    for (const m of mapel) {
-      const kkm = pilihKkm(kkmRows, { mataPelajaranId: m.id, tingkat, semester: sem, tahunAjaranId: tahunId })
-      if (kkm != null) set.set(m.id, { id: m.id, nama: m.nama, kkm })
-    }
-    for (const n of nilai) {
-      if (!set.has(n.mata_pelajaran_id)) set.set(n.mata_pelajaran_id, { id: n.mata_pelajaran_id, nama: mapelNama[n.mata_pelajaran_id] || '—', kkm: null })
-    }
-    return Array.from(set.values()).sort((a, b) => a.nama.localeCompare(b.nama))
-  }, [mapel, kkmRows, nilai, rombel, sem, tahunId, mapelNama])
-
-  const nilaiMap = useMemo(() => {
-    const m = {}
-    for (const n of nilai) m[`${n.siswa_id}|${n.mata_pelajaran_id}`] = n
-    return m
-  }, [nilai])
-
-  const cellOf = (siswaId, kol) => {
-    const n = nilaiMap[`${siswaId}|${kol.id}`]
-    const na = n ? nilaiAkhir(n.nilai_pengetahuan, n.nilai_keterampilan) : null
-    const status = n ? statusTuntas(n.nilai_pengetahuan, n.nilai_keterampilan, kol.kkm) : null
-    return { na, status }
-  }
-
-  const perSiswa = useMemo(() => students.map((s) => {
-    let tuntas = 0, belum = 0, sumNa = 0, cntNa = 0
-    for (const kol of kolom) {
-      const { na, status } = cellOf(s.id, kol)
-      if (na != null) { sumNa += na; cntNa += 1 }
-      if (status === 'Tuntas') tuntas += 1
-      else if (status === 'Belum Tuntas') belum += 1
-    }
-    const berstatus = tuntas + belum
-    return { ...s, tuntas, belum, avg: cntNa ? Math.round(sumNa / cntNa * 100) / 100 : null, persen: berstatus ? Math.round(tuntas / berstatus * 100) : null }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [students, kolom, nilaiMap])
-
-  const ringkas = useMemo(() => {
-    const belumSiswa = perSiswa.filter((s) => s.belum > 0).length
-    const arr = perSiswa.filter((s) => s.persen != null)
-    const persenAvg = arr.length ? Math.round(arr.reduce((a, s) => a + s.persen, 0) / arr.length) : null
-    return { total: students.length, belumSiswa, persenAvg }
-  }, [perSiswa, students])
-
-  const exportMatrix = async () => {
-    const columns = [{ key: 'nama', label: 'Nama Siswa' }, ...kolom.map((k) => ({ key: k.id, label: `${k.nama}${k.kkm != null ? ` (KKM ${k.kkm})` : ''}` })), { key: 'persen', label: '% Tuntas' }]
-    const rowsX = perSiswa.map((s) => {
-      const row = { nama: s.nama_lengkap }
-      for (const kol of kolom) { const { na } = cellOf(s.id, kol); row[kol.id] = na ?? '' }
-      row.persen = s.persen ?? ''
-      return row
-    })
-    await exportExcel({ filename: `Capaian-${rombel?.nama_rombel || 'kelas'}`, sheetName: 'Capaian', title: `Pemantauan Capaian — ${rombel?.nama_rombel || ''}`, columns, rows: rowsX })
-  }
-
-  if (!effSchoolId) return <NeedUnit />
-  if (myRombel.length === 0) {
-    return <EmptyState icon={GraduationCap} title={isManager ? 'Belum ada rombel' : 'Anda belum menjadi wali kelas'}
-      description={isManager ? 'Pilih unit & tahun ajaran yang memiliki rombel.' : 'Halaman ini menampilkan progres capaian kelas untuk wali kelas. Hubungi admin bila Anda seharusnya menjadi wali kelas pada tahun ajaran ini.'} />
-  }
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-end gap-3">
-        <Select containerClassName="w-64" label="Rombel / Kelas" value={rombelId} onChange={(e) => setRombelId(e.target.value)}>
-          {myRombel.map((r) => <option key={r.id} value={r.id}>{r.nama_rombel}{r.tingkat ? ` — Tingkat ${r.tingkat}` : ''}</option>)}
-        </Select>
-        {kolom.length > 0 && students.length > 0 && <Button variant="outline" size="sm" onClick={exportMatrix}><Download className="h-4 w-4" /> Export Excel</Button>}
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <StatCard label="Jumlah Siswa" value={ringkas.total} accent="navy" />
-        <StatCard label="Rata-rata Ketuntasan Kelas" value={ringkas.persenAvg != null ? `${ringkas.persenAvg}%` : '—'} accent="success" />
-        <StatCard label="Siswa dengan Mapel Belum Tuntas" value={ringkas.belumSiswa} accent="danger" />
-      </div>
-
-      {loading ? <FullPageSpinner /> : students.length === 0 ? (
-        <EmptyState title="Belum ada siswa di rombel ini" />
-      ) : (
-        <SectionCard title={`Matriks Ketuntasan — ${rombel?.nama_rombel || ''}`} description="Nilai akhir (rata-rata pengetahuan & keterampilan) per mapel dibandingkan KKM capaian tingkat ini. Hijau = Tuntas, merah = Belum Tuntas, — = belum dinilai.">
-          {kolom.length === 0 ? (
-            <EmptyState title="Belum ada capaian/KKM atau nilai" description="Tetapkan CP/KKM di menu Kurikulum & KKM untuk tingkat ini, dan input nilai di Nilai & Rapor." />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--color-border)] text-left">
-                    <th className="sticky left-0 z-10 bg-[var(--color-paper)] px-2 py-2 font-medium">Siswa</th>
-                    {kolom.map((k) => (
-                      <th key={k.id} className="px-2 py-2 text-center font-medium whitespace-nowrap" title={k.kkm != null ? `KKM ${k.kkm}` : 'KKM belum diatur'}>
-                        {k.nama}<span className="block text-[10px] font-normal text-[var(--color-ink-soft)]">{k.kkm != null ? `KKM ${k.kkm}` : '—'}</span>
-                      </th>
-                    ))}
-                    <th className="px-2 py-2 text-center font-medium">% Tuntas</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {perSiswa.map((s) => (
-                    <tr key={s.id} className="border-b border-[var(--color-border)]">
-                      <td className="sticky left-0 z-10 bg-[var(--color-paper)] px-2 py-1.5 font-medium whitespace-nowrap">{s.nama_lengkap}</td>
-                      {kolom.map((k) => {
-                        const { na, status } = cellOf(s.id, k)
-                        return (
-                          <td key={k.id} className="px-2 py-1.5 text-center">
-                            {na == null
-                              ? <span className="text-[var(--color-ink-soft)]">—</span>
-                              : <span className={status === 'Belum Tuntas' ? 'font-semibold text-[var(--color-danger)]' : status === 'Tuntas' ? 'font-semibold text-[var(--color-success)]' : ''}>{na}</span>}
-                          </td>
-                        )
-                      })}
-                      <td className="px-2 py-1.5 text-center">{s.persen != null ? <Badge color={s.persen >= 75 ? 'success' : s.persen >= 50 ? 'gold' : 'danger'}>{s.persen}%</Badge> : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </SectionCard>
-      )}
-    </div>
-  )
 }
 
 // =========================================================================
@@ -1294,6 +1116,7 @@ function JurnalModal({ open, ctx, lists, editing, prefill, onClose, onSaved }) {
 function KurikulumTab({ ctx }) {
   const { effSchoolId, tahunId, tahunList } = ctx
   const { mapel } = useAcademicLists(effSchoolId, tahunId)
+  const navigate = useNavigate()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
@@ -1309,20 +1132,21 @@ function KurikulumTab({ ctx }) {
   if (!effSchoolId) return <NeedUnit />
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end"><Button onClick={() => { setEditing(null); setOpen(true) }}><Plus className="h-4 w-4" /> Tambah CP/KKM</Button></div>
-      <SectionCard title="Kurikulum & KKM" description="Capaian Pembelajaran / KD & Kriteria Ketuntasan Minimal per mata pelajaran.">
+      <div className="flex justify-end"><Button onClick={() => { setEditing(null); setOpen(true) }}><Plus className="h-4 w-4" /> Tambah CP/KKTP</Button></div>
+      <SectionCard title="Kurikulum & KKTP" description="Capaian Pembelajaran / TP & Kriteria Ketercapaian Tujuan Pembelajaran (KKTP) per mata pelajaran. Klik 'Pantau Progres' untuk mencatat progres siswa per CP.">
         {loading ? <FullPageSpinner /> : rows.length === 0 ? (
-          <EmptyState icon={BookOpen} title="Belum ada data" description="Tetapkan CP/KD & KKM per mapel." />
+          <EmptyState icon={BookOpen} title="Belum ada data" description="Tetapkan CP/TP & KKTP per mapel." />
         ) : (
-          <Table columns={['Mapel', 'Tingkat', 'Berlaku', 'KKM', 'CP / KD', '']}>
+          <Table columns={['Mapel', 'Tingkat', 'Berlaku', 'KKTP', 'CP / TP', '']}>
             {rows.map((r) => (
               <Tr key={r.id}>
                 <Td className="font-medium">{r.mata_pelajaran?.nama || '—'}</Td>
                 <Td>{r.tingkat || 'Semua'}</Td>
                 <Td className="text-xs">{r.semester || 'Semua semester'} · {tahunList.find((t) => t.id === r.tahun_ajaran_id)?.nama || 'semua tahun'}</Td>
                 <Td>{r.kkm ?? '—'}</Td>
-                <Td className="max-w-[280px] truncate" title={r.cp_kd || ''}>{r.cp_kd || '—'}</Td>
-                <Td><div className="flex justify-end gap-1.5">
+                <Td className="max-w-[240px] truncate" title={r.cp_kd || ''}>{r.cp_kd || '—'}</Td>
+                <Td><div className="flex justify-end gap-2">
+                  <Button size="sm" variant="outline" onClick={() => navigate(`/pembelajaran/progres/${r.id}`)}><LineChart className="h-4 w-4" /> Pantau Progres</Button>
                   <button onClick={() => { setEditing(r); setOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]"><Pencil className="h-4 w-4" /></button>
                   <button onClick={() => del(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]"><Trash2 className="h-4 w-4" /></button>
                 </div></Td>
@@ -1357,7 +1181,7 @@ function KurikulumModal({ open, ctx, mapel, editing, onClose, onSaved }) {
     setSaving(false); if (err) { setError(err.message); return }; onSaved()
   }
   return (
-    <Modal open={open} onClose={onClose} title={editing ? 'Ubah CP/KKM' : 'Tambah CP/KKM'} width="max-w-lg">
+    <Modal open={open} onClose={onClose} title={editing ? 'Ubah CP/KKTP' : 'Tambah CP/KKTP'} width="max-w-lg">
       <form onSubmit={submit} className="flex flex-col gap-3">
         <div className="grid grid-cols-3 gap-3">
           <Select label="Mata Pelajaran" containerClassName="col-span-2" value={f.mata_pelajaran_id || ''} onChange={(e) => set('mata_pelajaran_id', e.target.value)}>
@@ -1367,7 +1191,7 @@ function KurikulumModal({ open, ctx, mapel, editing, onClose, onSaved }) {
           <Input label="Tingkat" value={f.tingkat || ''} onChange={(e) => set('tingkat', e.target.value)} placeholder="kosong = semua" />
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <Input label="KKM" type="number" value={f.kkm ?? ''} onChange={(e) => set('kkm', e.target.value)} />
+          <Input label="KKTP" type="number" value={f.kkm ?? ''} onChange={(e) => set('kkm', e.target.value)} />
           <Select label="Berlaku Semester" value={f.semester || ''} onChange={(e) => set('semester', e.target.value)}>
             <option value="">Semua semester</option>
             {SEMESTER_OPTIONS.map((x) => <option key={x} value={x}>{x}</option>)}
@@ -1377,8 +1201,8 @@ function KurikulumModal({ open, ctx, mapel, editing, onClose, onSaved }) {
             {(tahunList || []).map((t) => <option key={t.id} value={t.id}>{t.nama}</option>)}
           </Select>
         </div>
-        <p className="-mt-1 text-[11px] text-[var(--color-ink-soft)]">KKM dipakai otomatis di Nilai &amp; Rapor (status Tuntas/Belum Tuntas). Isi Tingkat persis seperti tingkat rombel (mis. 7), atau kosongkan agar berlaku untuk semua tingkat.</p>
-        <Textarea label="Capaian Pembelajaran / KD" rows={3} value={f.cp_kd || ''} onChange={(e) => set('cp_kd', e.target.value)} />
+        <p className="-mt-1 text-[11px] text-[var(--color-ink-soft)]">KKTP dipakai otomatis di Nilai &amp; Rapor (status Tuntas/Belum Tuntas). Isi Tingkat persis seperti tingkat rombel (mis. 7), atau kosongkan agar berlaku untuk semua tingkat.</p>
+        <Textarea label="Capaian Pembelajaran / TP" rows={3} value={f.cp_kd || ''} onChange={(e) => set('cp_kd', e.target.value)} />
         <Input label="Keterangan" value={f.keterangan || ''} onChange={(e) => set('keterangan', e.target.value)} />
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Batal</Button><Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button></div>

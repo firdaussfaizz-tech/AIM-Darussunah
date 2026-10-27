@@ -98,12 +98,12 @@ export default function StudentCapaianTab({ siswa }) {
         <StatCard label="Belum Tuntas" value={ringkas.belum} accent="danger" />
       </div>
 
-      <SectionCard title="Capaian per Mata Pelajaran" description="Nilai dibandingkan KKM (Kurikulum & KKM, modul Akademik). Nilai akhir = rata-rata pengetahuan & keterampilan.">
+      <SectionCard title="Capaian per Mata Pelajaran" description="Nilai dibandingkan KKTP (Kurikulum & KKTP, modul Akademik). Nilai akhir = rata-rata pengetahuan & keterampilan.">
         {rows.length === 0 ? (
           <EmptyState title="Belum ada nilai" description="Belum ada nilai tercatat untuk tahun ajaran & semester ini. Nilai diinput dari menu Nilai & Rapor." />
         ) : (
           <div className="overflow-x-auto">
-            <Table columns={['Mata Pelajaran', 'KKM', 'Pengetahuan', 'Keterampilan', 'Sikap', 'Nilai Akhir', 'Status']}>
+            <Table columns={['Mata Pelajaran', 'KKTP', 'Pengetahuan', 'Keterampilan', 'Sikap', 'Nilai Akhir', 'Status']}>
               {rows.map((r) => (
                 <Tr key={r.id}>
                   <Td className="font-medium">{r.nama}</Td>
@@ -112,7 +112,7 @@ export default function StudentCapaianTab({ siswa }) {
                   <Td className={r.kkm != null && r.k != null && Number(r.k) < r.kkm ? 'text-[var(--color-danger)]' : ''}>{r.k ?? '—'}</Td>
                   <Td>{r.sikap || '—'}</Td>
                   <Td className="font-medium">{r.na ?? '—'}</Td>
-                  <Td>{r.status ? <Badge color={r.status === 'Tuntas' ? 'success' : 'danger'}>{r.status}</Badge> : <Badge color="neutral">KKM belum diatur</Badge>}</Td>
+                  <Td>{r.status ? <Badge color={r.status === 'Tuntas' ? 'success' : 'danger'}>{r.status}</Badge> : <Badge color="neutral">KKTP belum diatur</Badge>}</Td>
                 </Tr>
               ))}
             </Table>

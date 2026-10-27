@@ -442,7 +442,7 @@ function RaporModal({ siswa, rombel, tahunAjaranId, semester, onClose }) {
     <div>Tahun Ajaran ${tahunAjaran?.nama || '-'} — ${semesterLabel}</div>
   </div>
   <table>
-    <thead><tr><th>Mata Pelajaran</th><th style="text-align:center;">KKM</th><th style="text-align:center;">Pengetahuan</th><th style="text-align:center;">Keterampilan</th><th style="text-align:center;">Sikap</th><th style="text-align:center;">Ketuntasan</th></tr></thead>
+    <thead><tr><th>Mata Pelajaran</th><th style="text-align:center;">KKTP</th><th style="text-align:center;">Pengetahuan</th><th style="text-align:center;">Keterampilan</th><th style="text-align:center;">Sikap</th><th style="text-align:center;">Ketuntasan</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
   ${presensiHtml}
@@ -464,7 +464,7 @@ function RaporModal({ siswa, rombel, tahunAjaranId, semester, onClose }) {
           {nilai.length === 0 ? (
             <p className="text-sm text-[var(--color-ink-soft)]">Belum ada nilai tercatat untuk semester ini.</p>
           ) : (
-            <Table columns={['Mata Pelajaran', 'KKM', 'Pengetahuan', 'Keterampilan', 'Sikap', 'Ketuntasan']}>
+            <Table columns={['Mata Pelajaran', 'KKTP', 'Pengetahuan', 'Keterampilan', 'Sikap', 'Ketuntasan']}>
               {nilai.map((n) => (
                 <Tr key={n.id}>
                   <Td className="font-medium">{n.mata_pelajaran?.nama || '—'}</Td>
@@ -478,7 +478,7 @@ function RaporModal({ siswa, rombel, tahunAjaranId, semester, onClose }) {
             </Table>
           )}
           {nilai.length > 0 && Object.keys(kkmMap).length === 0 && (
-            <p className="text-xs text-[var(--color-ink-soft)]">KKM belum diatur untuk unit ini — atur di Akademik › Kurikulum &amp; KKM agar status ketuntasan tampil otomatis.</p>
+            <p className="text-xs text-[var(--color-ink-soft)]">KKTP belum diatur untuk unit ini — atur di Akademik › Kurikulum &amp; KKTP agar status ketuntasan tampil otomatis.</p>
           )}
           {presensiRecap && (
             <p className="text-xs text-[var(--color-ink-soft)]">
@@ -601,6 +601,6 @@ function MataPelajaranTab({ lockedSchoolId }) {
 
 function TuntasBadge({ kkm, p, k }) {
   const st = statusTuntas(p, k, kkm)
-  if (!st) return kkm != null ? <span className="text-xs text-[var(--color-ink-soft)]">KKM {kkm}</span> : <span className="text-xs text-[var(--color-ink-soft)]">—</span>
-  return <Badge color={st === 'Tuntas' ? 'success' : 'danger'}>{st} (KKM {kkm})</Badge>
+  if (!st) return kkm != null ? <span className="text-xs text-[var(--color-ink-soft)]">KKTP {kkm}</span> : <span className="text-xs text-[var(--color-ink-soft)]">—</span>
+  return <Badge color={st === 'Tuntas' ? 'success' : 'danger'}>{st} (KKTP {kkm})</Badge>
 }
