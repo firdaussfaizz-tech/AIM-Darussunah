@@ -14,6 +14,7 @@ import {
 } from '../../lib/academic'
 import { DEFAULT_BEBAN_KERJA_SETTINGS, hitungBebanKerja, STATUS_BADGE_COLOR_BEBAN_KERJA } from '../../lib/workload'
 import KurikulumIslamPlus from './KurikulumIslamPlus'
+import KurikulumSatuanPendidikan from './KurikulumSatuanPendidikan'
 
 const BUCKET = 'employee-files'
 const fmtTgl = (d) => (d ? new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
@@ -80,6 +81,7 @@ export default function AcademicManagement() {
       {active.slug === 'jurnal' && <JurnalTab ctx={ctx} />}
       {active.slug === 'kurikulum' && <KurikulumTab ctx={ctx} />}
       {active.slug === 'kurikulum-islam-plus' && <KurikulumIslamPlus ctx={ctx} />}
+      {active.slug === 'kurikulum-satuan' && <KurikulumSatuanPendidikan ctx={ctx} />}
       {active.slug === 'ekstrakurikuler' && <EkstraTab ctx={ctx} />}
       {active.slug === 'perangkat' && <PerangkatTab ctx={ctx} />}
       {active.slug === 'kalender' && <KalenderTab ctx={ctx} />}

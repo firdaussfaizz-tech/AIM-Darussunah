@@ -12,6 +12,7 @@ export const ACADEMIC_AREAS = [
   { slug: 'rekap-kbm', label: 'Rekap Kehadiran Mengajar', labelGuru: 'Kehadiran Mengajar Saya', scope: 'all' },
   { slug: 'kurikulum', label: 'Kurikulum & KKTP', scope: 'manager' },
   { slug: 'kurikulum-islam-plus', label: 'Kurikulum Islam Plus', scope: 'manager' },
+  { slug: 'kurikulum-satuan', label: 'Kurikulum Satuan Pendidikan', scope: 'manager' },
   { slug: 'ekstrakurikuler', label: 'Ekstrakurikuler', scope: 'manager' },
   { slug: 'perangkat', label: 'Perangkat Ajar & Monev', labelGuru: 'Perangkat Ajar Saya', scope: 'all' },
   { slug: 'ppdb', label: 'PPDB', scope: 'manager' },

@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, CalendarCheck, CalendarClock, Wallet, Star,
   GraduationCap, Building2, UserCog, LogOut, Menu, X, Activity, CalendarOff,
   History, Mail, ChevronRight, BookOpen, Contact, CalendarRange, ClipboardCheck,
-  ReceiptText, NotebookText, Target, Boxes, BookMarked,
+  ReceiptText, NotebookText, Target, Boxes, BookMarked, Layers,
   ClipboardList, ShoppingCart, Truck, UserCheck, DoorOpen, Wrench, Trash2, Tag, ShieldCheck, FileText, Package, CalendarDays, UserPlus, Library, Percent,
   FileBarChart,
 } from 'lucide-react'
@@ -17,7 +17,7 @@ import { KEUANGAN_AREAS } from '../lib/keuangan'
 // Ikon per area Academic (dipetakan dari slug).
 const ACAD_ICONS = {
   dashboard: LayoutDashboard, kalender: CalendarDays, mapel: Library, penugasan: GraduationCap, jadwal: CalendarRange,
-  jurnal: NotebookText, 'rekap-kbm': ClipboardCheck, kurikulum: BookOpen, 'kurikulum-islam-plus': BookMarked, ekstrakurikuler: Star, perangkat: FileText,
+  jurnal: NotebookText, 'rekap-kbm': ClipboardCheck, kurikulum: BookOpen, 'kurikulum-islam-plus': BookMarked, 'kurikulum-satuan': Layers, ekstrakurikuler: Star, perangkat: FileText,
   ppdb: UserPlus,
 }
 
