@@ -11,7 +11,7 @@ export const ACADEMIC_AREAS = [
   { slug: 'jurnal', label: 'Jurnal KBM', scope: 'all' },
   { slug: 'rekap-kbm', label: 'Rekap Kehadiran Mengajar', labelGuru: 'Kehadiran Mengajar Saya', scope: 'all' },
   { slug: 'kurikulum', label: 'Kurikulum & KKTP', scope: 'manager' },
-  { slug: 'kurikulum-muh', label: 'Kurikulum Muhammadiyah', scope: 'all' },
+  { slug: 'kurikulum-islam-plus', label: 'Kurikulum Islam Plus', scope: 'manager' },
   { slug: 'ekstrakurikuler', label: 'Ekstrakurikuler', scope: 'manager' },
   { slug: 'perangkat', label: 'Perangkat Ajar & Monev', labelGuru: 'Perangkat Ajar Saya', scope: 'all' },
   { slug: 'ppdb', label: 'PPDB', scope: 'manager' },

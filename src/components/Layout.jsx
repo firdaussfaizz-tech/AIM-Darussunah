@@ -17,7 +17,7 @@ import { KEUANGAN_AREAS } from '../lib/keuangan'
 // Ikon per area Academic (dipetakan dari slug).
 const ACAD_ICONS = {
   dashboard: LayoutDashboard, kalender: CalendarDays, mapel: Library, penugasan: GraduationCap, jadwal: CalendarRange,
-  jurnal: NotebookText, 'rekap-kbm': ClipboardCheck, kurikulum: BookOpen, 'kurikulum-muh': BookMarked, ekstrakurikuler: Star, perangkat: FileText,
+  jurnal: NotebookText, 'rekap-kbm': ClipboardCheck, kurikulum: BookOpen, 'kurikulum-islam-plus': BookMarked, ekstrakurikuler: Star, perangkat: FileText,
   ppdb: UserPlus,
 }
 

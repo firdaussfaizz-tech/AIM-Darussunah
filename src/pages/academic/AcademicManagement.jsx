@@ -13,7 +13,7 @@ import {
   hariIso, slotBentrok, openCetakAkd, isoLocal, hitungRekapKbm, liburDariKalender,
 } from '../../lib/academic'
 import { DEFAULT_BEBAN_KERJA_SETTINGS, hitungBebanKerja, STATUS_BADGE_COLOR_BEBAN_KERJA } from '../../lib/workload'
-import KurikulumMuhReference from './KurikulumMuhReference'
+import KurikulumIslamPlus from './KurikulumIslamPlus'
 
 const BUCKET = 'employee-files'
 const fmtTgl = (d) => (d ? new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
@@ -79,7 +79,7 @@ export default function AcademicManagement() {
       {active.slug === 'jadwal' && <JadwalTab ctx={ctx} />}
       {active.slug === 'jurnal' && <JurnalTab ctx={ctx} />}
       {active.slug === 'kurikulum' && <KurikulumTab ctx={ctx} />}
-      {active.slug === 'kurikulum-muh' && <KurikulumMuhReference />}
+      {active.slug === 'kurikulum-islam-plus' && <KurikulumIslamPlus ctx={ctx} />}
       {active.slug === 'ekstrakurikuler' && <EkstraTab ctx={ctx} />}
       {active.slug === 'perangkat' && <PerangkatTab ctx={ctx} />}
       {active.slug === 'kalender' && <KalenderTab ctx={ctx} />}
