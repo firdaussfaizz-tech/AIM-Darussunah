@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { SectionCard, Badge, Button, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
+import { StrukturKurikulumEditor, StrukturKurikulumView, parseStruktur, strukturKosong, ringkasStruktur } from '../../components/StrukturKurikulumEditor'
 
 // ============================================================================
 // SISTEM PEMBANGUN KURIKULUM ISLAM PLUS — modul Akademik.
@@ -34,7 +35,7 @@ const KIP_OUTLINE = [
       { kode: 'I.A', judul: 'Latar Belakang Pemikiran', petunjuk: 'Dasar munculnya Islam Plus sebagai kurikulum. Pemantik: (a) Apa itu Islam Plus (Islam Aswaja, Bahasa Arab, Tahfidz) & urgensinya bagi karakter siswa Aswaja? (b) Apa pembedanya dibanding yang lain (NU, MD, Al-Azhar, Al-Irsyad)? (c) Hubungkan dengan tantangan zaman & visi pendidikan Islam Plus.' },
       { kode: 'I.B', judul: 'Tujuan Pengembangan Kurikulum Islam Plus', petunjuk: 'Rumuskan 4–6 tujuan yang spesifik, terukur, & relevan: peningkatan kompetensi keagamaan, penguatan ideologi Aswaja, penguasaan Bahasa Arab & Tahfidz.' },
       { kode: 'I.C', judul: 'Visi, Misi, dan Tujuan Pendidikan Ahlussunah wal Jamaah', petunjuk: 'Kutip visi & misi resmi yayasan, lalu jabarkan relevansinya dengan Kurikulum Islam Plus.' },
-      { kode: 'I.D', judul: 'Muatan / Struktur Kurikulum Islam Plus', petunjuk: 'Sajikan dalam bentuk tabel: (a) Mata Pelajaran Islam Plus, (b) Alokasi jam/minggu, (c) Distribusi per kelas (I s/d XII).' },
+      { kode: 'I.D', judul: 'Muatan / Struktur Kurikulum Islam Plus', tipe: 'struktur', petunjuk: 'Isi tabel: tiap baris satu Mata Pelajaran Islam Plus, tiap kolom kelas diisi alokasi JP per minggu. Baris Jumlah Jam terhitung otomatis.' },
       { kode: 'I.E', judul: 'Beban Belajar Kurikulum Islam Plus', petunjuk: 'Tentukan total jam pelajaran per tahun/semester tiap mapel Islam Plus. Sesuaikan dengan ketentuan Kurikulum Nasional.' },
       { kode: 'I.F', judul: 'Prinsip Penyusunan Kurikulum', petunjuk: 'Uraikan 5–7 prinsip: relevansi, fleksibilitas, efisiensi, efektivitas, kesinambungan, integrasi nilai Aswaja, dst.' },
       { kode: 'I.G', judul: 'Prinsip Pengelolaan Kurikulum', petunjuk: 'Bagaimana kurikulum dikelola, penanggung jawab, mekanisme pembaruan, serta koordinasi antar Mapel Islam Plus.' },
@@ -269,6 +270,7 @@ export default function KurikulumIslamPlus({ ctx }) {
 function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }) {
   const item = ALL_ITEMS.find((i) => i.kode === kode)
   const { ditetapkan, aktif, riwayat } = info
+  const isStruktur = item.tipe === 'struktur'
 
   const [konten, setKonten] = useState('')
   const [catatan, setCatatan] = useState('')
@@ -285,6 +287,7 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
   }, [kode, aktif?.id])
 
   const maxVersi = Math.max(0, ...info.list.map((e) => e.versi || 0))
+  const kontenKosong = isStruktur ? strukturKosong(parseStruktur(konten)) : !konten.trim()
 
   const simpanDraft = async ({ ajukan = false } = {}) => {
     setBusy(true)
@@ -372,7 +375,9 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
           title="Isi Resmi (Ditetapkan)"
           actions={<StatusBadge status="ditetapkan" />}
         >
-          <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[var(--color-ink)]">{ditetapkan.konten || '—'}</p>
+          {isStruktur
+            ? <StrukturKurikulumView konten={ditetapkan.konten} />
+            : <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[var(--color-ink)]">{ditetapkan.konten || '—'}</p>}
           <p className="mt-3 text-[12px] text-[var(--color-ink-soft)]">
             Versi {ditetapkan.versi} · ditetapkan {fmtTgl(ditetapkan.direviu_at)}
             {ditetapkan.direviu_nama ? ` oleh ${ditetapkan.direviu_nama}` : ''}
@@ -395,7 +400,9 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
                 Diajukan {fmtTgl(aktif.diajukan_at)}{aktif.disusun_nama ? ` oleh ${aktif.disusun_nama}` : ''} · menunggu keputusan Yayasan.
               </p>
             </div>
-            <p className="whitespace-pre-wrap rounded-[12px] border border-[var(--color-border)] bg-[var(--color-paper)] p-3.5 text-[14px] leading-relaxed text-[var(--color-ink)]">{aktif.konten || '—'}</p>
+            {isStruktur
+              ? <div className="rounded-[12px] border border-[var(--color-border)] bg-[var(--color-paper)] p-3.5"><StrukturKurikulumView konten={aktif.konten} /></div>
+              : <p className="whitespace-pre-wrap rounded-[12px] border border-[var(--color-border)] bg-[var(--color-paper)] p-3.5 text-[14px] leading-relaxed text-[var(--color-ink)]">{aktif.konten || '—'}</p>}
             {aktif.catatan_penyusun && <p className="text-[13px] text-[var(--color-ink-soft)]"><strong>Catatan penyusun:</strong> {aktif.catatan_penyusun}</p>}
 
             {/* Keputusan Yayasan */}
@@ -424,13 +431,20 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
                 <XCircle className="mt-0.5 h-4 w-4 shrink-0" /> <span><strong>Catatan reviu sebelumnya:</strong> {aktif.catatan_reviu}</span>
               </div>
             )}
-            <Textarea
-              label="Isi Bagian"
-              rows={10}
-              placeholder="Tulis isi bagian ini sesuai panduan di atas…"
-              value={konten}
-              onChange={(e) => setKonten(e.target.value)}
-            />
+            {isStruktur ? (
+              <div>
+                <p className="mb-1.5 text-[13px] font-medium text-[var(--color-ink)]">Isi Bagian (Tabel Struktur)</p>
+                <StrukturKurikulumEditor value={parseStruktur(konten)} onChange={(d) => setKonten(JSON.stringify(d))} />
+              </div>
+            ) : (
+              <Textarea
+                label="Isi Bagian"
+                rows={10}
+                placeholder="Tulis isi bagian ini sesuai panduan di atas…"
+                value={konten}
+                onChange={(e) => setKonten(e.target.value)}
+              />
+            )}
             <Textarea
               label="Catatan Penyusun (opsional)"
               rows={2}
@@ -439,8 +453,8 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
               onChange={(e) => setCatatan(e.target.value)}
             />
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={() => simpanDraft({ ajukan: false })} disabled={busy || !konten.trim()}><PencilLine className="h-4 w-4" /> Simpan Draft</Button>
-              <Button size="sm" onClick={() => simpanDraft({ ajukan: true })} disabled={busy || !konten.trim()}><Send className="h-4 w-4" /> Ajukan ke Yayasan</Button>
+              <Button size="sm" variant="outline" onClick={() => simpanDraft({ ajukan: false })} disabled={busy || kontenKosong}><PencilLine className="h-4 w-4" /> Simpan Draft</Button>
+              <Button size="sm" onClick={() => simpanDraft({ ajukan: true })} disabled={busy || kontenKosong}><Send className="h-4 w-4" /> Ajukan ke Yayasan</Button>
               {aktif && aktif.status === 'draft' && (
                 <Button size="sm" variant="ghost" onClick={hapusDraft} disabled={busy}><Trash2 className="h-4 w-4" /> Hapus Draft</Button>
               )}
@@ -470,7 +484,9 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
                   <StatusBadge status={r.status} />
                   <span className="text-[12px] text-[var(--color-ink-soft)]">Versi {r.versi} · {fmtTgl(r.direviu_at || r.updated_at)}{r.disusun_nama ? ` · ${r.disusun_nama}` : ''}</span>
                 </div>
-                <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-[13px] text-[var(--color-ink-soft)]">{r.konten || '—'}</p>
+                {isStruktur
+                  ? <p className="mt-2 text-[13px] text-[var(--color-ink-soft)]">{ringkasStruktur(r.konten) || '—'}</p>
+                  : <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-[13px] text-[var(--color-ink-soft)]">{r.konten || '—'}</p>}
                 {r.catatan_reviu && <p className="mt-1 text-[12px] text-[var(--color-danger)]"><History className="mr-1 inline h-3 w-3" />{r.catatan_reviu}</p>}
               </div>
             ))}
