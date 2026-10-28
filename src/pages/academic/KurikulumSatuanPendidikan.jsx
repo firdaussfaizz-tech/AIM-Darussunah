@@ -5,7 +5,11 @@ import {
 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { SectionCard, Badge, Button, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
-import { StrukturKurikulumEditor, StrukturKurikulumView, parseStruktur, strukturKosong, ringkasStruktur } from '../../components/StrukturKurikulumEditor'
+import {
+  StrukturKurikulumEditor, StrukturKurikulumView, parseStruktur, strukturKosong, ringkasStruktur,
+  BebanBelajarView, parseBeban,
+} from '../../components/StrukturKurikulumEditor'
+import { RichTextEditor, RichTextView, htmlKosong } from '../../components/RichTextEditor'
 
 // ============================================================================
 // SISTEM PEMBANGUN KURIKULUM SATUAN PENDIDIKAN (KOSP) — modul Akademik.
@@ -92,6 +96,7 @@ const STATUS_META = {
 }
 
 const fmtTgl = (d) => (d ? new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
+const plainText = (h) => String(h || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim()
 
 export default function KurikulumSatuanPendidikan({ ctx }) {
   const isYayasan = !!ctx?.hasFullAccess
@@ -217,9 +222,9 @@ export default function KurikulumSatuanPendidikan({ ctx }) {
                 {islamPlus.map((r) => (
                   <details key={r.bagian_kode} className="rounded-[10px] border border-[var(--color-border)] bg-[var(--color-paper)] p-2.5">
                     <summary className="cursor-pointer text-[13px] font-medium text-[var(--color-ink)]">{r.bagian_kode} · {r.bagian_judul}</summary>
-                    {parseStruktur(r.konten)
-                      ? <div className="mt-2"><StrukturKurikulumView konten={r.konten} /></div>
-                      : <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-[var(--color-ink-soft)]">{r.konten || '—'}</p>}
+                    {parseStruktur(r.konten) ? <div className="mt-2"><StrukturKurikulumView konten={r.konten} /></div>
+                      : parseBeban(r.konten) ? <div className="mt-2"><BebanBelajarView konten={r.konten} /></div>
+                      : <div className="mt-2"><RichTextView html={r.konten} /></div>}
                   </details>
                 ))}
               </div>
@@ -301,6 +306,8 @@ function BagianDetail({ kode, schoolId, info, isYayasan, employee, busy, setBusy
   const [catatan, setCatatan] = useState('')
   const [reviu, setReviu] = useState('')
   const [mode, setMode] = useState('view')
+  const [revisiTick, setRevisiTick] = useState(0)
+  const editorKey = `${kode}:${aktif?.id || 'baru'}:${revisiTick}`
 
   useEffect(() => {
     setKonten(aktif?.konten || '')
@@ -311,7 +318,7 @@ function BagianDetail({ kode, schoolId, info, isYayasan, employee, busy, setBusy
   }, [kode, aktif?.id, schoolId])
 
   const maxVersi = Math.max(0, ...info.list.map((e) => e.versi || 0))
-  const kontenKosong = isStruktur ? strukturKosong(parseStruktur(konten)) : !konten.trim()
+  const kontenKosong = isStruktur ? strukturKosong(parseStruktur(konten)) : htmlKosong(konten)
 
   const simpanDraft = async ({ ajukan = false } = {}) => {
     setBusy(true)
@@ -341,6 +348,7 @@ function BagianDetail({ kode, schoolId, info, isYayasan, employee, busy, setBusy
     setKonten(ditetapkan?.konten || '')
     setCatatan('')
     setMode('edit')
+    setRevisiTick((t) => t + 1)
   }
 
   const tarikAjuan = async () => {
@@ -397,7 +405,7 @@ function BagianDetail({ kode, schoolId, info, isYayasan, employee, busy, setBusy
         <SectionCard title="Isi Resmi (Ditetapkan)" actions={<StatusBadge status="ditetapkan" />}>
           {isStruktur
             ? <StrukturKurikulumView konten={ditetapkan.konten} />
-            : <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[var(--color-ink)]">{ditetapkan.konten || '—'}</p>}
+            : <RichTextView html={ditetapkan.konten} />}
           <p className="mt-3 text-[12px] text-[var(--color-ink-soft)]">
             Versi {ditetapkan.versi} · ditetapkan {fmtTgl(ditetapkan.direviu_at)}
             {ditetapkan.direviu_nama ? ` oleh ${ditetapkan.direviu_nama}` : ''}
@@ -420,7 +428,7 @@ function BagianDetail({ kode, schoolId, info, isYayasan, employee, busy, setBusy
             </div>
             {isStruktur
               ? <div className="rounded-[12px] border border-[var(--color-border)] bg-[var(--color-paper)] p-3.5"><StrukturKurikulumView konten={aktif.konten} /></div>
-              : <p className="whitespace-pre-wrap rounded-[12px] border border-[var(--color-border)] bg-[var(--color-paper)] p-3.5 text-[14px] leading-relaxed text-[var(--color-ink)]">{aktif.konten || '—'}</p>}
+              : <div className="rounded-[12px] border border-[var(--color-border)] bg-[var(--color-paper)] p-3.5"><RichTextView html={aktif.konten} /></div>}
             {aktif.catatan_penyusun && <p className="text-[13px] text-[var(--color-ink-soft)]"><strong>Catatan penyusun:</strong> {aktif.catatan_penyusun}</p>}
 
             {isYayasan ? (
@@ -450,10 +458,13 @@ function BagianDetail({ kode, schoolId, info, isYayasan, employee, busy, setBusy
             {isStruktur ? (
               <div>
                 <p className="mb-1.5 text-[13px] font-medium text-[var(--color-ink)]">Isi Bagian (Tabel Struktur)</p>
-                <StrukturKurikulumEditor value={parseStruktur(konten)} onChange={(d) => setKonten(JSON.stringify(d))} />
+                <StrukturKurikulumEditor value={parseStruktur(konten)} onChange={(d) => setKonten(JSON.stringify(d))} editorKey={editorKey} />
               </div>
             ) : (
-              <Textarea label="Isi Bagian" rows={10} placeholder="Tulis isi bagian ini sesuai panduan di atas…" value={konten} onChange={(e) => setKonten(e.target.value)} />
+              <div>
+                <p className="mb-1.5 text-[13px] font-medium text-[var(--color-ink)]">Isi Bagian</p>
+                <RichTextEditor key={editorKey} value={konten} onChange={setKonten} />
+              </div>
             )}
             <Textarea label="Catatan Penyusun (opsional)" rows={2} placeholder="Catatan untuk Yayasan saat mengajukan…" value={catatan} onChange={(e) => setCatatan(e.target.value)} />
             <div className="flex flex-wrap gap-2">
@@ -488,7 +499,7 @@ function BagianDetail({ kode, schoolId, info, isYayasan, employee, busy, setBusy
                 </div>
                 {isStruktur
                   ? <p className="mt-2 text-[13px] text-[var(--color-ink-soft)]">{ringkasStruktur(r.konten) || '—'}</p>
-                  : <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-[13px] text-[var(--color-ink-soft)]">{r.konten || '—'}</p>}
+                  : <p className="mt-2 line-clamp-3 text-[13px] text-[var(--color-ink-soft)]">{plainText(r.konten) || '—'}</p>}
                 {r.catatan_reviu && <p className="mt-1 text-[12px] text-[var(--color-danger)]"><History className="mr-1 inline h-3 w-3" />{r.catatan_reviu}</p>}
               </div>
             ))}
