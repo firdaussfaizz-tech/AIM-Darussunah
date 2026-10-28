@@ -110,6 +110,13 @@ export default function KurikulumSatuanPendidikan({ ctx }) {
   const [selected, setSelected] = useState(ALL_ITEMS[0].kode)
   const [busy, setBusy] = useState(false)
   const [showRujukan, setShowRujukan] = useState(false)
+  const [openBab, setOpenBab] = useState(() => ({ [KSP_OUTLINE[0].bab]: true }))
+
+  // Pastikan Bab yang memuat bagian terpilih selalu terbuka.
+  useEffect(() => {
+    const bab = KSP_OUTLINE.find((b) => b.items.some((i) => i.kode === selected))
+    if (bab) setOpenBab((o) => (o[bab.bab] ? o : { ...o, [bab.bab]: true }))
+  }, [selected])
 
   const load = useCallback(async () => {
     if (!effSchoolId) { setEntri([]); setLoading(false); return }
@@ -219,37 +226,52 @@ export default function KurikulumSatuanPendidikan({ ctx }) {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
-        {/* Navigasi outline */}
-        <div className="flex flex-col gap-4">
-          {KSP_OUTLINE.map((bab) => (
-            <div key={bab.bab} className="rounded-[14px] border border-[var(--color-border)] bg-white p-3">
-              <p className="px-1 text-[12px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">{bab.bab}</p>
-              <div className="mt-2 flex flex-col gap-1">
-                {bab.items.map((it) => {
-                  const info = infoBagian(it.kode)
-                  const isSel = selected === it.kode
-                  return (
-                    <button
-                      key={it.kode}
-                      type="button"
-                      onClick={() => setSelected(it.kode)}
-                      className={`btn-press flex items-center justify-between gap-2 rounded-[10px] px-2.5 py-2 text-left text-[13px] transition-colors ${
-                        isSel ? 'bg-[var(--color-navy)] text-white' : 'hover:bg-[var(--color-paper)] text-[var(--color-ink)]'
-                      }`}
-                    >
-                      <span className="flex-1">{it.judul}</span>
-                      <span className={`h-2 w-2 shrink-0 rounded-full ${
-                        info.ringkas === 'ditetapkan' ? 'bg-[var(--color-success)]'
-                          : info.ringkas === 'diajukan' ? 'bg-[var(--color-gold)]'
-                          : info.ringkas === 'draft' ? 'bg-[var(--color-ink-soft)]'
-                          : 'bg-black/15'
-                      }`} title={STATUS_META[info.ringkas]?.label || 'Belum diisi'} />
-                    </button>
-                  )
-                })}
+        {/* Navigasi outline — tiap Bab dapat dilipat */}
+        <div className="flex flex-col gap-3">
+          {KSP_OUTLINE.map((bab) => {
+            const open = !!openBab[bab.bab]
+            const total = bab.items.length
+            const done = bab.items.filter((it) => infoBagian(it.kode).ditetapkan).length
+            return (
+              <div key={bab.bab} className="overflow-hidden rounded-[14px] border border-[var(--color-border)] bg-white">
+                <button
+                  type="button"
+                  onClick={() => setOpenBab((o) => ({ ...o, [bab.bab]: !o[bab.bab] }))}
+                  className="btn-press flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+                >
+                  <span className="flex-1 text-[12px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">{bab.bab}</span>
+                  <Badge color={done === total ? 'success' : done > 0 ? 'gold' : 'neutral'}>{done}/{total}</Badge>
+                  <ChevronDown className={`h-4 w-4 shrink-0 text-[var(--color-ink-soft)] transition-transform ${open ? 'rotate-180' : ''}`} />
+                </button>
+                {open && (
+                  <div className="flex flex-col gap-1 border-t border-[var(--color-border)] p-2">
+                    {bab.items.map((it) => {
+                      const info = infoBagian(it.kode)
+                      const isSel = selected === it.kode
+                      return (
+                        <button
+                          key={it.kode}
+                          type="button"
+                          onClick={() => setSelected(it.kode)}
+                          className={`btn-press flex items-center justify-between gap-2 rounded-[10px] px-2.5 py-2 text-left text-[13px] transition-colors ${
+                            isSel ? 'bg-[var(--color-navy)] text-white' : 'hover:bg-[var(--color-paper)] text-[var(--color-ink)]'
+                          }`}
+                        >
+                          <span className="flex-1">{it.judul}</span>
+                          <span className={`h-2 w-2 shrink-0 rounded-full ${
+                            info.ringkas === 'ditetapkan' ? 'bg-[var(--color-success)]'
+                              : info.ringkas === 'diajukan' ? 'bg-[var(--color-gold)]'
+                              : info.ringkas === 'draft' ? 'bg-[var(--color-ink-soft)]'
+                              : 'bg-black/15'
+                          }`} title={STATUS_META[info.ringkas]?.label || 'Belum diisi'} />
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         <BagianDetail
