@@ -95,6 +95,8 @@ function ManagerWorkload() {
           jpMengajar: b?.jp_mengajar || 0,
           jamKetatausahaan: b?.jam_ketatausahaan || 0,
           jamManajerial: b?.jam_manajerial || 0,
+          siswaBimbingan: b?.siswa_bimbingan || 0,
+          koordinatorBk: b?.koordinator_bk || false,
           settings,
         })
         return { employee: e, beban: b, hasil }
@@ -163,7 +165,8 @@ function ManagerWorkload() {
                   <Td>{hasil.jpMengajar} JP</Td>
                   <Td className="text-[var(--color-ink-soft)]">
                     Tatap muka {jam(hasil.jamTatapMuka)} + Tugas tambahan {jam(hasil.jamTugasTambahan)}
-                    {hasil.jamManajerial > 0 && <> + Manajerial KS {jam(hasil.jamManajerial)}</>} + TU {jam(hasil.jamKetatausahaan)}
+                    {hasil.jamManajerial > 0 && <> + Manajerial KS {jam(hasil.jamManajerial)}</>}
+                    {hasil.jamBk > 0 && <> + BK {jam(hasil.jamBk)}</>} + TU {jam(hasil.jamKetatausahaan)}
                     <span className="ml-1 font-medium text-[var(--color-ink)]">= {jam(hasil.totalJamTerpakai)}</span>
                   </Td>
                   <Td className={hasil.sisaJamKerja < 0 ? 'text-[var(--color-danger)]' : ''}>{jam(hasil.sisaJamKerja)}</Td>
@@ -191,6 +194,8 @@ function EditBebanKerjaModal({ row, onClose, onSaved }) {
   const [jpMengajar, setJpMengajar] = useState('0')
   const [jamKetatausahaan, setJamKetatausahaan] = useState('0')
   const [jamManajerial, setJamManajerial] = useState('0')
+  const [siswaBimbingan, setSiswaBimbingan] = useState('0')
+  const [koordinatorBk, setKoordinatorBk] = useState(false)
   const [catatan, setCatatan] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -200,6 +205,8 @@ function EditBebanKerjaModal({ row, onClose, onSaved }) {
       setJpMengajar(String(row.beban?.jp_mengajar ?? 0))
       setJamKetatausahaan(String(row.beban?.jam_ketatausahaan ?? 0))
       setJamManajerial(String(row.beban?.jam_manajerial ?? 0))
+      setSiswaBimbingan(String(row.beban?.siswa_bimbingan ?? 0))
+      setKoordinatorBk(!!row.beban?.koordinator_bk)
       setCatatan(row.beban?.catatan || '')
       setError('')
     }
@@ -212,7 +219,7 @@ function EditBebanKerjaModal({ row, onClose, onSaved }) {
     setSaving(true)
     setError('')
     const { error: err } = await supabase.from('employee_beban_kerja').upsert(
-      { employee_id: e.id, jp_mengajar: Number(jpMengajar) || 0, jam_ketatausahaan: Number(jamKetatausahaan) || 0, jam_manajerial: Number(jamManajerial) || 0, catatan: catatan || null, updated_at: new Date().toISOString() },
+      { employee_id: e.id, jp_mengajar: Number(jpMengajar) || 0, jam_ketatausahaan: Number(jamKetatausahaan) || 0, jam_manajerial: Number(jamManajerial) || 0, siswa_bimbingan: Math.round(Number(siswaBimbingan) || 0), koordinator_bk: koordinatorBk, catatan: catatan || null, updated_at: new Date().toISOString() },
       { onConflict: 'employee_id' },
     )
     setSaving(false)
@@ -239,6 +246,23 @@ function EditBebanKerjaModal({ row, onClose, onSaved }) {
             Pelaksanaan ketiganya <strong>diekuivalensikan dengan pemenuhan 24 jam tatap muka (JTM)</strong>.
           </p>
           <p className="mt-1 text-[var(--color-ink-soft)]">Isi dengan jam nyata tugas kepemimpinan per minggu — untuk Kepala Sekolah penuh, setara beban kerja penuh (37 jam 30 menit). Kosongkan (0) untuk pegawai non-Kepala Sekolah.</p>
+        </div>
+
+        <div className="rounded-md border border-[var(--color-border)] p-3">
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-medium text-[var(--color-ink)]"><Info className="h-3.5 w-3.5 text-[var(--color-navy)]" /> Bimbingan Konseling (Guru BK)</p>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Jumlah Siswa Bimbingan" type="number" min="0" step="1" value={siswaBimbingan} onChange={(ev) => setSiswaBimbingan(ev.target.value)} />
+            <label className="flex items-end gap-2 pb-2.5 text-sm text-[var(--color-ink)]">
+              <input type="checkbox" className="mb-1" checked={koordinatorBk} onChange={(ev) => setKoordinatorBk(ev.target.checked)} />
+              Koordinator BK
+            </label>
+          </div>
+          <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
+            Guru BK dihitung dari jumlah siswa bimbingan — Permendikbud 111/2014: <strong>150 siswa ≈ 24 JP</strong> (setara beban penuh). Koordinator BK menambah ekuivalensi JP (lihat Pengaturan). Kosongkan (0) untuk non-Guru BK.
+          </p>
+          {hasil.jpBk > 0 && (
+            <p className="mt-1 text-xs font-medium text-[var(--color-navy)]">Ekuivalensi tersimpan: {hasil.jpBimbingan} JP bimbingan{hasil.jpKoordinatorBk ? ` + ${hasil.jpKoordinatorBk} JP koordinator` : ''} = {jam(hasil.jamBk)}/mg.</p>
+          )}
         </div>
 
         <Textarea label="Catatan (opsional)" rows={2} value={catatan} onChange={(ev) => setCatatan(ev.target.value)} />
@@ -275,6 +299,9 @@ const SETTINGS_FIELDS = [
   ['durasi_jp_smp', 'Durasi 1 JP — SMP (menit)'],
   ['durasi_jp_sma', 'Durasi 1 JP — SMA (menit)'],
   ['durasi_jp_boarding', 'Durasi 1 JP — Boarding (menit)'],
+  ['bk_rasio_siswa', 'BK — Siswa Bimbingan/Beban Penuh (default 150)'],
+  ['bk_jp_penuh', 'BK — Ekuivalensi JP Beban Penuh (default 24)'],
+  ['bk_koordinator_jp', 'BK — Tambahan JP Koordinator BK (default 2)'],
 ]
 
 function BebanKerjaSettingsModal({ open, settings, settingsRow, onClose, onSaved }) {
@@ -359,6 +386,8 @@ function SelfWorkload({ employeeId }) {
     jpMengajar: beban?.jp_mengajar || 0,
     jamKetatausahaan: beban?.jam_ketatausahaan || 0,
     jamManajerial: beban?.jam_manajerial || 0,
+    siswaBimbingan: beban?.siswa_bimbingan || 0,
+    koordinatorBk: beban?.koordinator_bk || false,
     settings,
   })
 
@@ -397,6 +426,11 @@ function SelfWorkload({ employeeId }) {
             <Td className="font-medium text-[var(--color-ink)]">Jam Manajerial Kepala Sekolah</Td>
             <Td className="text-[var(--color-ink-soft)]">{hasil.jamManajerial > 0 ? 'Manajerial + Kewirausahaan + Supervisi (Kepmendikdasmen 221/P/2025)' : '—'}</Td>
             <Td>{jam(hasil.jamManajerial)}</Td>
+          </Tr>
+          <Tr>
+            <Td className="font-medium text-[var(--color-ink)]">Jam Bimbingan Konseling</Td>
+            <Td className="text-[var(--color-ink-soft)]">{(hasil.siswaBimbingan > 0 || hasil.koordinatorBk) ? `${hasil.siswaBimbingan} siswa bimbingan${hasil.koordinatorBk ? ' + Koordinator BK' : ''} (${hasil.jpBk} JP · Permendikbud 111/2014)` : '—'}</Td>
+            <Td>{jam(hasil.jamBk)}</Td>
           </Tr>
           <Tr>
             <Td className="font-medium text-[var(--color-ink)]">Jam Ketatausahaan</Td>

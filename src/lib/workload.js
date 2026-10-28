@@ -33,6 +33,10 @@ export const DEFAULT_BEBAN_KERJA_SETTINGS = {
   durasi_jp_smp: 40,
   durasi_jp_sma: 45,
   durasi_jp_boarding: 40,
+  // Bimbingan Konseling (Permendikbud 111/2014): 150 siswa bimbingan = 24 JTM.
+  bk_rasio_siswa: 150,
+  bk_jp_penuh: 24,
+  bk_koordinator_jp: 2,
 }
 
 /** Durasi 1 JP (menit) berdasarkan jenjang unit sekolah pegawai. */
@@ -58,6 +62,8 @@ export function durasiJpMenit(jenjang, settings) {
  * @param {number} [p.jpMengajar] - JP Mengajar per minggu
  * @param {number} [p.jamKetatausahaan] - Jam Ketatausahaan per minggu (staf TU)
  * @param {number} [p.jamManajerial] - Jam Manajerial Kepala Sekolah per minggu (Kepmendikdasmen 221/P/2025)
+ * @param {number} [p.siswaBimbingan] - Jumlah siswa bimbingan Guru BK (Permendikbud 111/2014)
+ * @param {boolean} [p.koordinatorBk] - true bila menjabat Koordinator BK (tambahan ekuivalensi JP)
  * @param {Object} p.settings - baris beban_kerja_settings
  */
 export function hitungBebanKerja({
@@ -67,6 +73,8 @@ export function hitungBebanKerja({
   jpMengajar = 0,
   jamKetatausahaan = 0,
   jamManajerial = 0,
+  siswaBimbingan = 0,
+  koordinatorBk = false,
   settings = DEFAULT_BEBAN_KERJA_SETTINGS,
 }) {
   const durasiJp = durasiJpMenit(jenjang, settings)
@@ -87,7 +95,19 @@ export function hitungBebanKerja({
 
   const jamKetatausahaanN = Number(jamKetatausahaan) || 0
   const jamManajerialN = Number(jamManajerial) || 0
-  const totalJamTerpakai = jamTatapMuka + jamTugasTambahan + jamManajerialN + jamKetatausahaanN
+
+  // Bimbingan Konseling — ekuivalensi JP dari jumlah siswa bimbingan
+  // (proporsional terhadap rasio penuh) + tambahan Koordinator BK.
+  const bkRasio = Number(settings.bk_rasio_siswa) || DEFAULT_BEBAN_KERJA_SETTINGS.bk_rasio_siswa
+  const bkJpPenuh = Number(settings.bk_jp_penuh) || DEFAULT_BEBAN_KERJA_SETTINGS.bk_jp_penuh
+  const bkKoorJp = settings.bk_koordinator_jp != null ? Number(settings.bk_koordinator_jp) : DEFAULT_BEBAN_KERJA_SETTINGS.bk_koordinator_jp
+  const siswaBk = Number(siswaBimbingan) || 0
+  const jpBimbingan = bkRasio > 0 ? Math.round(((siswaBk / bkRasio) * bkJpPenuh) * 100) / 100 : 0
+  const jpKoordinatorBk = koordinatorBk ? (Number(bkKoorJp) || 0) : 0
+  const jpBk = jpBimbingan + jpKoordinatorBk
+  const jamBk = (jpBk * durasiJp) / 60
+
+  const totalJamTerpakai = jamTatapMuka + jamTugasTambahan + jamManajerialN + jamKetatausahaanN + jamBk
 
   const kapasitas = Number(settings.kapasitas_jam_kerja) || DEFAULT_BEBAN_KERJA_SETTINGS.kapasitas_jam_kerja
   const sisaJamKerja = kapasitas - totalJamTerpakai
@@ -109,6 +129,12 @@ export function hitungBebanKerja({
     jamTugasTambahan,
     jamKetatausahaan: jamKetatausahaanN,
     jamManajerial: jamManajerialN,
+    siswaBimbingan: siswaBk,
+    jpBimbingan,
+    koordinatorBk: !!koordinatorBk,
+    jpKoordinatorBk,
+    jpBk,
+    jamBk,
     totalJamTerpakai,
     kapasitas,
     sisaJamKerja,
