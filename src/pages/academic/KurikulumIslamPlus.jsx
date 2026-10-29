@@ -8,6 +8,7 @@ import { SectionCard, Badge, Button, Textarea, EmptyState, FullPageSpinner } fro
 import {
   StrukturKurikulumEditor, StrukturKurikulumView, parseStruktur, strukturKosong, ringkasStruktur,
   BebanBelajarEditor, BebanBelajarView, parseBeban, bebanKosong, ringkasBeban,
+  SklEditor, SklView, parseSkl, sklKosong, ringkasSkl,
 } from '../../components/StrukturKurikulumEditor'
 import { RichTextEditor, RichTextView, htmlKosong } from '../../components/RichTextEditor'
 
@@ -49,7 +50,7 @@ const KIP_OUTLINE = [
   {
     bab: 'Bab II — Standar Kompetensi Lulusan', ket: 'Profil lulusan SD–SMA',
     items: [
-      { kode: 'II', judul: 'Standar Kompetensi Lulusan', petunjuk: 'Rumuskan profil lulusan SD–SMA yang telah menempuh Kurikulum Islam Plus: aspek Aqidah, Ibadah, Akhlak, Manhaj Ahlussunah wal Jamaah, Kemampuan Bahasa Arab, dan Tahfidz.' },
+      { kode: 'II', judul: 'Standar Kompetensi Lulusan', tipe: 'skl', petunjuk: 'Susun SKL per jenjang dalam 3 dimensi: Sikap, Pengetahuan (dapat dirinci Faktual/Konseptual/Prosedural/Metakognitif/Suprarasional), dan Keterampilan. Rumuskan profil lulusan yang menempuh Kurikulum Islam Plus: Aqidah, Ibadah, Akhlak, Manhaj Ahlussunah wal Jamaah, Bahasa Arab, dan Tahfidz.' },
     ],
   },
   {
@@ -297,6 +298,7 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
   const { ditetapkan, aktif, riwayat } = info
   const isStruktur = item.tipe === 'struktur'
   const isBeban = item.tipe === 'beban'
+  const isSkl = item.tipe === 'skl'
 
   const [konten, setKonten] = useState('')
   const [catatan, setCatatan] = useState('')
@@ -317,6 +319,7 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
   const maxVersi = Math.max(0, ...info.list.map((e) => e.versi || 0))
   const kontenKosong = isStruktur ? strukturKosong(parseStruktur(konten))
     : isBeban ? bebanKosong(parseBeban(konten))
+    : isSkl ? sklKosong(parseSkl(konten))
     : htmlKosong(konten)
 
   const simpanDraft = async ({ ajukan = false } = {}) => {
@@ -408,6 +411,7 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
         >
           {isStruktur ? <StrukturKurikulumView konten={ditetapkan.konten} />
             : isBeban ? <BebanBelajarView konten={ditetapkan.konten} />
+            : isSkl ? <SklView konten={ditetapkan.konten} />
             : <RichTextView html={ditetapkan.konten} />}
           <p className="mt-3 text-[12px] text-[var(--color-ink-soft)]">
             Versi {ditetapkan.versi} · ditetapkan {fmtTgl(ditetapkan.direviu_at)}
@@ -433,6 +437,7 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
             </div>
             {isStruktur ? <div className="rounded-[12px] border border-[var(--color-border)] bg-[var(--color-paper)] p-3.5"><StrukturKurikulumView konten={aktif.konten} /></div>
               : isBeban ? <div className="rounded-[12px] border border-[var(--color-border)] bg-[var(--color-paper)] p-3.5"><BebanBelajarView konten={aktif.konten} /></div>
+              : isSkl ? <div className="rounded-[12px] border border-[var(--color-border)] bg-[var(--color-paper)] p-3.5"><SklView konten={aktif.konten} /></div>
               : <div className="rounded-[12px] border border-[var(--color-border)] bg-[var(--color-paper)] p-3.5"><RichTextView html={aktif.konten} /></div>}
             {aktif.catatan_penyusun && <p className="text-[13px] text-[var(--color-ink-soft)]"><strong>Catatan penyusun:</strong> {aktif.catatan_penyusun}</p>}
 
@@ -471,6 +476,11 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
               <div>
                 <p className="mb-1.5 text-[13px] font-medium text-[var(--color-ink)]">Isi Bagian (Tabel Beban Belajar)</p>
                 <BebanBelajarEditor value={parseBeban(konten)} onChange={(d) => setKonten(JSON.stringify(d))} editorKey={editorKey} />
+              </div>
+            ) : isSkl ? (
+              <div>
+                <p className="mb-1.5 text-[13px] font-medium text-[var(--color-ink)]">Isi Bagian (SKL per Jenjang — 3 Dimensi)</p>
+                <SklEditor value={parseSkl(konten)} onChange={(d) => setKonten(JSON.stringify(d))} editorKey={editorKey} />
               </div>
             ) : (
               <div>
@@ -519,6 +529,7 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
                 </div>
                 {isStruktur ? <p className="mt-2 text-[13px] text-[var(--color-ink-soft)]">{ringkasStruktur(r.konten) || '—'}</p>
                   : isBeban ? <p className="mt-2 text-[13px] text-[var(--color-ink-soft)]">{ringkasBeban(r.konten) || '—'}</p>
+                  : isSkl ? <p className="mt-2 text-[13px] text-[var(--color-ink-soft)]">{ringkasSkl(r.konten) || '—'}</p>
                   : <p className="mt-2 line-clamp-3 text-[13px] text-[var(--color-ink-soft)]">{plainText(r.konten) || '—'}</p>}
                 {r.catatan_reviu && <p className="mt-1 text-[12px] text-[var(--color-danger)]"><History className="mr-1 inline h-3 w-3" />{r.catatan_reviu}</p>}
               </div>

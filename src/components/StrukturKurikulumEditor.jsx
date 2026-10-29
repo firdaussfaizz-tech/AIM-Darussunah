@@ -362,3 +362,110 @@ export function bebanToTable(konten) {
   const rows = d.rows.map((r) => BEBAN_COLS.map((c) => String(r[c.key] || '')))
   return { table: rows.length ? { columns, rows } : null, teks: d.teks || '' }
 }
+
+// ============================================================================
+// C. STANDAR KOMPETENSI LULUSAN (tipe:'skl') — per jenjang, 3 dimensi utama.
+//    { v:1, jenjang:[...], skl:{ '<jenjang>':{ sikap:'<html>', pengetahuan:'<html>', keterampilan:'<html>' } } }
+//    Dimensi Pengetahuan dapat memuat sub (Faktual/Konseptual/Prosedural/
+//    Metakognitif/Suprarasional) sebagai daftar di dalam teks kaya.
+// ============================================================================
+export const SKL_DIMENSI = [
+  { key: 'sikap', label: 'Dimensi Sikap' },
+  { key: 'pengetahuan', label: 'Dimensi Pengetahuan' },
+  { key: 'keterampilan', label: 'Dimensi Keterampilan' },
+]
+const emptySkl = () => Object.fromEntries(JENJANG_ORDER.map((j) => [j, { sikap: '', pengetahuan: '', keterampilan: '' }]))
+const DEFAULT_SKL = { v: 1, jenjang: [...JENJANG_ORDER], skl: emptySkl() }
+
+export function parseSkl(konten) {
+  if (!konten) return null
+  let o
+  try { o = JSON.parse(konten) } catch { return null }
+  if (!o || !o.skl || typeof o.skl !== 'object') return null
+  const jenjang = Array.isArray(o.jenjang) && o.jenjang.length ? JENJANG_ORDER.filter((j) => o.jenjang.includes(j)) : [...JENJANG_ORDER]
+  const skl = {}
+  for (const j of JENJANG_ORDER) {
+    const d = o.skl[j] || {}
+    skl[j] = { sikap: d.sikap || '', pengetahuan: d.pengetahuan || '', keterampilan: d.keterampilan || '' }
+  }
+  return { v: 1, jenjang, skl }
+}
+const jenjangBerisi = (data, j) => SKL_DIMENSI.some((dm) => !htmlKosong(data.skl?.[j]?.[dm.key]))
+export function sklKosong(data) {
+  if (!data) return true
+  return !JENJANG_ORDER.some((j) => jenjangBerisi(data, j))
+}
+export function ringkasSkl(konten) {
+  const d = parseSkl(konten)
+  if (!d) return null
+  const n = JENJANG_ORDER.filter((j) => jenjangBerisi(d, j)).length
+  return `SKL · jenjang: ${d.jenjang.join(', ') || '—'} · terisi ${n} jenjang`
+}
+
+export function SklView({ konten }) {
+  const data = parseSkl(konten)
+  if (!data) return <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[var(--color-ink)]">{konten || '—'}</p>
+  const aktif = data.jenjang.filter((j) => jenjangBerisi(data, j))
+  if (aktif.length === 0) return <p className="text-[13px] text-[var(--color-ink-soft)]">SKL belum diisi.</p>
+  return (
+    <div className="flex flex-col gap-4">
+      {aktif.map((j) => (
+        <div key={j}>
+          <p className="mb-1.5 text-[13px] font-semibold text-[var(--color-ink)]">{j}</p>
+          <div className="overflow-hidden rounded-[12px] border border-[var(--color-border)]">
+            {SKL_DIMENSI.map((dm) => (
+              <div key={dm.key} className="border-b border-[var(--color-border)] last:border-0">
+                <div className="bg-[var(--color-paper)] px-3 py-1.5 text-[12px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">{dm.label}</div>
+                <div className="px-3 py-2"><RichTextView html={data.skl[j][dm.key]} /></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function SklEditor({ value, onChange, editorKey }) {
+  const data = value && value.skl ? value : DEFAULT_SKL
+  const emit = (next) => onChange(next)
+  const toggleJenjang = (j) => {
+    const next = data.jenjang.includes(j) ? data.jenjang.filter((x) => x !== j) : [...data.jenjang, j]
+    emit({ ...data, jenjang: JENJANG_ORDER.filter((x) => next.includes(x)) })
+  }
+  const setDim = (j, key, html) => emit({ ...data, skl: { ...data.skl, [j]: { ...(data.skl[j] || { sikap: '', pengetahuan: '', keterampilan: '' }), [key]: html } } })
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[13px] font-medium text-[var(--color-ink)]">Jenjang:</span>
+        {JENJANG_ORDER.map((j) => (
+          <label key={j} className="flex cursor-pointer items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-white px-3 py-1 text-[13px]">
+            <input type="checkbox" checked={data.jenjang.includes(j)} onChange={() => toggleJenjang(j)} />
+            {j}
+          </label>
+        ))}
+      </div>
+      {data.jenjang.length === 0 && <p className="rounded-[10px] bg-[var(--color-paper)] p-3 text-[13px] text-[var(--color-ink-soft)]">Pilih minimal satu jenjang.</p>}
+
+      {data.jenjang.map((j) => (
+        <div key={j} className="rounded-[12px] border border-[var(--color-border)] p-3">
+          <p className="mb-2 text-[13px] font-semibold text-[var(--color-ink)]">{j}</p>
+          <div className="flex flex-col gap-3">
+            {SKL_DIMENSI.map((dm) => (
+              <div key={dm.key}>
+                <p className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">{dm.label}</p>
+                <RichTextEditor
+                  key={`${editorKey}:${j}:${dm.key}`}
+                  value={data.skl[j]?.[dm.key] || ''}
+                  onChange={(html) => setDim(j, dm.key, html)}
+                  placeholder={`Rumusan ${dm.label} untuk ${j}…`}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}

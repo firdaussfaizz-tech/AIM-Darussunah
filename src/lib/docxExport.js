@@ -11,7 +11,7 @@
 // =====================================================================
 
 import { htmlKosong } from '../components/RichTextEditor'
-import { strukturToTables, bebanToTable } from '../components/StrukturKurikulumEditor'
+import { strukturToTables, bebanToTable, parseSkl, SKL_DIMENSI } from '../components/StrukturKurikulumEditor'
 
 // ---------- ZIP (store, tanpa kompresi) ----------
 let CRC_TABLE
@@ -182,7 +182,7 @@ function blockXml(block) {
       const sz = block.level === 1 ? 30 : block.level === 3 ? 22 : 26
       return paraXml([{ text: block.text }], { b: true, sz, before: block.level === 1 ? 240 : 160, after: 80 })
     }
-    case 'paragraph': return paraXml([{ text: block.text, i: block.italic }], { after: 60 })
+    case 'paragraph': return paraXml([{ text: block.text, i: block.italic, b: block.bold }], { after: 60 })
     case 'table': {
       const cap = block.caption ? paraXml([{ text: block.caption }], { b: true, sz: 22, before: 80, after: 40 }) : ''
       return cap + tableXml(block.columns, block.rows) + paraXml([{ text: '' }], { after: 40 })
@@ -230,6 +230,22 @@ function bagianToBlocks(item, konten) {
     if (table) blocks.push({ type: 'table', columns: table.columns, rows: table.rows })
     if (!htmlKosong(teks)) blocks.push({ type: 'html', html: teks })
     if (!table && htmlKosong(teks)) blocks.push({ type: 'paragraph', text: '(Belum ditetapkan)', italic: true })
+  } else if (item.tipe === 'skl') {
+    const d = parseSkl(konten)
+    const aktif = d ? d.jenjang.filter((j) => SKL_DIMENSI.some((dm) => !htmlKosong(d.skl?.[j]?.[dm.key]))) : []
+    if (!aktif.length) {
+      blocks.push({ type: 'paragraph', text: '(Belum ditetapkan)', italic: true })
+    } else {
+      for (const j of aktif) {
+        blocks.push({ type: 'heading', level: 3, text: j })
+        for (const dm of SKL_DIMENSI) {
+          const html = d.skl[j][dm.key]
+          if (htmlKosong(html)) continue
+          blocks.push({ type: 'paragraph', text: dm.label, bold: true })
+          blocks.push({ type: 'html', html })
+        }
+      }
+    }
   } else if (konten && !htmlKosong(konten)) {
     blocks.push({ type: 'html', html: konten })
   } else {
