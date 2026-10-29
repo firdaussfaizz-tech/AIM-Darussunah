@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import {
   BookMarked, CheckCircle2, Clock, XCircle, Archive, PencilLine, Send, Undo2,
-  Trash2, History, Info, FileSignature, ShieldCheck, ChevronDown,
+  Trash2, History, Info, FileSignature, ShieldCheck, ChevronDown, FileDown,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { SectionCard, Badge, Button, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
@@ -128,6 +128,7 @@ export default function KurikulumIslamPlus({ ctx }) {
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(ALL_ITEMS[0].kode)
   const [busy, setBusy] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [openBab, setOpenBab] = useState(() => ({ [KIP_OUTLINE[0].bab]: true }))
 
   // Pastikan Bab yang memuat bagian terpilih selalu terbuka.
@@ -189,6 +190,25 @@ export default function KurikulumIslamPlus({ ctx }) {
       <SectionCard
         title="Sistem Pembangun Kurikulum Islam Plus"
         description="Tim Penyusun menyusun isi tiap bagian sebagai ajuan; Admin Yayasan menetapkan (acc) atau menolak. Isi yang ditetapkan menjadi kurikulum resmi."
+        actions={
+          <Button size="sm" variant="outline" onClick={async () => {
+            setExporting(true)
+            try {
+              const kontenByKode = {}
+              for (const it of ALL_ITEMS) kontenByKode[it.kode] = infoBagian(it.kode).ditetapkan?.konten || ''
+              const { exportKurikulumDocx } = await import('../../lib/docxExport')
+              exportKurikulumDocx({
+                filename: 'Kurikulum-Islam-Plus.docx',
+                title: 'Kurikulum Islam Plus',
+                subtitle: 'YPI Darussunah Cibarusah · Sekolah Islam Plus Al-Hanif',
+                outline: KIP_OUTLINE,
+                kontenByKode,
+              })
+            } finally { setExporting(false) }
+          }} disabled={exporting}>
+            <FileDown className="h-4 w-4" /> {exporting ? 'Menyiapkan…' : 'Ekspor ke Word'}
+          </Button>
+        }
       >
         <div className="flex items-start gap-3 rounded-[12px] bg-[var(--color-navy-50)] p-4">
           <BookMarked className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-navy)]" />

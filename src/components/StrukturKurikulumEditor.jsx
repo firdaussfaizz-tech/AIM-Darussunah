@@ -335,3 +335,30 @@ export function BebanBelajarEditor({ value, onChange, editorKey }) {
     </div>
   )
 }
+
+// ---- Helper matriks untuk ekspor (dipakai docxExport) ----
+// Struktur → daftar tabel per jenjang: { caption, columns, rows } + teks.
+export function strukturToTables(konten) {
+  const d = parseStruktur(konten)
+  if (!d) return { tables: [], teks: '' }
+  const tables = []
+  for (const j of d.jenjang) {
+    const mapel = d.tabel[j]?.mapel || []
+    if (!mapel.length) continue
+    const kelas = JENJANG_KELAS[j]
+    const columns = ['No', 'Mata Pelajaran', ...kelas]
+    const rows = mapel.map((m, i) => [String(i + 1), m.nama || '', ...kelas.map((k) => (m.jp?.[k] != null ? String(m.jp[k]) : ''))])
+    rows.push(['', 'Jumlah Jam', ...kelas.map((k) => String(totalKelas(mapel, k) || ''))])
+    tables.push({ caption: j, columns, rows })
+  }
+  return { tables, teks: d.teks || '' }
+}
+
+// Beban belajar → satu tabel { columns, rows } + teks.
+export function bebanToTable(konten) {
+  const d = parseBeban(konten)
+  if (!d) return { table: null, teks: '' }
+  const columns = BEBAN_COLS.map((c) => c.label)
+  const rows = d.rows.map((r) => BEBAN_COLS.map((c) => String(r[c.key] || '')))
+  return { table: rows.length ? { columns, rows } : null, teks: d.teks || '' }
+}

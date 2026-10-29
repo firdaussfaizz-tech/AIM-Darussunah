@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import {
   Layers, CheckCircle2, Clock, XCircle, Archive, PencilLine, Send, Undo2,
-  Trash2, History, Info, FileSignature, ShieldCheck, BookMarked, ChevronDown, School,
+  Trash2, History, Info, FileSignature, ShieldCheck, BookMarked, ChevronDown, School, FileDown,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { SectionCard, Badge, Button, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
@@ -115,6 +115,7 @@ export default function KurikulumSatuanPendidikan({ ctx }) {
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(ALL_ITEMS[0].kode)
   const [busy, setBusy] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [showRujukan, setShowRujukan] = useState(false)
   const [openBab, setOpenBab] = useState(() => ({ [KSP_OUTLINE[0].bab]: true }))
 
@@ -180,6 +181,26 @@ export default function KurikulumSatuanPendidikan({ ctx }) {
       <SectionCard
         title={`Kurikulum Satuan Pendidikan${schoolLabel ? ' — ' + schoolLabel : ''}`}
         description="Kurikulum Operasional Satuan Pendidikan (KOSP) yang memadukan Kurikulum Islam Plus dengan Kurikulum Nasional. Disusun Tim Penyusun satuan, ditetapkan Yayasan."
+        actions={
+          <Button size="sm" variant="outline" onClick={async () => {
+            setExporting(true)
+            try {
+              const kontenByKode = {}
+              for (const it of ALL_ITEMS) kontenByKode[it.kode] = infoBagian(it.kode).ditetapkan?.konten || ''
+              const slug = (schoolLabel || 'Satuan').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '')
+              const { exportKurikulumDocx } = await import('../../lib/docxExport')
+              exportKurikulumDocx({
+                filename: `Kurikulum-Satuan-Pendidikan-${slug}.docx`,
+                title: 'Kurikulum Satuan Pendidikan (KOSP)',
+                subtitle: `${schoolLabel || ''} · YPI Darussunah Cibarusah`.replace(/^ · /, ''),
+                outline: KSP_OUTLINE,
+                kontenByKode,
+              })
+            } finally { setExporting(false) }
+          }} disabled={exporting}>
+            <FileDown className="h-4 w-4" /> {exporting ? 'Menyiapkan…' : 'Ekspor ke Word'}
+          </Button>
+        }
       >
         <div className="flex items-start gap-3 rounded-[12px] bg-[var(--color-navy-50)] p-4">
           <Layers className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-navy)]" />
