@@ -42,6 +42,7 @@ const KesiswaanDashboard = lazy(() => import('./pages/kesiswaan/KesiswaanDashboa
 const AsetList = lazy(() => import('./pages/aset/AsetList'))
 const DokumenCetak = lazy(() => import('./pages/aset/DokumenCetak'))
 const AcademicManagement = lazy(() => import('./pages/academic/AcademicManagement'))
+const RombelDetail = lazy(() => import('./pages/academic/RombelDetail'))
 const ProgresCapaianPage = lazy(() => import('./pages/academic/ProgresCapaianPage'))
 const KeuanganManagement = lazy(() => import('./pages/keuangan/KeuanganManagement'))
 const Analitik = lazy(() => import('./pages/analitik/Analitik'))
@@ -90,6 +91,7 @@ export default function App() {
             <Route path="kesiswaan" element={<KesiswaanDashboard />} />
             <Route path="siswa" element={<StudentList />} />
             <Route path="siswa/:id" element={<StudentDetail />} />
+            <Route path="rombel/:id" element={<RombelDetail />} />
             <Route path="akademik" element={<AcademicSettings />} />
             <Route path="presensi-siswa" element={<StudentAttendanceList />} />
             <Route path="spp" element={<SppList />} />

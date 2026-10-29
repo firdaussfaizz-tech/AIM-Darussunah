@@ -29,8 +29,11 @@ export default function StudentList() {
   const [loading, setLoading] = useState(true)
   const [siswa, setSiswa] = useState([])
   const [schools, setSchools] = useState([])
+  const [rombelList, setRombelList] = useState([])
+  const [rombelBySiswa, setRombelBySiswa] = useState({})
   const [search, setSearch] = useState('')
   const [schoolFilter, setSchoolFilter] = useState(lockedSchoolId || '')
+  const [rombelFilter, setRombelFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -39,16 +42,32 @@ export default function StudentList() {
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError('')
-    const [{ data: s, error: sErr }, { data: sch, error: schErr }] = await Promise.all([
+    const [{ data: s, error: sErr }, { data: sch, error: schErr }, { data: taRows }] = await Promise.all([
       supabase
         .from('siswa')
         .select('id, nis, nisn, nama_lengkap, status, schools!school_id(id, nama, jenjang)')
         .order('nama_lengkap'),
       supabase.from('schools').select('id, nama, jenjang').order('jenjang'),
+      supabase.from('tahun_ajaran').select('id, nama, status').eq('status', 'aktif').limit(1),
     ])
+    // Kelas/rombel siswa pada Tahun Ajaran AKTIF (status enrolmen = aktif).
+    const taAktif = (taRows || [])[0]
+    let rbl = []; let enr = []
+    if (taAktif) {
+      const [{ data: r }, { data: e }] = await Promise.all([
+        supabase.from('rombel').select('id, tingkat, nama_rombel, school_id').eq('tahun_ajaran_id', taAktif.id).order('tingkat'),
+        supabase.from('riwayat_siswa').select('siswa_id, rombel_id').eq('tahun_ajaran_id', taAktif.id).eq('status', 'aktif'),
+      ])
+      rbl = r || []; enr = e || []
+    }
     if (sErr || schErr) setLoadError((sErr || schErr).message)
     setSiswa(s || [])
     setSchools(sch || [])
+    setRombelList(rbl)
+    const rblById = Object.fromEntries(rbl.map((r) => [r.id, r]))
+    const map = {}
+    for (const en of enr) { const r = rblById[en.rombel_id]; if (r) map[en.siswa_id] = r }
+    setRombelBySiswa(map)
     setLoading(false)
   }, [])
 
@@ -86,9 +105,12 @@ export default function StudentList() {
     const matchesSearch = search === '' || s.nama_lengkap.toLowerCase().includes(search.toLowerCase()) ||
       (s.nis || '').includes(search) || (s.nisn || '').includes(search)
     const matchesSchool = schoolFilter === '' || s.schools?.id === schoolFilter
+    const matchesRombel = rombelFilter === '' || rombelBySiswa[s.id]?.id === rombelFilter
     const matchesStatus = statusFilter === '' || s.status === statusFilter
-    return matchesSearch && matchesSchool && matchesStatus
+    return matchesSearch && matchesSchool && matchesRombel && matchesStatus
   })
+
+  const rombelOptions = rombelList.filter((r) => !schoolFilter || r.school_id === schoolFilter)
 
   return (
     <div>
@@ -125,13 +147,19 @@ export default function StudentList() {
             />
           </div>
           {!lockedSchoolId && (
-            <Select containerClassName="sm:w-48" value={schoolFilter} onChange={(e) => setSchoolFilter(e.target.value)}>
+            <Select containerClassName="sm:w-48" value={schoolFilter} onChange={(e) => { setSchoolFilter(e.target.value); setRombelFilter('') }}>
               <option value="">Semua Unit</option>
               {schools.map((s) => (
                 <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>
               ))}
             </Select>
           )}
+          <Select containerClassName="sm:w-44" value={rombelFilter} onChange={(e) => setRombelFilter(e.target.value)}>
+            <option value="">Semua Kelas</option>
+            {rombelOptions.map((r) => (
+              <option key={r.id} value={r.id}>{r.tingkat} {r.nama_rombel}</option>
+            ))}
+          </Select>
           <Select containerClassName="sm:w-44" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="">Semua Status</option>
             {Object.entries(SISWA_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -144,13 +172,14 @@ export default function StudentList() {
           {filtered.length === 0 ? (
             <EmptyState icon={GraduationCap} title="Tidak ada siswa ditemukan" description="Coba ubah kata kunci pencarian atau filter." />
           ) : (
-            <Table columns={['Nama', 'NIS', 'NISN', 'Unit', 'Status', '']}>
+            <Table columns={['Nama', 'NIS', 'NISN', 'Unit', 'Kelas', 'Status', '']}>
               {filtered.map((s) => (
                 <Tr key={s.id} onClick={() => navigate(`/siswa/${s.id}`)}>
                   <Td className="font-medium text-[var(--color-ink)]">{s.nama_lengkap}</Td>
                   <Td className="text-[var(--color-ink-soft)]">{s.nis || '—'}</Td>
                   <Td className="text-[var(--color-ink-soft)]">{s.nisn || '—'}</Td>
                   <Td>{s.schools ? `${s.schools.jenjang} — ${s.schools.nama}` : '—'}</Td>
+                  <Td>{rombelBySiswa[s.id] ? <Badge color="navy">{rombelBySiswa[s.id].tingkat} {rombelBySiswa[s.id].nama_rombel}</Badge> : <span className="text-[var(--color-ink-soft)]">—</span>}</Td>
                   <Td><Badge color={STATUS_BADGE_COLOR[s.status]}>{SISWA_STATUS_LABELS[s.status] || s.status}</Badge></Td>
                   <Td className="text-right">
                     {bolehHapus && (

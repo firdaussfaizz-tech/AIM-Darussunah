@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { CalendarRange, Plus, Pencil, Trash2, Users2, CheckCircle2, School, ArrowUpCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
@@ -229,6 +230,7 @@ function TahunAjaranTab({ tahunAjaran, reload, hasFullAccess }) {
 const emptyRombelForm = { school_id: '', tahun_ajaran_id: '', tingkat: '', nama_rombel: '', wali_kelas_employee_id: '', kapasitas: '' }
 
 function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedSchoolId }) {
+  const navigate = useNavigate()
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState(emptyRombelForm)
@@ -349,7 +351,7 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedScho
           ) : (
         <Table columns={['Tahun Ajaran', 'Unit', 'Tingkat', 'Nama Rombel', 'Wali Kelas', 'Jumlah Siswa', '']}>
           {rombelTampil.map((r) => (
-            <Tr key={r.id}>
+            <Tr key={r.id} onClick={() => navigate(`/rombel/${r.id}`)}>
               <Td className="text-[var(--color-ink-soft)]">{r.tahun_ajaran?.nama || '—'}</Td>
               <Td>{r.schools ? `${r.schools.jenjang} — ${r.schools.nama}` : '—'}</Td>
               <Td>{r.tingkat}</Td>
@@ -361,11 +363,11 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedScho
               </Td>
               <Td className="text-right">
                 <div className="flex justify-end gap-2">
-                  <button onClick={() => setRosterRombel(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Kelola Siswa" title="Kelola Siswa">
+                  <button onClick={(e) => { e.stopPropagation(); setRosterRombel(r) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Kelola Siswa" title="Kelola Siswa">
                     <Users2 className="h-4 w-4" />
                   </button>
-                  <button onClick={() => openEdit(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
-                  <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); openEdit(r) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); handleDelete(r) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
                 </div>
               </Td>
             </Tr>
