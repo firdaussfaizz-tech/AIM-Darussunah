@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import {
   BookMarked, CheckCircle2, Clock, XCircle, Archive, PencilLine, Send, Undo2,
-  Trash2, History, Info, FileSignature, ShieldCheck, ChevronDown, FileDown,
+  Trash2, History, Info, FileSignature, ShieldCheck, ChevronDown, FileDown, School,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { SectionCard, Badge, Button, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
@@ -122,8 +122,16 @@ const fmtTgl = (d) => (d ? new Date(d).toLocaleDateString('id-ID', { day: '2-dig
 const plainText = (h) => String(h || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim()
 
 export default function KurikulumIslamPlus({ ctx }) {
-  const isYayasan = !!ctx?.hasFullAccess // Admin Yayasan: boleh menetapkan/menolak
+  const isYayasan = !!ctx?.hasFullAccess // Admin Yayasan: boleh menetapkan/menolak & mengisi semua unit
   const employee = ctx?.employee
+  const effSchoolId = ctx?.effSchoolId || ''
+
+  const schoolLabel = useMemo(() => {
+    const pool = [...(ctx?.schools || []), ...(ctx?.mySchools || [])]
+    const s = pool.find((x) => x.id === effSchoolId)
+    if (s) return `${s.jenjang ? s.jenjang + ' — ' : ''}${s.nama || ''}`.trim()
+    return ctx?.employee?.schools?.nama || ''
+  }, [ctx, effSchoolId])
 
   const [entri, setEntri] = useState([])
   const [loading, setLoading] = useState(true)
@@ -139,14 +147,17 @@ export default function KurikulumIslamPlus({ ctx }) {
   }, [selected])
 
   const load = useCallback(async () => {
+    if (!effSchoolId) { setEntri([]); setLoading(false); return }
+    setLoading(true)
     const { data } = await supabase
       .from('kip_entri')
       .select('*')
+      .eq('school_id', effSchoolId)
       .order('bagian_kode', { ascending: true })
       .order('versi', { ascending: false })
     setEntri(data || [])
     setLoading(false)
-  }, [])
+  }, [effSchoolId])
 
   useEffect(() => { load() }, [load])
 
@@ -183,25 +194,29 @@ export default function KurikulumIslamPlus({ ctx }) {
     return { total: ALL_ITEMS.length, ditetapkan, diajukan, pct: Math.round((ditetapkan / ALL_ITEMS.length) * 100) }
   }, [infoBagian])
 
+  if (!effSchoolId) {
+    return <EmptyState icon={School} title="Pilih unit terlebih dahulu" description="Kurikulum Islam Plus disusun per unit/jenjang. Pilih unit (SD/SMP/SMA/Boarding) pada bar di atas untuk mulai menyusun." />
+  }
   if (loading) return <FullPageSpinner />
 
   return (
     <div className="flex flex-col gap-5">
       {/* Intro + progres */}
       <SectionCard
-        title="Sistem Pembangun Kurikulum Islam Plus"
-        description="Tim Penyusun menyusun isi tiap bagian sebagai ajuan; Admin Yayasan menetapkan (acc) atau menolak. Isi yang ditetapkan menjadi kurikulum resmi."
+        title={`Sistem Pembangun Kurikulum Islam Plus${schoolLabel ? ' — ' + schoolLabel : ''}`}
+        description="Isi Kurikulum Islam Plus disusun per unit/jenjang. Tim Penyusun menyusun tiap bagian sebagai ajuan; Admin Yayasan menetapkan (acc)/menolak & dapat mengisi semua unit."
         actions={
           <Button size="sm" variant="outline" onClick={async () => {
             setExporting(true)
             try {
               const kontenByKode = {}
               for (const it of ALL_ITEMS) kontenByKode[it.kode] = infoBagian(it.kode).ditetapkan?.konten || ''
+              const slug = (schoolLabel || 'Unit').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '')
               const { exportKurikulumDocx } = await import('../../lib/docxExport')
               exportKurikulumDocx({
-                filename: 'Kurikulum-Islam-Plus.docx',
+                filename: `Kurikulum-Islam-Plus-${slug}.docx`,
                 title: 'Kurikulum Islam Plus',
-                subtitle: 'YPI Darussunah Cibarusah · Sekolah Islam Plus Al-Hanif',
+                subtitle: `${schoolLabel || ''} · YPI Darussunah Cibarusah`.replace(/^ · /, ''),
                 outline: KIP_OUTLINE,
                 kontenByKode,
               })
@@ -281,6 +296,7 @@ export default function KurikulumIslamPlus({ ctx }) {
         {/* Detail bagian terpilih */}
         <BagianDetail
           kode={selected}
+          schoolId={effSchoolId}
           info={infoBagian(selected)}
           isYayasan={isYayasan}
           employee={employee}
@@ -293,7 +309,7 @@ export default function KurikulumIslamPlus({ ctx }) {
   )
 }
 
-function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }) {
+function BagianDetail({ kode, schoolId, info, isYayasan, employee, busy, setBusy, reload }) {
   const item = ALL_ITEMS.find((i) => i.kode === kode)
   const { ditetapkan, aktif, riwayat } = info
   const isStruktur = item.tipe === 'struktur'
@@ -305,7 +321,7 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
   const [reviu, setReviu] = useState('')
   const [mode, setMode] = useState('view') // 'view' | 'edit'
   const [revisiTick, setRevisiTick] = useState(0)
-  const editorKey = `${kode}:${aktif?.id || 'baru'}:${revisiTick}`
+  const editorKey = `${kode}:${schoolId}:${aktif?.id || 'baru'}:${revisiTick}`
 
   // Reset form saat pindah bagian atau data berubah.
   useEffect(() => {
@@ -314,7 +330,7 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
     setReviu('')
     setMode('view')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kode, aktif?.id])
+  }, [kode, aktif?.id, schoolId])
 
   const maxVersi = Math.max(0, ...info.list.map((e) => e.versi || 0))
   const kontenKosong = isStruktur ? strukturKosong(parseStruktur(konten))
@@ -326,6 +342,7 @@ function BagianDetail({ kode, info, isYayasan, employee, busy, setBusy, reload }
     setBusy(true)
     const payload = {
       bagian_kode: kode,
+      school_id: schoolId,
       bagian_judul: item.judul,
       konten,
       catatan_penyusun: catatan || null,

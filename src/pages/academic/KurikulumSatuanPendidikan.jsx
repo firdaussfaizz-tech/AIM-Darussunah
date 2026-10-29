@@ -132,7 +132,7 @@ export default function KurikulumSatuanPendidikan({ ctx }) {
       supabase.from('ksp_entri').select('*').eq('school_id', effSchoolId)
         .order('bagian_kode', { ascending: true }).order('versi', { ascending: false }),
       supabase.from('kip_entri').select('bagian_kode, bagian_judul, konten, versi, direviu_at')
-        .eq('status', 'ditetapkan').order('bagian_kode', { ascending: true }),
+        .eq('school_id', effSchoolId).eq('status', 'ditetapkan').order('bagian_kode', { ascending: true }),
     ])
     setEntri(ks || [])
     setIslamPlus(ip || [])
