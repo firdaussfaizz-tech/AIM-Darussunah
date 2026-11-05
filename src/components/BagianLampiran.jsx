@@ -3,6 +3,10 @@ import { FileText, Download, Trash2, FileInput, CheckCircle2, XCircle, Clock, Sh
 import { supabase } from '../lib/supabaseClient'
 import { SectionCard, Button, Table, Tr, Td, EmptyState, Badge, Textarea } from './ui'
 import { docxToHtml, bisaEkstrakDocx } from '../lib/docxImport'
+import { pdfToHtml, bisaEkstrakPdf } from '../lib/pdfImport'
+
+// Bisa diekstrak isinya ke editor bila .docx (Word) atau .pdf berbasis teks.
+const bisaEkstrakIsi = (nama) => bisaEkstrakDocx(nama) || bisaEkstrakPdf(nama)
 
 // Lampiran dokumen sumber per bagian kurikulum (Islam Plus / KOSP).
 // Dokumen diunggah sebagai AJUAN (status 'diajukan') → Admin Yayasan
@@ -94,8 +98,14 @@ function BagianLampiran({ dokumen, schoolId, bagianKode, canManage, bisaEkstrak,
     try {
       const { data, error } = await supabase.storage.from(BUCKET).download(r.file_url)
       if (error || !data) throw new Error(error?.message || 'gagal mengunduh berkas')
-      const html = await docxToHtml(await data.arrayBuffer())
-      if (!html.trim()) { setMsg('Dokumen tidak berisi teks yang dapat diekstrak.'); return }
+      const buf = await data.arrayBuffer()
+      const html = bisaEkstrakPdf(r.nama_file) ? await pdfToHtml(buf) : await docxToHtml(buf)
+      if (!html.trim()) {
+        setMsg(bisaEkstrakPdf(r.nama_file)
+          ? 'Tidak ada teks yang bisa ditarik — PDF ini mungkin hasil pindai/scan (berupa gambar). Unggah versi .docx bila ingin diekstrak.'
+          : 'Dokumen tidak berisi teks yang dapat diekstrak.')
+        return
+      }
       onAmbilIsi(html)
       setMsg('Isi dokumen dimuat ke editor. Periksa, rapikan bila perlu, lalu Simpan Draft / Ajukan.')
     } catch (err) { setMsg('Gagal mengekstrak: ' + err.message) }
@@ -111,7 +121,7 @@ function BagianLampiran({ dokumen, schoolId, bagianKode, canManage, bisaEkstrak,
   return (
     <SectionCard
       title="Dokumen Sumber (Lampiran)"
-      description="Dokumen yang diunggah bersifat ajuan ke Yayasan dan harus ditetapkan (acc) terlebih dahulu. Untuk berkas .docx, isinya dapat diambil ke editor isi bagian."
+      description="Dokumen yang diunggah bersifat ajuan ke Yayasan dan harus ditetapkan (acc) terlebih dahulu. Untuk berkas .docx dan .pdf berbasis teks, isinya dapat diambil otomatis ke editor isi bagian."
     >
       {/* Input file tersembunyi — dipicu dari tombol pada baris aksi editor. */}
       <input ref={inputRef} type="file" className="hidden" onChange={handleUpload} disabled={busy} />
@@ -128,6 +138,7 @@ function BagianLampiran({ dokumen, schoolId, bagianKode, canManage, bisaEkstrak,
                 <Td className="font-medium text-[var(--color-ink)]">
                   {r.nama_file}
                   {bisaEkstrakDocx(r.nama_file) && <span className="ml-2 rounded-full bg-[var(--color-navy-50)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-navy)]">.docx</span>}
+                  {bisaEkstrakPdf(r.nama_file) && <span className="ml-2 rounded-full bg-[var(--color-navy-50)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-navy)]">.pdf</span>}
                   {r.status === 'ditolak' && r.catatan_reviu && <span className="mt-0.5 block text-[12px] text-[var(--color-danger)]">Ditolak: {r.catatan_reviu}</span>}
                 </Td>
                 <Td><StatusBadge status={r.status} /></Td>
@@ -135,7 +146,7 @@ function BagianLampiran({ dokumen, schoolId, bagianKode, canManage, bisaEkstrak,
                 <Td className="text-right">
                   <div className="flex flex-col items-end gap-1.5">
                     <div className="flex items-center justify-end gap-2">
-                      {bisaEkstrak && canManage && bisaEkstrakDocx(r.nama_file) && (
+                      {bisaEkstrak && canManage && bisaEkstrakIsi(r.nama_file) && (
                         <Button size="sm" variant="outline" onClick={() => handleAmbil(r)} disabled={busy}><FileInput className="h-4 w-4" /> Ambil isi</Button>
                       )}
                       <button onClick={() => handleDownload(r)} className="text-[var(--color-navy)] hover:text-[var(--color-navy-light)]" aria-label="Unduh"><Download className="h-4 w-4" /></button>
