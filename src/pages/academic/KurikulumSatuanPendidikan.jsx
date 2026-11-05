@@ -1,7 +1,7 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import {
   Layers, CheckCircle2, Clock, XCircle, Archive, PencilLine, Send, Undo2,
-  Trash2, History, Info, FileSignature, ShieldCheck, BookMarked, ChevronDown, School, FileDown,
+  Trash2, History, Info, FileSignature, ShieldCheck, BookMarked, ChevronDown, School, FileDown, Upload,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { SectionCard, Badge, Button, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
@@ -331,6 +331,7 @@ function BagianDetail({ kode, schoolId, info, isYayasan, employee, busy, setBusy
   const [reviu, setReviu] = useState('')
   const [mode, setMode] = useState('view')
   const [revisiTick, setRevisiTick] = useState(0)
+  const lampiranRef = useRef(null)
   const editorKey = `${kode}:${aktif?.id || 'baru'}:${revisiTick}`
 
   useEffect(() => {
@@ -494,6 +495,7 @@ function BagianDetail({ kode, schoolId, info, isYayasan, employee, busy, setBusy
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" onClick={() => simpanDraft({ ajukan: false })} disabled={busy || kontenKosong}><PencilLine className="h-4 w-4" /> Simpan Draft</Button>
               <Button size="sm" onClick={() => simpanDraft({ ajukan: true })} disabled={busy || kontenKosong}><Send className="h-4 w-4" /> Ajukan ke Yayasan</Button>
+              <Button size="sm" variant="ghost" onClick={() => lampiranRef.current?.openPicker()}><Upload className="h-4 w-4" /> Unggah Dokumen</Button>
               {aktif && aktif.status === 'draft' && (
                 <Button size="sm" variant="ghost" onClick={hapusDraft} disabled={busy}><Trash2 className="h-4 w-4" /> Hapus Draft</Button>
               )}
@@ -507,16 +509,21 @@ function BagianDetail({ kode, schoolId, info, isYayasan, employee, busy, setBusy
         {!aktif && ditetapkan && mode === 'view' && (
           <div className="flex flex-col gap-3">
             <EmptyState icon={FileSignature} title="Tidak ada ajuan berjalan" description="Isi resmi sudah ditetapkan. Buat revisi untuk mengajukan perubahan." />
-            <div><Button size="sm" onClick={mulaiRevisi}><PencilLine className="h-4 w-4" /> Buat Revisi</Button></div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={mulaiRevisi}><PencilLine className="h-4 w-4" /> Buat Revisi</Button>
+              <Button size="sm" variant="ghost" onClick={() => lampiranRef.current?.openPicker()}><Upload className="h-4 w-4" /> Unggah Dokumen</Button>
+            </div>
           </div>
         )}
       </SectionCard>
 
       <BagianLampiran
+        ref={lampiranRef}
         dokumen="kosp"
         schoolId={schoolId}
         bagianKode={kode}
         canManage
+        isYayasan={isYayasan}
         bisaEkstrak={!isStruktur}
         employee={employee}
         onAmbilIsi={(html) => { setKonten(html); setMode('edit'); setRevisiTick((t) => t + 1) }}
