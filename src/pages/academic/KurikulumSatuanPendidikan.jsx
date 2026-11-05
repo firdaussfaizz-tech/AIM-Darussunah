@@ -257,7 +257,7 @@ export default function KurikulumSatuanPendidikan({ ctx }) {
 
       <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
         {/* Navigasi outline — tiap Bab dapat dilipat */}
-        <div className="flex flex-col gap-3">
+        <div className="flex min-w-0 flex-col gap-3">
           {KSP_OUTLINE.map((bab) => {
             const open = !!openBab[bab.bab]
             const total = bab.items.length
@@ -304,16 +304,18 @@ export default function KurikulumSatuanPendidikan({ ctx }) {
           })}
         </div>
 
-        <BagianDetail
-          kode={selected}
-          schoolId={effSchoolId}
-          info={infoBagian(selected)}
-          isYayasan={isYayasan}
-          employee={employee}
-          busy={busy}
-          setBusy={setBusy}
-          reload={load}
-        />
+        <div className="min-w-0">
+          <BagianDetail
+            kode={selected}
+            schoolId={effSchoolId}
+            info={infoBagian(selected)}
+            isYayasan={isYayasan}
+            employee={employee}
+            busy={busy}
+            setBusy={setBusy}
+            reload={load}
+          />
+        </div>
       </div>
     </div>
   )

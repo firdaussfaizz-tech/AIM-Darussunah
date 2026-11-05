@@ -311,15 +311,15 @@ function Topbar({ onMenuClick }) {
   }
 
   return (
-    <header className="glass glass-edge-bottom sticky top-0 z-30 flex h-16 items-center justify-between px-4 sm:px-6">
-      <button onClick={onMenuClick} className="nav-link text-[var(--color-ink)] lg:hidden" aria-label="Buka menu">
+    <header className="glass glass-edge-bottom sticky top-0 z-30 flex h-16 items-center justify-between gap-3 px-4 sm:px-6">
+      <button onClick={onMenuClick} className="nav-link shrink-0 text-[var(--color-ink)] lg:hidden" aria-label="Buka menu">
         <Menu className="h-6 w-6" />
       </button>
       <div className="hidden lg:block" />
-      <div className="flex items-center gap-3">
-        <div className="text-right leading-tight">
-          <p className="text-[14px] font-medium text-[var(--color-ink)]">{profile?.full_name || profile?.email}</p>
-          {primaryRole && <p className="text-[12px] text-[var(--color-ink-soft)]">{ROLE_LABELS[primaryRole] || primaryRole}</p>}
+      <div className="flex min-w-0 shrink-0 items-center gap-3">
+        <div className="min-w-0 text-right leading-tight">
+          <p className="truncate text-[14px] font-medium text-[var(--color-ink)]">{profile?.full_name || profile?.email}</p>
+          {primaryRole && <p className="truncate text-[12px] text-[var(--color-ink-soft)]">{ROLE_LABELS[primaryRole] || primaryRole}</p>}
         </div>
         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-navy)] text-sm font-semibold text-white">
           {(profile?.full_name || profile?.email || '?').slice(0, 1).toUpperCase()}
@@ -348,7 +348,7 @@ export default function Layout() {
       )}
       <div className="lg:pl-64">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
-        <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+        <main className="mx-auto max-w-6xl overflow-x-hidden px-4 py-6 sm:px-6 sm:py-8">
           {/* key={location.pathname} memaksa animasi fade-in diputar ulang
               setiap kali berpindah halaman, supaya transisi antar menu
               terasa halus, bukan "loncat" instan. */}
