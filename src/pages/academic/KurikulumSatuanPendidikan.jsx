@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import {
   Layers, CheckCircle2, Clock, XCircle, Archive, PencilLine, Send, Undo2,
-  Trash2, History, Info, FileSignature, ShieldCheck, BookMarked, ChevronDown, School, FileDown, Upload,
+  Trash2, History, Info, FileSignature, ShieldCheck, BookMarked, ChevronDown, School, FileDown, Upload, Download,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { SectionCard, Badge, Button, Textarea, EmptyState, FullPageSpinner } from '../../components/ui'
@@ -113,6 +113,7 @@ export default function KurikulumSatuanPendidikan({ ctx }) {
 
   const [entri, setEntri] = useState([])
   const [islamPlus, setIslamPlus] = useState([])
+  const [islamPlusDok, setIslamPlusDok] = useState([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(ALL_ITEMS[0].kode)
   const [busy, setBusy] = useState(false)
@@ -129,18 +130,46 @@ export default function KurikulumSatuanPendidikan({ ctx }) {
   const load = useCallback(async () => {
     if (!effSchoolId) { setEntri([]); setLoading(false); return }
     setLoading(true)
-    const [{ data: ks }, { data: ip }] = await Promise.all([
+    const [{ data: ks }, { data: ip }, { data: dok }] = await Promise.all([
       supabase.from('ksp_entri').select('*').eq('school_id', effSchoolId)
         .order('bagian_kode', { ascending: true }).order('versi', { ascending: false }),
       supabase.from('kip_entri').select('bagian_kode, bagian_judul, konten, versi, direviu_at')
         .eq('school_id', effSchoolId).eq('status', 'ditetapkan').order('bagian_kode', { ascending: true }),
+      supabase.from('kurikulum_lampiran').select('id, bagian_kode, nama_file, file_url')
+        .eq('dokumen', 'islam_plus').eq('school_id', effSchoolId).eq('status', 'ditetapkan')
+        .order('bagian_kode', { ascending: true }),
     ])
     setEntri(ks || [])
     setIslamPlus(ip || [])
+    setIslamPlusDok(dok || [])
     setLoading(false)
   }, [effSchoolId])
 
   useEffect(() => { load() }, [load])
+
+  // Gabungan rujukan Islam Plus: isi bagian (ditetapkan) + dokumen lampiran (di-acc).
+  const rujukanBagian = useMemo(() => {
+    const judulByKode = new Map()
+    const dokByKode = new Map()
+    for (const r of islamPlus) judulByKode.set(r.bagian_kode, r.bagian_judul)
+    for (const d of islamPlusDok) {
+      if (!dokByKode.has(d.bagian_kode)) dokByKode.set(d.bagian_kode, [])
+      dokByKode.get(d.bagian_kode).push(d)
+      if (!judulByKode.has(d.bagian_kode)) judulByKode.set(d.bagian_kode, d.bagian_kode)
+    }
+    const keys = Array.from(new Set([...islamPlus.map((r) => r.bagian_kode), ...islamPlusDok.map((d) => d.bagian_kode)])).sort((a, b) => a.localeCompare(b))
+    return keys.map((kode) => ({
+      kode,
+      judul: judulByKode.get(kode) || kode,
+      entry: islamPlus.find((r) => r.bagian_kode === kode) || null,
+      docs: dokByKode.get(kode) || [],
+    }))
+  }, [islamPlus, islamPlusDok])
+
+  const unduhDok = async (d) => {
+    const { data, error } = await supabase.storage.from('kurikulum-files').createSignedUrl(d.file_url, 120)
+    if (!error && data) window.open(data.signedUrl, '_blank')
+  }
 
   const byKode = useMemo(() => {
     const m = new Map()
@@ -231,22 +260,40 @@ export default function KurikulumSatuanPendidikan({ ctx }) {
           <span className="flex items-center gap-2 text-[14px] font-medium text-[var(--color-ink)]">
             <BookMarked className="h-4 w-4 text-[var(--color-navy)]" />
             Rujukan Kurikulum Islam Plus (ditetapkan)
-            <Badge color={islamPlus.length ? 'success' : 'neutral'}>{islamPlus.length} bagian</Badge>
+            <Badge color={rujukanBagian.length ? 'success' : 'neutral'}>{rujukanBagian.length} bagian</Badge>
           </span>
           <ChevronDown className={`h-4 w-4 text-[var(--color-ink-soft)] transition-transform ${showRujukan ? 'rotate-180' : ''}`} />
         </button>
         {showRujukan && (
           <div className="border-t border-[var(--color-border)] p-4">
-            {islamPlus.length === 0 ? (
-              <p className="text-[13px] text-[var(--color-ink-soft)]">Belum ada bagian Kurikulum Islam Plus yang ditetapkan. Tetapkan Islam Plus lebih dahulu melalui menu <strong>Kurikulum Islam Plus</strong> agar dapat dirujuk di sini.</p>
+            {rujukanBagian.length === 0 ? (
+              <p className="text-[13px] text-[var(--color-ink-soft)]">Belum ada bagian atau dokumen Kurikulum Islam Plus yang ditetapkan. Tetapkan Islam Plus lebih dahulu melalui menu <strong>Kurikulum Islam Plus</strong> agar dapat dirujuk di sini.</p>
             ) : (
               <div className="flex flex-col gap-2">
-                {islamPlus.map((r) => (
-                  <details key={r.bagian_kode} className="rounded-[10px] border border-[var(--color-border)] bg-[var(--color-paper)] p-2.5">
-                    <summary className="cursor-pointer text-[13px] font-medium text-[var(--color-ink)]">{r.bagian_kode} · {r.bagian_judul}</summary>
-                    {parseStruktur(r.konten) ? <div className="mt-2"><StrukturKurikulumView konten={r.konten} /></div>
-                      : parseBeban(r.konten) ? <div className="mt-2"><BebanBelajarView konten={r.konten} /></div>
-                      : <div className="mt-2"><RichTextView html={r.konten} /></div>}
+                {rujukanBagian.map((b) => (
+                  <details key={b.kode} className="rounded-[10px] border border-[var(--color-border)] bg-[var(--color-paper)] p-2.5">
+                    <summary className="cursor-pointer text-[13px] font-medium text-[var(--color-ink)]">
+                      {b.kode} · {b.judul}
+                      {b.docs.length > 0 && <span className="ml-2 rounded-full bg-[var(--color-navy-50)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-navy)]">{b.docs.length} dok</span>}
+                    </summary>
+                    {b.entry && (
+                      parseStruktur(b.entry.konten) ? <div className="mt-2"><StrukturKurikulumView konten={b.entry.konten} /></div>
+                        : parseBeban(b.entry.konten) ? <div className="mt-2"><BebanBelajarView konten={b.entry.konten} /></div>
+                        : <div className="mt-2"><RichTextView html={b.entry.konten} /></div>
+                    )}
+                    {b.docs.length > 0 && (
+                      <div className="mt-2">
+                        <p className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-[var(--color-ink-soft)]">Dokumen (ditetapkan)</p>
+                        <div className="flex flex-col gap-1">
+                          {b.docs.map((d) => (
+                            <button key={d.id} type="button" onClick={() => unduhDok(d)} className="flex items-center gap-1.5 text-left text-[13px] text-[var(--color-navy)] hover:underline">
+                              <Download className="h-3.5 w-3.5 shrink-0" /> {d.nama_file}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {!b.entry && b.docs.length === 0 && <p className="mt-2 text-[13px] text-[var(--color-ink-soft)]">—</p>}
                   </details>
                 ))}
               </div>
