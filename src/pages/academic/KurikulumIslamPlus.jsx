@@ -11,6 +11,7 @@ import {
   SklEditor, SklView, parseSkl, sklKosong, ringkasSkl,
 } from '../../components/StrukturKurikulumEditor'
 import { RichTextEditor, RichTextView, htmlKosong } from '../../components/RichTextEditor'
+import BagianLampiran from '../../components/BagianLampiran'
 
 // ============================================================================
 // SISTEM PEMBANGUN KURIKULUM ISLAM PLUS — modul Akademik.
@@ -533,6 +534,17 @@ function BagianDetail({ kode, schoolId, info, isYayasan, employee, busy, setBusy
           </div>
         )}
       </SectionCard>
+
+      {/* Lampiran dokumen sumber */}
+      <BagianLampiran
+        dokumen="islam_plus"
+        schoolId={schoolId}
+        bagianKode={kode}
+        canManage
+        bisaEkstrak={!isStruktur && !isBeban && !isSkl}
+        employee={employee}
+        onAmbilIsi={(html) => { setKonten(html); setMode('edit'); setRevisiTick((t) => t + 1) }}
+      />
 
       {/* Riwayat */}
       {riwayat.length > 0 && (

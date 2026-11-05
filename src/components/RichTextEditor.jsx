@@ -24,6 +24,8 @@ const RTE_CSS = `
 .rte-content li { margin:.15em 0; }
 .rte-content blockquote { border-left:3px solid var(--color-border); padding-left:.9em; margin:.5em 0; color:var(--color-ink-soft); font-style:italic; }
 .rte-content a { color:var(--color-navy); text-decoration:underline; }
+.rte-content table { border-collapse:collapse; width:100%; margin:.5em 0; }
+.rte-content td, .rte-content th { border:1px solid var(--color-border); padding:4px 8px; font-size:13px; vertical-align:top; text-align:left; }
 .rte-content b, .rte-content strong { font-weight:700; }
 .rte-content:empty::before { content:attr(data-placeholder); color:var(--color-ink-soft); }
 `

@@ -10,6 +10,7 @@ import {
   BebanBelajarView, parseBeban,
 } from '../../components/StrukturKurikulumEditor'
 import { RichTextEditor, RichTextView, htmlKosong } from '../../components/RichTextEditor'
+import BagianLampiran from '../../components/BagianLampiran'
 
 // ============================================================================
 // SISTEM PEMBANGUN KURIKULUM SATUAN PENDIDIKAN (KOSP) — modul Akademik.
@@ -508,6 +509,16 @@ function BagianDetail({ kode, schoolId, info, isYayasan, employee, busy, setBusy
           </div>
         )}
       </SectionCard>
+
+      <BagianLampiran
+        dokumen="kosp"
+        schoolId={schoolId}
+        bagianKode={kode}
+        canManage
+        bisaEkstrak={!isStruktur}
+        employee={employee}
+        onAmbilIsi={(html) => { setKonten(html); setMode('edit'); setRevisiTick((t) => t + 1) }}
+      />
 
       {riwayat.length > 0 && (
         <SectionCard title="Riwayat" description="Versi lama yang diarsipkan atau ajuan yang ditolak">
