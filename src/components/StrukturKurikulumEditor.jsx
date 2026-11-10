@@ -229,11 +229,27 @@ const BEBAN_COLS = [
   { key: 'menit', label: 'Satu jam pelajaran (menit)' },
   { key: 'jpMinggu', label: 'Jumlah jam Per/minggu' },
   { key: 'mingguEfektif', label: 'Minggu Efektif Per/tahun' },
-  { key: 'jamTahun', label: 'Jumlah jam pelajaran Per/tahun', w: 'min-w-[150px]' },
-  { key: 'jam60', label: 'Jumlah jam per/Tahun (@60 menit)' },
+  { key: 'jamTahun', label: 'Jumlah jam pelajaran Per/tahun', w: 'min-w-[150px]', calc: true },
+  { key: 'jam60', label: 'Jumlah jam per/Tahun (@60 menit)', calc: true },
 ]
 const DEFAULT_BEBAN = { v: 1, rows: [], teks: '' }
 const emptyBebanRow = () => ({ label: '', menit: '', jpMinggu: '', mingguEfektif: '', jamTahun: '', jam60: '' })
+
+// Kolom jamTahun & jam60 dihitung otomatis (seperti formula Excel):
+//   jamTahun = jam per minggu × minggu efektif
+//   jam60    = jamTahun × menit per JP ÷ 60  (dikonversi ke jam @60 menit)
+// Jika input belum lengkap, pakai nilai manual lama (bila ada) sebagai cadangan.
+const angkaBeban = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.').trim()); return Number.isFinite(n) ? n : null }
+const fmtBeban = (n) => (n == null ? '' : String(Math.round(n * 100) / 100))
+export function hitungBeban(r) {
+  const menit = angkaBeban(r.menit); const jpm = angkaBeban(r.jpMinggu); const mgg = angkaBeban(r.mingguEfektif)
+  const jamTahun = (jpm != null && mgg != null) ? jpm * mgg : null
+  const jam60 = (jamTahun != null && menit != null) ? (jamTahun * menit) / 60 : null
+  return {
+    jamTahun: jamTahun != null ? fmtBeban(jamTahun) : String(r.jamTahun || ''),
+    jam60: jam60 != null ? fmtBeban(jam60) : String(r.jam60 || ''),
+  }
+}
 
 export function parseBeban(konten) {
   if (!konten) return null
@@ -269,11 +285,14 @@ export function BebanBelajarView({ konten }) {
               </tr>
             </thead>
             <tbody>
-              {data.rows.map((r, i) => (
-                <tr key={i}>
-                  {BEBAN_COLS.map((c) => <td key={c.key} className="border border-[var(--color-border)] px-2 py-1.5 text-center">{r[c.key] || ''}</td>)}
-                </tr>
-              ))}
+              {data.rows.map((r, i) => {
+                const comp = hitungBeban(r)
+                return (
+                  <tr key={i}>
+                    {BEBAN_COLS.map((c) => <td key={c.key} className="border border-[var(--color-border)] px-2 py-1.5 text-center">{(c.calc ? comp[c.key] : r[c.key]) || ''}</td>)}
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -307,26 +326,37 @@ export function BebanBelajarEditor({ value, onChange, editorKey }) {
             </tr>
           </thead>
           <tbody>
-            {data.rows.map((r, i) => (
+            {data.rows.map((r, i) => {
+              const comp = hitungBeban(r)
+              return (
               <tr key={i}>
                 {BEBAN_COLS.map((c) => (
                   <td key={c.key} className="border border-[var(--color-border)] p-0.5">
-                    <input value={r[c.key]} onChange={(e) => setCell(i, c.key, e.target.value)}
-                      className={`w-full ${c.w || 'min-w-[90px]'} rounded-[6px] border border-transparent bg-transparent px-1.5 py-1 text-center text-[13px] focus:border-[var(--color-navy)] focus:bg-white focus:outline-none`} />
+                    {c.calc ? (
+                      <div className={`w-full ${c.w || 'min-w-[90px]'} rounded-[6px] bg-[var(--color-paper)] px-1.5 py-1 text-center text-[13px] font-medium text-[var(--color-ink)]`} title="Dihitung otomatis">
+                        {comp[c.key] || '—'}
+                      </div>
+                    ) : (
+                      <input value={r[c.key]} onChange={(e) => setCell(i, c.key, e.target.value)} inputMode="decimal"
+                        className={`w-full ${c.w || 'min-w-[90px]'} rounded-[6px] border border-transparent bg-transparent px-1.5 py-1 text-center text-[13px] focus:border-[var(--color-navy)] focus:bg-white focus:outline-none`} />
+                    )}
                   </td>
                 ))}
                 <td className="border border-[var(--color-border)] px-1 text-center">
                   <button type="button" onClick={() => delRow(i)} title="Hapus" className="btn-press rounded-full p-1 text-[var(--color-danger)] hover:bg-[var(--color-danger-soft)]"><Trash2 className="h-3.5 w-3.5" /></button>
                 </td>
               </tr>
-            ))}
+            )})}
             {data.rows.length === 0 && (
               <tr><td colSpan={BEBAN_COLS.length + 1} className="border border-[var(--color-border)] px-2 py-3 text-center text-[13px] text-[var(--color-ink-soft)]">Belum ada baris. Klik "Tambah Baris".</td></tr>
             )}
           </tbody>
         </table>
       </div>
-      <div><Button size="sm" variant="outline" onClick={addRow}><Plus className="h-4 w-4" /> Tambah Baris</Button></div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <Button size="sm" variant="outline" onClick={addRow}><Plus className="h-4 w-4" /> Tambah Baris</Button>
+        <p className="text-[12px] text-[var(--color-ink-soft)]">Kolom <b>jam/tahun</b> &amp; <b>@60 menit</b> terisi otomatis: jam/tahun = jam per minggu × minggu efektif; @60 menit = jam/tahun × menit ÷ 60.</p>
+      </div>
 
       <div>
         <p className="mb-1.5 text-[13px] font-medium text-[var(--color-ink)]">Isi Bagian (khusus teks)</p>
@@ -359,7 +389,7 @@ export function bebanToTable(konten) {
   const d = parseBeban(konten)
   if (!d) return { table: null, teks: '' }
   const columns = BEBAN_COLS.map((c) => c.label)
-  const rows = d.rows.map((r) => BEBAN_COLS.map((c) => String(r[c.key] || '')))
+  const rows = d.rows.map((r) => { const comp = hitungBeban(r); return BEBAN_COLS.map((c) => String((c.calc ? comp[c.key] : r[c.key]) || '')) })
   return { table: rows.length ? { columns, rows } : null, teks: d.teks || '' }
 }
 
