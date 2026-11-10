@@ -443,23 +443,30 @@ function RombelTab({ rombel, schools, employees, tahunAjaran, reload, lockedScho
 // dipindahkan (bukan digandakan) kalau ikut dicentang.
 function RosterModal({ rombel, onClose, onSaved }) {
   const [siswaSekolah, setSiswaSekolah] = useState([])
-  const [enrollmentMap, setEnrollmentMap] = useState({}) // siswa_id -> { rombel_id, sama_rombel }
+  const [enrollmentMap, setEnrollmentMap] = useState({}) // siswa_id -> rombel_id (tahun ajaran sama)
+  const [rombelLabel, setRombelLabel] = useState({}) // rombel_id -> "tingkat nama"
   const [selectedIds, setSelectedIds] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [cari, setCari] = useState('')
+  const [filter, setFilter] = useState('semua') // semua | belum | ini | lain
 
   useEffect(() => {
     const load = async () => {
       setLoading(true)
-      const [{ data: siswa }, { data: enrollments }] = await Promise.all([
+      const [{ data: siswa }, { data: enrollments }, { data: rombels }] = await Promise.all([
         supabase.from('siswa').select('id, nama_lengkap, nis').eq('school_id', rombel.school_id).eq('status', 'aktif').order('nama_lengkap'),
         supabase.from('riwayat_siswa').select('siswa_id, rombel_id').eq('tahun_ajaran_id', rombel.tahun_ajaran_id),
+        supabase.from('rombel').select('id, tingkat, nama_rombel').eq('tahun_ajaran_id', rombel.tahun_ajaran_id),
       ])
       setSiswaSekolah(siswa || [])
       const map = {}
       for (const e of enrollments || []) map[e.siswa_id] = e.rombel_id
       setEnrollmentMap(map)
+      const lbl = {}
+      for (const r of rombels || []) lbl[r.id] = `${r.tingkat || ''} ${r.nama_rombel || ''}`.trim()
+      setRombelLabel(lbl)
       setSelectedIds((siswa || []).filter((s) => map[s.id] === rombel.id).map((s) => s.id))
       setLoading(false)
     }
@@ -467,6 +474,37 @@ function RosterModal({ rombel, onClose, onSaved }) {
   }, [rombel])
 
   const toggle = (id) => setSelectedIds((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+
+  // Status siswa (berdasar data tersimpan): belum berkelas / di rombel ini / di kelas lain.
+  const statusSiswa = (id) => {
+    const rid = enrollmentMap[id]
+    if (!rid) return 'belum'
+    return rid === rombel.id ? 'ini' : 'lain'
+  }
+  const jml = { belum: 0, ini: 0, lain: 0 }
+  for (const s of siswaSekolah) jml[statusSiswa(s.id)]++
+
+  const PRIORITAS = { belum: 0, lain: 1, ini: 2 }
+  const terlihat = siswaSekolah
+    .filter((s) => filter === 'semua' || statusSiswa(s.id) === filter)
+    .filter((s) => {
+      const q = cari.trim().toLowerCase()
+      if (!q) return true
+      return s.nama_lengkap.toLowerCase().includes(q) || String(s.nis || '').toLowerCase().includes(q)
+    })
+    .slice()
+    .sort((a, b) => PRIORITAS[statusSiswa(a.id)] - PRIORITAS[statusSiswa(b.id)] || a.nama_lengkap.localeCompare(b.nama_lengkap))
+
+  const idTerlihat = terlihat.map((s) => s.id)
+  const centangSemuaTerlihat = () => setSelectedIds((s) => Array.from(new Set([...s, ...idTerlihat])))
+  const hapusCentangTerlihat = () => setSelectedIds((s) => s.filter((id) => !idTerlihat.includes(id)))
+
+  const FILTERS = [
+    { key: 'semua', label: 'Semua', n: siswaSekolah.length },
+    { key: 'belum', label: 'Belum ada kelas', n: jml.belum },
+    { key: 'ini', label: 'Di rombel ini', n: jml.ini },
+    { key: 'lain', label: 'Di kelas lain', n: jml.lain },
+  ]
 
   const handleSave = async () => {
     setSaving(true)
@@ -500,32 +538,58 @@ function RosterModal({ rombel, onClose, onSaved }) {
 
   return (
     <Modal open onClose={onClose} title={`Kelola Siswa — ${rombel.tingkat} ${rombel.nama_rombel}`}>
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3">
         {loading ? (
           <p className="text-sm text-[var(--color-ink-soft)]">Memuat…</p>
         ) : siswaSekolah.length === 0 ? (
           <p className="text-sm text-[var(--color-ink-soft)]">Belum ada siswa aktif di unit sekolah ini. Tambahkan dulu di menu Data Siswa.</p>
         ) : (
-          <div className="flex max-h-96 flex-col gap-2 overflow-y-auto">
-            {siswaSekolah.map((s) => {
-              const currentRombelId = enrollmentMap[s.id]
-              const diKelasLain = currentRombelId && currentRombelId !== rombel.id
-              return (
-                <label key={s.id} className="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)] px-3 py-2 text-sm">
-                  <span className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(s.id)}
-                      onChange={() => toggle(s.id)}
-                      className="h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-navy)] focus:ring-[var(--color-navy)]"
-                    />
-                    {s.nama_lengkap}{s.nis ? ` (${s.nis})` : ''}
-                  </span>
-                  {diKelasLain && <Badge color="gold">Pindah dari kelas lain</Badge>}
-                </label>
-              )
-            })}
-          </div>
+          <>
+            {/* Filter status + pencarian */}
+            <div className="flex flex-wrap gap-1.5">
+              {FILTERS.map((f) => (
+                <button key={f.key} type="button" onClick={() => setFilter(f.key)}
+                  className={`rounded-full px-3 py-1 text-[13px] font-medium transition-colors ${filter === f.key ? 'bg-[var(--color-navy)] text-white' : 'bg-[var(--color-paper)] text-[var(--color-ink-soft)] hover:bg-[var(--color-navy-50)]'}`}>
+                  {f.label} <span className={filter === f.key ? 'opacity-80' : 'opacity-60'}>({f.n})</span>
+                </button>
+              ))}
+            </div>
+            <Input placeholder="Cari nama atau NIS…" value={cari} onChange={(e) => setCari(e.target.value)} />
+
+            {/* Aksi massal untuk daftar yang sedang terlihat */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[12px] text-[var(--color-ink-soft)]">{selectedIds.length} dipilih · {terlihat.length} ditampilkan</p>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={centangSemuaTerlihat} disabled={!terlihat.length}>Centang semua terlihat</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={hapusCentangTerlihat} disabled={!terlihat.length}>Hapus centang terlihat</Button>
+              </div>
+            </div>
+
+            <div className="flex max-h-80 flex-col gap-2 overflow-y-auto">
+              {terlihat.length === 0 ? (
+                <p className="px-1 py-4 text-center text-[13px] text-[var(--color-ink-soft)]">Tidak ada siswa pada filter ini.</p>
+              ) : terlihat.map((s) => {
+                const st = statusSiswa(s.id)
+                const garis = st === 'belum' ? 'var(--color-success)' : st === 'lain' ? 'var(--color-gold)' : 'var(--color-navy)'
+                return (
+                  <label key={s.id} className="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)] px-3 py-2 text-sm" style={{ borderLeft: `3px solid ${garis}` }}>
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(s.id)}
+                        onChange={() => toggle(s.id)}
+                        className="h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-navy)] focus:ring-[var(--color-navy)]"
+                      />
+                      {s.nama_lengkap}{s.nis ? ` (${s.nis})` : ''}
+                    </span>
+                    {st === 'belum' && <Badge color="success">Belum ada kelas</Badge>}
+                    {st === 'ini' && <Badge color="navy">Di rombel ini</Badge>}
+                    {st === 'lain' && <Badge color="gold">Kelas lain: {rombelLabel[enrollmentMap[s.id]] || 'lain'}</Badge>}
+                  </label>
+                )
+              })}
+            </div>
+          </>
         )}
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2">
