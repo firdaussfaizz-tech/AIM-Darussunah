@@ -62,7 +62,7 @@ function navGroupsFor({ isManager, hasFullAccess, employeeId, can, permsReady })
   // OKR & KPI tingkat satuan pendidikan (KinerjaLembaga.jsx) — milik sekolah,
   // bukan pegawai perorangan; tak ada versi "saya". Tampil bila manajemen
   // ATAU peran diberi izin modul 'okr_kpi' lewat matriks.
-  if (mgrOf('okr_kpi')) kepegawaian.push({ to: '/kinerja-lembaga', label: 'OKR & KPI', icon: Target })
+  if (mgrOf('okr_kpi')) kepegawaian.push({ to: '/kinerja-lembaga', label: 'KPI Mutu', icon: Target })
   kepegawaian.push({ to: '/beban-kerja', label: mgrOf('beban_kerja') ? 'Beban Kerja' : 'Beban Kerja Saya', icon: Activity })
   kepegawaian.push({ to: '/pelatihan', label: mgrOf('pelatihan') ? 'Pelatihan' : 'Pelatihan Saya', icon: GraduationCap })
   if (mgrOf('kalender_libur')) kepegawaian.push({ to: '/kalender-libur', label: 'Kalender Libur', icon: CalendarOff })
