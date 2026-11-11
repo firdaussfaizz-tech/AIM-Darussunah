@@ -167,6 +167,7 @@ export default function StudentFormModal({ open, onClose, onSaved, schools, init
         </Select>
         <div className="sm:col-span-2">
           <label className="mb-1 block text-[13px] font-medium text-[var(--color-ink)]">Orang Tua Pegawai (opsional — dasar potongan "anak pegawai")</label>
+          <p className="mb-1.5 text-[12px] text-[var(--color-ink-soft)]">Menautkan ke pegawai akan otomatis membebaskan tagihan SPP yang <b>belum dibayar</b> pada tahun ajaran aktif (jadi Rp0). Tagihan yang sudah dibayar tidak berubah.</p>
           {form.employee_ortu_id ? (
             <div className="flex items-center justify-between rounded-md border border-[var(--color-border)] px-3 py-2 text-sm">
               <span>Tertaut ke pegawai: <b>{ortuNama || '—'}</b></span>
