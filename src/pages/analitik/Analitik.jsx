@@ -48,9 +48,12 @@ function trenKehadiran(rows, months) {
   for (const a of rows) {
     if (!a.tanggal) continue
     const key = a.tanggal.slice(0, 7)
+    // Baris dari RPC rekap sudah teragregasi (punya kolom jumlah); fallback 1
+    // bila dipanggil dengan baris mentah.
+    const n = a.jumlah != null ? Number(a.jumlah) : 1
     if (!map[key]) map[key] = { total: 0, hadir: 0 }
-    map[key].total += 1
-    if (a.status === 'hadir') map[key].hadir += 1
+    map[key].total += n
+    if (a.status === 'hadir') map[key].hadir += n
   }
   return bulanRange(months).map((b) => {
     const m = map[b.key]
@@ -174,7 +177,10 @@ export default function Analitik() {
         const isSiswa = reportId === 'kehadiran-siswa'
         const awal = new Date(); awal.setMonth(awal.getMonth() - (months - 1)); awal.setDate(1)
         const awalStr = awal.toISOString().slice(0, 10)
-        const { data } = await supabase.from(isSiswa ? 'presensi_siswa' : 'attendance').select('tanggal, status').gte('tanggal', awalStr)
+        const akhirStr = new Date().toISOString().slice(0, 10)
+        // Agregasi di server (rekap per tanggal×status) — tidak menarik seluruh
+        // baris presensi ke browser.
+        const { data } = await supabase.rpc(isSiswa ? 'rekap_presensi_siswa' : 'rekap_presensi_pegawai', { d1: awalStr, d2: akhirStr })
         const rows = trenKehadiran(data || [], months)
         out = {
           columns: [

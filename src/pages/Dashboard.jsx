@@ -115,7 +115,7 @@ function ManagerDashboard({ hasFullAccess }) {
 
       const [{ data: runs }, { data: att }, { data: emp }, { data: beban }, { data: tugas }, { data: bebanSet }] = await Promise.all([
         supabase.from('payroll_runs').select('id, periode_bulan, periode_tahun, status').order('periode_tahun', { ascending: false }).order('periode_bulan', { ascending: false }),
-        supabase.from('attendance').select('tanggal, status').gte('tanggal', enamBulanLaluStr),
+        supabase.rpc('rekap_presensi_pegawai', { d1: enamBulanLaluStr, d2: today }),
         supabase.from('employees').select('id, schools!school_id(jenjang), positions(nama, tunjangan_jenis, jp_ekuivalensi)').eq('status', 'aktif'),
         supabase.from('employee_beban_kerja').select('*'),
         supabase.from('employee_tugas_tambahan').select('employee_id, tugas_tambahan(nama, jp_ekuivalensi)'),
@@ -218,9 +218,10 @@ function ManagerDashboard({ hasFullAccess }) {
     const map = {}
     for (const a of attendanceTrendRows) {
       const key = a.tanggal.slice(0, 7)
+      const n = Number(a.jumlah || 0)
       if (!map[key]) map[key] = { total: 0, hadir: 0 }
-      map[key].total += 1
-      if (a.status === 'hadir') map[key].hadir += 1
+      map[key].total += n
+      if (a.status === 'hadir') map[key].hadir += n
     }
     const out = []
     const cursor = new Date()

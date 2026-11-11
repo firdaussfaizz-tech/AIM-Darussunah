@@ -55,7 +55,7 @@ function DashboardBody({ lockedSchoolId }) {
   const [presensiRows, setPresensiRows] = useState([]) // presensi HARI INI (dengan nama siswa)
   const [tahunAktif, setTahunAktif] = useState(null)
   const [sppRows, setSppRows] = useState([])
-  const [nilaiSiswaIds, setNilaiSiswaIds] = useState([])
+  const [nilaiDinilai, setNilaiDinilai] = useState(0)
   const [rombelRows, setRombelRows] = useState([])
   const [prestasiRows, setPrestasiRows] = useState([])
 
@@ -86,19 +86,20 @@ function DashboardBody({ lockedSchoolId }) {
 
       if (ta) {
         const semester = tebakSemester()
-        const [{ data: spp }, { data: nilai }, { data: rombel }, { data: prestasi }] = await Promise.all([
+        const [{ data: spp }, { data: dinilai }, { data: rombel }, { data: prestasi }] = await Promise.all([
           supabase.from('spp_tagihan').select('status, nominal_tagihan').eq('tahun_ajaran_id', ta.id).eq('bulan', now.getMonth() + 1).eq('tahun', now.getFullYear()),
-          supabase.from('nilai_siswa').select('siswa_id').eq('tahun_ajaran_id', ta.id).eq('semester', semester),
+          // Hitung di server (distinct) — tidak menarik seluruh baris nilai.
+          supabase.rpc('jumlah_siswa_dinilai', { p_ta: ta.id, p_semester: semester }),
           supabase.from('rombel').select('id, tingkat, school_id, schools!school_id(nama, jenjang)').eq('tahun_ajaran_id', ta.id),
           supabase.from('prestasi_siswa').select('tingkat, kategori, poin').eq('tahun_ajaran_id', ta.id),
         ])
         setSppRows(spp || [])
-        setNilaiSiswaIds([...new Set((nilai || []).map((n) => n.siswa_id))])
+        setNilaiDinilai(Number(dinilai || 0))
         setRombelRows(rombel || [])
         setPrestasiRows(prestasi || [])
       } else {
         setSppRows([])
-        setNilaiSiswaIds([])
+        setNilaiDinilai(0)
         setRombelRows([])
         setPrestasiRows([])
       }
@@ -149,7 +150,9 @@ function DashboardBody({ lockedSchoolId }) {
     if (!showPresensi || !dari || !sampai || dari > sampai) return
     let batal = false
     setLinimasaLoading(true)
-    supabase.from('presensi_siswa').select('tanggal, status').gte('tanggal', dari).lte('tanggal', sampai)
+    // Agregasi di server: kembalikan rekap (tanggal, status, jumlah), bukan
+    // seluruh baris presensi pada rentang.
+    supabase.rpc('rekap_presensi_siswa', { d1: dari, d2: sampai })
       .then(({ data }) => { if (!batal) { setLinimasaRows(data || []); setLinimasaLoading(false) } })
     return () => { batal = true }
   }, [showPresensi, dari, sampai])
@@ -158,13 +161,15 @@ function DashboardBody({ lockedSchoolId }) {
   const linimasa = useMemo(() => {
     const recap = { hadir: 0, izin: 0, sakit: 0, alpa: 0 }
     const perHari = {}
+    let total = 0
     for (const r of linimasaRows) {
-      recap[r.status] = (recap[r.status] || 0) + 1
+      const n = Number(r.jumlah || 0)
+      recap[r.status] = (recap[r.status] || 0) + n
+      total += n
       const d = (perHari[r.tanggal] ||= { total: 0, hadir: 0 })
-      d.total += 1
-      if (r.status === 'hadir') d.hadir += 1
+      d.total += n
+      if (r.status === 'hadir') d.hadir += n
     }
-    const total = linimasaRows.length
     const persen = total > 0 ? Math.round((recap.hadir / total) * 100) : null
     const series = Object.entries(perHari).sort((a, b) => a[0].localeCompare(b[0])).map(([tanggal, d]) => ({
       tanggal,
@@ -202,7 +207,7 @@ function DashboardBody({ lockedSchoolId }) {
   // SEKARANG, sedangkan pembilang bisa mencakup siswa yang saat nilai
   // dicatat masih aktif tapi kemudian berubah status (lulus/pindah/keluar)
   // di tengah semester, jadi rasio mentahnya bisa sedikit di atas 100%.
-  const nilaiProgress = siswaStats.totalAktif > 0 ? Math.min(100, Math.round((nilaiSiswaIds.length / siswaStats.totalAktif) * 100)) : 0
+  const nilaiProgress = siswaStats.totalAktif > 0 ? Math.min(100, Math.round((nilaiDinilai / siswaStats.totalAktif) * 100)) : 0
 
   if (loading) return <FullPageSpinner />
 
@@ -242,7 +247,7 @@ function DashboardBody({ lockedSchoolId }) {
         <StatCard
           label={`Progres Nilai — ${semesterLabel}`}
           value={tahunAktif ? `${nilaiProgress}%` : '—'}
-          sub={tahunAktif ? `${nilaiSiswaIds.length} dari ${siswaStats.totalAktif} siswa aktif sudah punya nilai tercatat` : 'Belum ada tahun ajaran aktif'}
+          sub={tahunAktif ? `${nilaiDinilai} dari ${siswaStats.totalAktif} siswa aktif sudah punya nilai tercatat` : 'Belum ada tahun ajaran aktif'}
         />
         <StatCard
           label={`Prestasi${tahunAktif ? ` — ${tahunAktif.nama}` : ''}`}
