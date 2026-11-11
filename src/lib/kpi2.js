@@ -64,6 +64,18 @@ export const SUMBER_LABEL = {
   rata_nilai_kinerja: 'Rata nilai kinerja (otomatis)',
   tunggakan_spp: 'Kolektibilitas SPP (otomatis)',
 }
+// Teks format perhitungan satu indikator/aspek (target, arah, bobot, sumber).
+export function rumusText(item) {
+  const t = item.target
+  const cap = item.arah === 'naik'
+    ? `Capaian = (Realisasi ÷ ${t}) × 100%`
+    : `Capaian = (${t} ÷ Realisasi) × 100%`
+  const arahNote = item.arah === 'naik' ? 'makin tinggi makin baik' : 'makin rendah makin baik'
+  let s = `${cap} · Skor = min(Capaian, 100) · Kontribusi = Skor × ${item.bobot}% · ${arahNote}`
+  if (item.sumber && item.sumber !== 'manual') s += ` · Sumber: ${SUMBER_LABEL[item.sumber] || item.sumber}`
+  return s
+}
+
 export const tahunPelajaranSekarang = () => {
   const d = new Date(); const y = d.getFullYear()
   return d.getMonth() + 1 >= 7 ? `${y}/${y + 1}` : `${y - 1}/${y}`
