@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Users, Trash2 } from 'lucide-react'
+import { Plus, Search, Users, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, Card, Button, Select, Table, Tr, Td, Badge, EmptyState, FullPageSpinner } from '../../components/ui'
@@ -21,6 +21,8 @@ export default function EmployeeList() {
   const [statusFilter, setStatusFilter] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 25
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -80,6 +82,13 @@ export default function EmployeeList() {
     return matchesSearch && matchesSchool && matchesStatus
   })
 
+  // Paginasi sisi-klien (data pegawai relatif kecil; cukup slice per halaman).
+  const totalHal = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const halAman = Math.min(page, totalHal - 1)
+  const paged = filtered.slice(halAman * PAGE_SIZE, halAman * PAGE_SIZE + PAGE_SIZE)
+  const dari = filtered.length === 0 ? 0 : halAman * PAGE_SIZE + 1
+  const sampai = Math.min(filtered.length, (halAman + 1) * PAGE_SIZE)
+
   return (
     <div>
       <PageHeader
@@ -104,18 +113,18 @@ export default function EmployeeList() {
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-ink-soft)]" />
             <input
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); setPage(0) }}
               placeholder="Cari nama atau NIP…"
               className="w-full rounded-md border border-[var(--color-border)] bg-white py-2 pl-9 pr-3 text-sm focus:border-[var(--color-navy)] focus:outline-none focus:ring-1 focus:ring-[var(--color-navy)]"
             />
           </div>
-          <Select containerClassName="sm:w-48" value={schoolFilter} onChange={(e) => setSchoolFilter(e.target.value)}>
+          <Select containerClassName="sm:w-48" value={schoolFilter} onChange={(e) => { setSchoolFilter(e.target.value); setPage(0) }}>
             <option value="">Semua Unit</option>
             {schools.map((s) => (
               <option key={s.id} value={s.id}>{s.jenjang} — {s.nama}</option>
             ))}
           </Select>
-          <Select containerClassName="sm:w-44" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <Select containerClassName="sm:w-44" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(0) }}>
             <option value="">Semua Status</option>
             <option value="aktif">Aktif</option>
             <option value="cuti">Cuti</option>
@@ -130,8 +139,8 @@ export default function EmployeeList() {
           {filtered.length === 0 ? (
             <EmptyState icon={Users} title="Tidak ada pegawai ditemukan" description="Coba ubah kata kunci pencarian atau filter." />
           ) : (
-            <Table columns={['Nama', 'NIP', 'Unit', 'Jabatan', 'Status Kepegawaian', 'Status', '']}>
-              {filtered.map((e) => (
+            <><Table columns={['Nama', 'NIP', 'Unit', 'Jabatan', 'Status Kepegawaian', 'Status', '']}>
+              {paged.map((e) => (
                 <Tr key={e.id} onClick={() => navigate(`/pegawai/${e.id}`)}>
                   <Td className="font-medium text-[var(--color-ink)]">{e.nama}</Td>
                   <Td className="text-[var(--color-ink-soft)]">{e.nip || '—'}</Td>
@@ -149,6 +158,21 @@ export default function EmployeeList() {
                 </Tr>
               ))}
             </Table>
+            {filtered.length > PAGE_SIZE && (
+              <div className="mt-4 flex flex-col items-center justify-between gap-3 sm:flex-row">
+                <p className="text-[13px] text-[var(--color-ink-soft)]">Menampilkan {dari}–{sampai} dari {filtered.length}</p>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={halAman === 0}>
+                    <ChevronLeft className="h-4 w-4" /> Sebelumnya
+                  </Button>
+                  <span className="text-[13px] text-[var(--color-ink-soft)]">Hal. {halAman + 1} / {totalHal}</span>
+                  <Button size="sm" variant="outline" onClick={() => setPage((p) => (p + 1 < totalHal ? p + 1 : p))} disabled={halAman + 1 >= totalHal}>
+                    Berikutnya <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </div>
       </Card>
