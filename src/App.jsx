@@ -11,6 +11,7 @@ import Login from './pages/auth/Login'
 // lebih ringan dan hanya kode halaman yang sedang dibuka yang diunduh.
 // Shell (Layout), guard rute, dan Login tetap dimuat langsung agar tampil
 // instan tanpa kedip.
+const MainDashboard = lazy(() => import('./pages/MainDashboard'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const EmployeeList = lazy(() => import('./pages/employees/EmployeeList'))
 const EmployeeDetail = lazy(() => import('./pages/employees/EmployeeDetail'))
@@ -69,7 +70,8 @@ export default function App() {
               </RequireAuth>
             }
           >
-            <Route index element={<Dashboard />} />
+            <Route index element={<MainDashboard />} />
+            <Route path="kepegawaian" element={<Dashboard />} />
             <Route path="pegawai" element={<EmployeeList />} />
             <Route path="pegawai/:id" element={<EmployeeDetail />} />
             <Route path="presensi" element={<AttendanceList />} />

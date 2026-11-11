@@ -51,7 +51,9 @@ function navGroupsFor({ isManager, hasFullAccess, employeeId, can, permsReady })
   const mgrOf = (modul) => isManager || (permsReady && can(modul, 'lihat'))
   const fullOf = (modul) => hasFullAccess || (permsReady && can(modul, 'lihat'))
 
-  const kepegawaian = [{ to: '/', label: 'Dasbor', icon: LayoutDashboard, end: true }]
+  // Dasbor kepegawaian kini jadi sub-menu Kepegawaian (/kepegawaian). Dasbor
+  // utama lintas modul ada di item "Dasbor" tersendiri (di atas grup).
+  const kepegawaian = [{ to: '/kepegawaian', label: mgrOf('pegawai') ? 'Dasbor Kepegawaian' : 'Dasbor Kepegawaian Saya', icon: LayoutDashboard }]
   kepegawaian.push({ to: '/pegawai', label: mgrOf('pegawai') ? 'Data Pegawai' : 'Profil Saya', icon: Users })
   kepegawaian.push({ to: '/presensi', label: mgrOf('presensi') ? 'Presensi' : 'Presensi Saya', icon: CalendarCheck })
   kepegawaian.push({ to: '/cuti', label: mgrOf('cuti') ? 'Cuti' : 'Cuti Saya', icon: CalendarClock })
@@ -119,7 +121,7 @@ function navGroupsFor({ isManager, hasFullAccess, employeeId, can, permsReady })
   // HR (hasFullAccess) tidak ditampilkan menu ini sesuai permintaan.
   const pribadi = []
   if (isManager && !hasFullAccess) {
-    pribadi.push({ to: '/?me=1', label: 'Dasbor Saya', icon: LayoutDashboard })
+    pribadi.push({ to: '/kepegawaian?me=1', label: 'Dasbor Saya', icon: LayoutDashboard })
     if (employeeId) pribadi.push({ to: `/pegawai/${employeeId}`, label: 'Profil Saya', icon: Contact })
     pribadi.push({ to: '/presensi?me=1', label: 'Presensi Saya', icon: CalendarCheck })
     pribadi.push({ to: '/cuti?me=1', label: 'Cuti Saya', icon: CalendarClock })
@@ -247,12 +249,11 @@ function Sidebar({ open, onClose }) {
   // Tutup menu yang terbuka setiap kali pindah halaman.
   useEffect(() => { setOpenKey(null) }, [pathname])
 
-  // Dasbor tampil sebagai item langsung di atas grup (bukan di dalam flyout).
-  const dashboard = kepegawaian.find((i) => i.to === '/')
-  const kepItems = kepegawaian.filter((i) => i.to !== '/')
+  // Dasbor UTAMA (lintas modul) tampil sebagai item langsung di atas grup.
+  const dashboard = { to: '/', label: 'Dasbor', icon: LayoutDashboard, end: true }
 
   const groups = [
-    { key: 'kepegawaian', label: 'Kepegawaian', icon: Users, items: kepItems },
+    { key: 'kepegawaian', label: 'Kepegawaian', icon: Users, items: kepegawaian },
     { key: 'kesiswaan', label: 'Kesiswaan', icon: BookOpen, items: kesiswaan },
     { key: 'akademik', label: 'Akademik / Pembelajaran', icon: GraduationCap, items: akademik },
     { key: 'sarpras', label: 'Sarana & Prasarana', icon: Boxes, items: sarpras },
