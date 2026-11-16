@@ -98,6 +98,24 @@ export const PEMELIHARAAN_STATUS_BADGE = {
 }
 export const PEMELIHARAAN_FREKUENSI_OPTIONS = ['Harian', 'Mingguan', 'Bulanan', 'Triwulan', 'Semester', 'Tahunan', 'Insidental']
 
+// Laporan Kerusakan & Permintaan Perbaikan (BAB IX)
+export const KERUSAKAN_STATUS_LABEL = {
+  dilaporkan: 'Dilaporkan — menunggu verifikasi',
+  diverifikasi: 'Diverifikasi — siap diperbaiki',
+  ditolak: 'Ditolak',
+  selesai: 'Selesai diperbaiki',
+}
+export const KERUSAKAN_STATUS_BADGE = {
+  dilaporkan: 'gold',
+  diverifikasi: 'navy',
+  ditolak: 'danger',
+  selesai: 'success',
+}
+export const KERUSAKAN_TINGKAT_OPTIONS = [
+  { value: 'ringan', label: 'Rusak Ringan' },
+  { value: 'berat', label: 'Rusak Berat' },
+]
+
 // Penerimaan & Penyaluran (BAB V)
 export const PENYALURAN_STATUS_LABEL = { diminta: 'Diminta (SPA)', disalurkan: 'Disalurkan (SPPA)', ditolak: 'Ditolak' }
 export const PENYALURAN_STATUS_BADGE = { diminta: 'gold', disalurkan: 'success', ditolak: 'danger' }

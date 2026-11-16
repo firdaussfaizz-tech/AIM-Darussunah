@@ -72,7 +72,8 @@ export const DOKUMEN_LIST = [
   // Pemeliharaan
   { jenis: 'jadwal_pemeliharaan', area: 'Pemeliharaan', label: 'Program & Jadwal Pemeliharaan (dari DKA)', pick: 'school' },
   { jenis: 'jadwal_pemeliharaan_kosong', area: 'Pemeliharaan', label: 'Program & Jadwal Pemeliharaan (formulir kosong)', pick: null },
-  { jenis: 'laporan_kerusakan', area: 'Pemeliharaan', label: 'Laporan Kerusakan & Permintaan Perbaikan (formulir)', pick: null },
+  { jenis: 'laporan_kerusakan', area: 'Pemeliharaan', label: 'Laporan Kerusakan & Permintaan Perbaikan (dari laporan)', pick: 'kerusakan' },
+  { jenis: 'laporan_kerusakan_kosong', area: 'Pemeliharaan', label: 'Laporan Kerusakan & Permintaan Perbaikan (formulir kosong)', pick: null },
   { jenis: 'bast_perbaikan', area: 'Pemeliharaan', label: 'Berita Acara Serah Terima Perbaikan (formulir)', pick: null },
   { jenis: 'logbook_pemeliharaan', area: 'Pemeliharaan', label: 'Logbook Pemeliharaan & Perbaikan', pick: 'school' },
   // Penghapusan
@@ -115,6 +116,10 @@ export async function listRecords(pick, schoolId) {
   if (pick === 'penghapusan') {
     const { data } = await supabase.from('aset_penghapusan').select('id, judul, status').eq('school_id', schoolId).order('created_at', { ascending: false })
     return (data || []).map((r) => ({ id: r.id, label: `${r.judul || 'Usulan'} (${r.status})` }))
+  }
+  if (pick === 'kerusakan') {
+    const { data } = await supabase.from('aset_kerusakan').select('id, status, tanggal_lapor, aset!inner(nama, school_id)').eq('aset.school_id', schoolId).order('tanggal_lapor', { ascending: false })
+    return (data || []).map((r) => ({ id: r.id, label: `${r.aset?.nama} — ${tgl(r.tanggal_lapor)} (${r.status})` }))
   }
   if (pick === 'aset') {
     const { data } = await supabase.from('aset').select('id, kode_aset, nama').eq('school_id', schoolId).eq('status', 'aktif').order('nama')
@@ -182,6 +187,12 @@ export async function loadDokumen(jenis, id) {
     const { data: u } = await supabase.from('aset_penghapusan').select('*, schools!school_id(nama, jenjang), diajukan_nama:aset_penghapusan_diajukan_nama').eq('id', id).maybeSingle()
     const { data: items } = await supabase.from('aset_penghapusan_item').select('*').eq('penghapusan_id', id).order('created_at')
     return { _meta: meta, u, items: items || [], school: u?.schools }
+  }
+  if (g === 'kerusakan') {
+    const { data: k } = await supabase.from('aset_kerusakan')
+      .select('*, aset!inner(nama, kode_aset, school_id, schools!school_id(nama, jenjang), ruangan(nama)), verifikator:verifikator_id(nama)')
+      .eq('id', id).maybeSingle()
+    return { _meta: meta, k, aset: k?.aset, school: k?.aset?.schools }
   }
   if (g === 'aset') {
     const { data: a } = await supabase.from('aset').select('*, schools!school_id(nama, jenjang), ruangan(nama), aset_klasifikasi(kode, uraian)').eq('id', id).maybeSingle()
@@ -734,6 +745,26 @@ const BUILDERS = {
     }
   },
   jadwal_pemeliharaan_kosong: () => ({ judul: 'PROGRAM & JADWAL PEMELIHARAAN', nomor: blank, tables: [{ columns: ['No', 'Nama Aset', 'Jenis Pemeliharaan', 'Frekuensi/Jadwal', 'Pelaksana'], rows: Array.from({ length: 8 }, (_, i) => [i + 1, '', '', '', '']) }], ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'PKS Sarpras', jabatan: '', nama: blank }) }),
-  laporan_kerusakan: () => ({ judul: 'LAPORAN KERUSAKAN & PERMINTAAN PERBAIKAN', nomor: blank, meta: [['Nama Aset', blank], ['Kode Aset', blank], ['Lokasi/Ruangan', blank], ['Tanggal Laporan', blank], ['Pelapor', blank]], intro: 'Dengan ini melaporkan kerusakan aset dan mengajukan permintaan perbaikan sebagai berikut:', tables: [{ columns: ['Uraian Kerusakan', 'Perkiraan Penyebab', 'Usulan Perbaikan / Sparepart'], rows: Array.from({ length: 4 }, () => ['', '', '']) }], narasi: ['Perbaikan ditindaklanjuti oleh Pengurus Yayasan Bidang Sarpras; bila memerlukan sparepart mengikuti prosedur pengadaan.'], ttd: ttdDua({ peran: 'Mengetahui,\nPKS Sarpras', jabatan: '', nama: blank }, { peran: 'Pelapor', jabatan: '', nama: blank }) }),
+  laporan_kerusakan: ({ k, aset, school } = {}) => {
+    if (!k) return { judul: 'LAPORAN KERUSAKAN & PERMINTAAN PERBAIKAN', nomor: blank, narasi: ['Pilih laporan kerusakan untuk mengisi dokumen secara otomatis.'], ttd: ttdDua({ peran: 'Mengetahui,\nPKS Sarpras', jabatan: '', nama: blank }, { peran: 'Pelapor', jabatan: '', nama: blank }) }
+    const SLABEL = { dilaporkan: 'Dilaporkan', diverifikasi: 'Diverifikasi — siap diperbaiki', ditolak: 'Ditolak', selesai: 'Selesai diperbaiki' }
+    return {
+      judul: 'LAPORAN KERUSAKAN & PERMINTAAN PERBAIKAN', nomor: aset?.kode_aset || '', unit: unitName(school),
+      meta: [
+        ['Nama Aset', aset?.nama || '—'], ['Kode Aset', aset?.kode_aset || '—'],
+        ['Lokasi/Ruangan', aset?.ruangan?.nama || '—'], ['Tanggal Laporan', tgl(k?.tanggal_lapor)],
+        ['Pelapor', k?.pelapor || '—'], ['Tingkat Kerusakan', k?.tingkat === 'berat' ? 'Rusak Berat' : 'Rusak Ringan'],
+        ['Perlu Sparepart', k?.perlu_sparepart ? 'Ya — mengikuti prosedur Pengadaan' : 'Tidak'],
+        ['Status', SLABEL[k?.status] || k?.status || '—'],
+        ...(k?.verifikator?.nama ? [['Verifikator', k.verifikator.nama]] : []),
+        ...(k?.catatan_verifikasi ? [['Catatan Verifikasi', k.catatan_verifikasi]] : []),
+      ],
+      intro: 'Dengan ini melaporkan kerusakan aset dan mengajukan permintaan perbaikan sebagai berikut:',
+      tables: [{ columns: ['Uraian Kerusakan', 'Perkiraan Penyebab', 'Usulan Perbaikan / Sparepart'], rows: [[k?.uraian_kerusakan || '—', k?.perkiraan_penyebab || '—', k?.usulan_perbaikan || '—']] }],
+      narasi: ['Perbaikan ditindaklanjuti setelah diverifikasi pengelola; bila memerlukan sparepart mengikuti prosedur Pengadaan. Hasil perbaikan dicatat di Logbook Pemeliharaan.'],
+      ttd: ttdDua({ peran: 'Mengetahui,\nPKS Sarpras', jabatan: '', nama: k?.verifikator?.nama || blank }, { peran: 'Pelapor', jabatan: '', nama: k?.pelapor || blank }),
+    }
+  },
+  laporan_kerusakan_kosong: () => ({ judul: 'LAPORAN KERUSAKAN & PERMINTAAN PERBAIKAN', nomor: blank, meta: [['Nama Aset', blank], ['Kode Aset', blank], ['Lokasi/Ruangan', blank], ['Tanggal Laporan', blank], ['Pelapor', blank]], intro: 'Dengan ini melaporkan kerusakan aset dan mengajukan permintaan perbaikan sebagai berikut:', tables: [{ columns: ['Uraian Kerusakan', 'Perkiraan Penyebab', 'Usulan Perbaikan / Sparepart'], rows: Array.from({ length: 4 }, () => ['', '', '']) }], narasi: ['Perbaikan ditindaklanjuti oleh Pengurus Yayasan Bidang Sarpras; bila memerlukan sparepart mengikuti prosedur pengadaan.'], ttd: ttdDua({ peran: 'Mengetahui,\nPKS Sarpras', jabatan: '', nama: blank }, { peran: 'Pelapor', jabatan: '', nama: blank }) }),
   bast_perbaikan: () => ({ judul: 'BERITA ACARA SERAH TERIMA PERBAIKAN', nomor: blank, meta: [['Nama Aset', blank], ['Kode Aset', blank], ['Pelaksana Perbaikan', blank], ['Tanggal', blank]], intro: 'Pada hari ini telah dilaksanakan serah terima hasil perbaikan aset:', tables: [{ columns: ['Uraian Pekerjaan', 'Bahan/Sparepart', 'Biaya', 'Kondisi Sesudah'], rows: Array.from({ length: 4 }, () => ['', '', '', '']) }], narasi: ['Pekerjaan perbaikan dinyatakan selesai dan aset diterima kembali dalam kondisi layak pakai; hasil dicatat ke Logbook Pemeliharaan.'], ttd: ttdDua({ peran: 'Yang Menyerahkan,\nPelaksana Perbaikan', jabatan: '', nama: blank }, { peran: 'Yang Menerima,\nPKS Sarpras', jabatan: '', nama: blank }) }),
 }

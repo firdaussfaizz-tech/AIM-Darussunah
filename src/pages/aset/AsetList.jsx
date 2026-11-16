@@ -11,6 +11,7 @@ import {
   PENGADAAN_STATUS_LABEL, PENGADAAN_STATUS_BADGE, METODE_REALISASI_OPTIONS,
   PENGGUNAAN_STATUS_LABEL, PENGGUNAAN_STATUS_BADGE, PEMELIHARAAN_JENIS_OPTIONS,
   PEMELIHARAAN_STATUS_LABEL, PEMELIHARAAN_STATUS_BADGE, PEMELIHARAAN_FREKUENSI_OPTIONS,
+  KERUSAKAN_STATUS_LABEL, KERUSAKAN_STATUS_BADGE, KERUSAKAN_TINGKAT_OPTIONS,
   PENYALURAN_STATUS_LABEL, PENYALURAN_STATUS_BADGE, OPNAME_STATUS_LABEL, OPNAME_STATUS_BADGE,
   PENGHAPUSAN_STATUS_LABEL, PENGHAPUSAN_STATUS_BADGE, PENGHAPUSAN_ALASAN_OPTIONS, PENGHAPUSAN_CARA_OPTIONS,
 } from '../../lib/dka'
@@ -3348,16 +3349,20 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
   const canManage = hasFullAccess || managesUnit
   const [rows, setRows] = useState([])
   const [program, setProgram] = useState([])
+  const [kerusakan, setKerusakan] = useState([])
   const [loading, setLoading] = useState(true)
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [prefillItemId, setPrefillItemId] = useState('')
+  const [prefillKerusakan, setPrefillKerusakan] = useState(null)
   const [jadwalRow, setJadwalRow] = useState(null)
+  const [laporOpen, setLaporOpen] = useState(false)
+  const [verifRow, setVerifRow] = useState(null)
 
   const load = useCallback(async () => {
-    if (!schoolId) { setRows([]); setProgram([]); setLoading(false); return }
+    if (!schoolId) { setRows([]); setProgram([]); setKerusakan([]); setLoading(false); return }
     setLoading(true)
-    const [{ data: logs }, { data: prog }] = await Promise.all([
+    const [{ data: logs }, { data: prog }, { data: ker }] = await Promise.all([
       supabase.from('aset_pemeliharaan_log')
         .select('*, aset!inner(id, nama, kode_aset, school_id)')
         .eq('aset.school_id', schoolId).order('tanggal', { ascending: false }),
@@ -3365,12 +3370,23 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
         .select('*, dka_pemeliharaan_item!inner(id, nama_aset, kode_aset, aset_id, jenis_pemeliharaan, lokasi, volume, satuan, dka_usulan!inner(school_id, tahun, judul))')
         .eq('dka_pemeliharaan_item.dka_usulan.school_id', schoolId)
         .order('status').order('jadwal_mulai', { nullsFirst: false }),
+      supabase.from('aset_kerusakan')
+        .select('*, aset!inner(id, nama, kode_aset, school_id, ruangan(nama))')
+        .eq('aset.school_id', schoolId).order('tanggal_lapor', { ascending: false }),
     ])
     setRows(logs || [])
     setProgram(prog || [])
+    setKerusakan(ker || [])
     setLoading(false)
   }, [schoolId])
   useEffect(() => { load() }, [load])
+
+  const verifikasi = async (row, keputusan, catatan) => {
+    const { error } = await supabase.from('aset_kerusakan').update({ status: keputusan, catatan_verifikasi: catatan || null }).eq('id', row.id)
+    if (error) { alert('Gagal: ' + error.message); return }
+    setVerifRow(null); load()
+  }
+  const catatPerbaikan = (k) => { setEditing(null); setPrefillItemId(''); setPrefillKerusakan(k); setFormOpen(true) }
 
   const handleDelete = async (row) => {
     if (!confirm('Hapus catatan pemeliharaan ini?')) return
@@ -3385,20 +3401,54 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
   return (
     <div className="flex flex-col gap-5">
       <UnitBar hasFullAccess={hasFullAccess} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}
-        right={canManage && schoolId && <Button onClick={() => { setEditing(null); setPrefillItemId(''); setFormOpen(true) }}><Plus className="h-4 w-4" /> Catat Pemeliharaan</Button>} />
+        right={canManage && schoolId && (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setLaporOpen(true)}><ShieldAlert className="h-4 w-4" /> Lapor Kerusakan</Button>
+            <Button onClick={() => { setEditing(null); setPrefillItemId(''); setPrefillKerusakan(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Catat Pemeliharaan</Button>
+          </div>
+        )} />
       {!schoolId ? (
         hasFullAccess ? <PemeliharaanRekap onOpen={setSchoolId} /> : <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
       ) : loading ? <FullPageSpinner /> : (
         <>
           <Card className="bg-[var(--color-navy-50)]">
-            <p className="text-[13px] text-[var(--color-ink)]"><b>Alur SOP (BAB IX):</b> <b>DKA Pemeliharaan disahkan</b> → otomatis muncul di <b>Program &amp; Jadwal</b> (direncanakan) → Kepsek/pengelola <b>menjadwalkan</b> (waktu + pelaksana). <b>Pelaksanaan baru dapat dicatat setelah item dijadwalkan</b> → catat Logbook (status otomatis jadi &quot;dilaksanakan&quot;). <b>Perbaikan</b>: Laporan Kerusakan → verifikasi → bila perlu sparepart ikuti prosedur Pengadaan → catat Logbook. <b>Otomatis:</b> kondisi &quot;sesudah&quot; memperbarui Inventaris/KIA/KIR; biaya tercatat sebagai Belanja Pemeliharaan di Buku Kas.</p>
+            <p className="text-[13px] text-[var(--color-ink)]"><b>Alur SOP (BAB IX):</b> <b>DKA Pemeliharaan disahkan</b> → otomatis muncul di <b>Program &amp; Jadwal</b> (direncanakan) → Kepsek/pengelola <b>menjadwalkan</b> (waktu + pelaksana). <b>Pelaksanaan baru dapat dicatat setelah item dijadwalkan</b> → catat Logbook (status otomatis jadi &quot;dilaksanakan&quot;). <b>Perbaikan</b>: <b>Lapor Kerusakan</b> → <b>verifikasi</b> (kondisi aset otomatis diperbarui) → bila perlu sparepart ikuti prosedur Pengadaan → <b>Catat Perbaikan</b> (otomatis jadi &quot;selesai&quot;). <b>Otomatis:</b> kondisi &quot;sesudah&quot; memperbarui Inventaris/KIA/KIR; biaya tercatat sebagai Belanja Pemeliharaan di Buku Kas.</p>
           </Card>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <StatCard label="Program (dari DKA)" value={program.length} />
             <StatCard label="Belum Selesai" value={belumSelesai} accent={belumSelesai ? 'gold' : undefined} />
+            <StatCard label="Laporan Kerusakan" value={kerusakan.filter((k) => k.status !== 'selesai' && k.status !== 'ditolak').length} accent={kerusakan.some((k) => k.status === 'dilaporkan') ? 'gold' : undefined} />
             <StatCard label="Catatan Pemeliharaan" value={rows.length} />
             <StatCard label="Total Biaya" value={formatRupiah(totalBiaya)} accent="gold" />
           </div>
+          <SectionCard title="Laporan Kerusakan & Permintaan Perbaikan" description="Laporkan aset rusak → verifikasi pengelola (kondisi aset otomatis diperbarui) → catat perbaikan. Perbaikan hanya bisa dicatat setelah laporan diverifikasi.">
+            {kerusakan.length === 0 ? (
+              <EmptyState icon={ShieldAlert} title="Belum ada laporan" description="Laporkan kerusakan aset untuk mengajukan permintaan perbaikan." />
+            ) : (
+              <div className="overflow-x-auto">
+                <Table columns={['Tgl', 'Aset', 'Kerusakan', 'Tingkat', 'Pelapor', 'Status', canManage ? '' : null].filter((c) => c !== null)}>
+                  {kerusakan.map((k) => (
+                    <Tr key={k.id}>
+                      <Td className="text-xs">{k.tanggal_lapor ? new Date(k.tanggal_lapor).toLocaleDateString('id-ID') : '—'}</Td>
+                      <Td><span className="font-medium">{k.aset?.nama}</span><span className="block font-mono text-[11px] text-[var(--color-ink-soft)]">{k.aset?.kode_aset || '—'}{k.aset?.ruangan?.nama ? ` · ${k.aset.ruangan.nama}` : ''}</span></Td>
+                      <Td className="text-xs">{k.uraian_kerusakan}{k.perlu_sparepart ? <span className="block text-[11px] text-[var(--color-gold)]">perlu sparepart → Pengadaan</span> : null}</Td>
+                      <Td className="text-xs">{k.tingkat === 'berat' ? 'Rusak Berat' : 'Rusak Ringan'}</Td>
+                      <Td className="text-xs">{k.pelapor || '—'}</Td>
+                      <Td><Badge color={KERUSAKAN_STATUS_BADGE[k.status]}>{KERUSAKAN_STATUS_LABEL[k.status]}</Badge></Td>
+                      {canManage && (
+                        <Td>
+                          <div className="flex items-center justify-end gap-1.5">
+                            {k.status === 'dilaporkan' && <button onClick={() => setVerifRow(k)} className="rounded-md bg-[var(--color-navy)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90">Verifikasi</button>}
+                            {k.status === 'diverifikasi' && <button onClick={() => catatPerbaikan(k)} className="rounded-md bg-[var(--color-navy)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90">Catat Perbaikan</button>}
+                          </div>
+                        </Td>
+                      )}
+                    </Tr>
+                  ))}
+                </Table>
+              </div>
+            )}
+          </SectionCard>
           <SectionCard title="Program & Jadwal Pemeliharaan" description="Otomatis terisi dari item pemeliharaan pada DKA yang telah disahkan Yayasan. Jadwalkan waktu & pelaksana, lalu catat pelaksanaannya.">
             {program.length === 0 ? (
               <EmptyState icon={CalendarClock} title="Belum ada program" description="Program muncul otomatis setelah DKA berisi kebutuhan pemeliharaan disahkan Yayasan." />
@@ -3468,9 +3518,95 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
         </>
       )}
       {schoolId && <DokumenAreaCard area="Pemeliharaan" schoolId={schoolId} />}
-      <PemeliharaanModal open={formOpen} schoolId={schoolId} editing={editing} prefillItemId={prefillItemId} onClose={() => { setFormOpen(false); setEditing(null); setPrefillItemId('') }} onSaved={() => { setFormOpen(false); setEditing(null); setPrefillItemId(''); load() }} />
+      <PemeliharaanModal open={formOpen} schoolId={schoolId} editing={editing} prefillItemId={prefillItemId} prefillKerusakan={prefillKerusakan} onClose={() => { setFormOpen(false); setEditing(null); setPrefillItemId(''); setPrefillKerusakan(null) }} onSaved={() => { setFormOpen(false); setEditing(null); setPrefillItemId(''); setPrefillKerusakan(null); load() }} />
       <JadwalPemeliharaanModal open={!!jadwalRow} row={jadwalRow} onClose={() => setJadwalRow(null)} onSaved={() => { setJadwalRow(null); load() }} />
+      <LaporKerusakanModal open={laporOpen} schoolId={schoolId} onClose={() => setLaporOpen(false)} onSaved={() => { setLaporOpen(false); load() }} />
+      <VerifikasiKerusakanModal row={verifRow} onClose={() => setVerifRow(null)} onDecide={verifikasi} />
     </div>
+  )
+}
+
+function LaporKerusakanModal({ open, schoolId, onClose, onSaved }) {
+  const [f, setF] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    if (!open) return
+    setError('')
+    setF({ aset_id: '', tanggal_lapor: new Date().toISOString().slice(0, 10), pelapor: '', uraian_kerusakan: '', perkiraan_penyebab: '', usulan_perbaikan: '', tingkat: 'ringan', perlu_sparepart: false })
+  }, [open])
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!f.aset_id) { setError('Pilih aset yang rusak dulu.'); return }
+    if (!f.uraian_kerusakan?.trim()) { setError('Isi uraian kerusakan.'); return }
+    setError(''); setSaving(true)
+    const payload = {
+      aset_id: f.aset_id,
+      tanggal_lapor: f.tanggal_lapor || null,
+      pelapor: f.pelapor?.trim() || null,
+      uraian_kerusakan: f.uraian_kerusakan.trim(),
+      perkiraan_penyebab: f.perkiraan_penyebab?.trim() || null,
+      usulan_perbaikan: f.usulan_perbaikan?.trim() || null,
+      tingkat: f.tingkat || 'ringan',
+      perlu_sparepart: !!f.perlu_sparepart,
+    }
+    const { error: err } = await supabase.from('aset_kerusakan').insert(payload)
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onSaved()
+  }
+  return (
+    <Modal open={open} onClose={onClose} title="Lapor Kerusakan & Permintaan Perbaikan" width="max-w-lg">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <AsetPicker schoolId={schoolId} value={f.aset_id} onChange={(id) => set('aset_id', id)} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Tanggal Laporan" type="date" value={f.tanggal_lapor || ''} onChange={(e) => set('tanggal_lapor', e.target.value)} />
+          <Input label="Pelapor" value={f.pelapor || ''} onChange={(e) => set('pelapor', e.target.value)} />
+        </div>
+        <Textarea label="Uraian Kerusakan" value={f.uraian_kerusakan || ''} onChange={(e) => set('uraian_kerusakan', e.target.value)} />
+        <Input label="Perkiraan Penyebab" value={f.perkiraan_penyebab || ''} onChange={(e) => set('perkiraan_penyebab', e.target.value)} />
+        <Input label="Usulan Perbaikan / Sparepart" value={f.usulan_perbaikan || ''} onChange={(e) => set('usulan_perbaikan', e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <Select label="Tingkat Kerusakan" value={f.tingkat || 'ringan'} onChange={(e) => set('tingkat', e.target.value)}>
+            {KERUSAKAN_TINGKAT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </Select>
+          <label className="flex items-center gap-2 self-end pb-2 text-sm text-[var(--color-ink)]">
+            <input type="checkbox" checked={!!f.perlu_sparepart} onChange={(e) => set('perlu_sparepart', e.target.checked)} /> Perlu sparepart (→ Pengadaan)
+          </label>
+        </div>
+        {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose}>Batal</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Kirim Laporan'}</Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function VerifikasiKerusakanModal({ row, onClose, onDecide }) {
+  const [catatan, setCatatan] = useState('')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { if (row) setCatatan('') }, [row])
+  if (!row) return null
+  const decide = async (keputusan) => { setSaving(true); await onDecide(row, keputusan, catatan); setSaving(false) }
+  return (
+    <Modal open={!!row} onClose={onClose} title="Verifikasi Laporan Kerusakan" width="max-w-md">
+      <div className="flex flex-col gap-3">
+        <div className="rounded-lg bg-[var(--color-navy-50)] p-3 text-[13px]">
+          <b>{row.aset?.nama}</b> <span className="font-mono text-[11px] text-[var(--color-ink-soft)]">{row.aset?.kode_aset || ''}</span>
+          <span className="block text-xs text-[var(--color-ink-soft)]">{row.uraian_kerusakan}</span>
+          <span className="block text-xs text-[var(--color-ink-soft)]">Tingkat: {row.tingkat === 'berat' ? 'Rusak Berat' : 'Rusak Ringan'}{row.perlu_sparepart ? ' · perlu sparepart' : ''}</span>
+        </div>
+        <p className="text-xs text-[var(--color-ink-soft)]">Bila disetujui, kondisi aset otomatis diperbarui menjadi rusak sesuai tingkat, dan perbaikan dapat dicatat. Bila perlu sparepart, ajukan lewat prosedur Pengadaan (DKA).</p>
+        <Textarea label="Catatan Verifikasi (opsional)" value={catatan} onChange={(e) => setCatatan(e.target.value)} />
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="danger" disabled={saving} onClick={() => decide('ditolak')}>Tolak</Button>
+          <Button type="button" disabled={saving} onClick={() => decide('diverifikasi')}>Setujui Perbaikan</Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -3536,7 +3672,7 @@ function JadwalPemeliharaanModal({ open, row, onClose, onSaved }) {
   )
 }
 
-function PemeliharaanModal({ open, schoolId, editing, prefillItemId, onClose, onSaved }) {
+function PemeliharaanModal({ open, schoolId, editing, prefillItemId, prefillKerusakan, onClose, onSaved }) {
   const [f, setF] = useState({})
   const [rencana, setRencana] = useState([])
   const [saving, setSaving] = useState(false)
@@ -3547,9 +3683,12 @@ function PemeliharaanModal({ open, schoolId, editing, prefillItemId, onClose, on
     if (!open) return
     setError('')
     if (editing) {
-      setF({ aset_id: editing.aset_id || '', dka_pemeliharaan_item_id: editing.dka_pemeliharaan_item_id || '', tanggal: editing.tanggal || '', jenis: editing.jenis || '', uraian: editing.uraian || '', bahan: editing.bahan || '', biaya: String(editing.biaya ?? '0'), pelaksana: editing.pelaksana || '', kondisi_sebelum: editing.kondisi_sebelum || '', kondisi_sesudah: editing.kondisi_sesudah || '', tindak_lanjut: editing.tindak_lanjut || '' })
+      setF({ aset_id: editing.aset_id || '', dka_pemeliharaan_item_id: editing.dka_pemeliharaan_item_id || '', kerusakan_id: editing.kerusakan_id || '', tanggal: editing.tanggal || '', jenis: editing.jenis || '', uraian: editing.uraian || '', bahan: editing.bahan || '', biaya: String(editing.biaya ?? '0'), pelaksana: editing.pelaksana || '', kondisi_sebelum: editing.kondisi_sebelum || '', kondisi_sesudah: editing.kondisi_sesudah || '', tindak_lanjut: editing.tindak_lanjut || '' })
+    } else if (prefillKerusakan) {
+      // Catat Perbaikan dari Laporan Kerusakan yang diverifikasi.
+      setF({ aset_id: prefillKerusakan.aset_id || '', dka_pemeliharaan_item_id: '', kerusakan_id: prefillKerusakan.id, tanggal: new Date().toISOString().slice(0, 10), jenis: 'Perbaikan', uraian: prefillKerusakan.uraian_kerusakan || '', bahan: '', biaya: '0', pelaksana: '', kondisi_sebelum: prefillKerusakan.tingkat === 'berat' ? 'rusak_berat' : 'rusak_ringan', kondisi_sesudah: 'baik', tindak_lanjut: '' })
     } else {
-      setF({ aset_id: '', dka_pemeliharaan_item_id: '', tanggal: new Date().toISOString().slice(0, 10), jenis: 'Preventif', uraian: '', bahan: '', biaya: '0', pelaksana: '', kondisi_sebelum: '', kondisi_sesudah: '', tindak_lanjut: '' })
+      setF({ aset_id: '', dka_pemeliharaan_item_id: '', kerusakan_id: '', tanggal: new Date().toISOString().slice(0, 10), jenis: 'Preventif', uraian: '', bahan: '', biaya: '0', pelaksana: '', kondisi_sebelum: '', kondisi_sesudah: '', tindak_lanjut: '' })
     }
   }, [open, editing])
   useEffect(() => {
@@ -3582,6 +3721,7 @@ function PemeliharaanModal({ open, schoolId, editing, prefillItemId, onClose, on
     const payload = {
       aset_id: f.aset_id,
       dka_pemeliharaan_item_id: f.dka_pemeliharaan_item_id || null,
+      kerusakan_id: f.kerusakan_id || null,
       tanggal: f.tanggal || null,
       jenis: f.jenis || null,
       uraian: f.uraian?.trim() || null,
