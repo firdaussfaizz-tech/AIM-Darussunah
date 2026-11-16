@@ -39,14 +39,76 @@ function ensureRteStyles() {
   document.head.appendChild(el)
 }
 
-// Sanitasi ringan untuk menampilkan HTML tersimpan (penulis = staf internal
-// tepercaya, tapi tetap buang script/handler agar aman).
+// Sanitasi HTML berbasis DOM dengan ALLOWLIST (bukan regex yang mudah
+// di-bypass, mis. `<img/onerror=...>`). Hanya tag & atribut aman yang
+// dipertahankan; event handler (on*), script/iframe/style, serta skema
+// javascript:/data: dibuang. Mencegah stored-XSS dari konten rich-text /
+// hasil impor dokumen yang kelak ditampilkan ke pengguna lain.
+const TAG_DIIZINKAN = new Set([
+  'p', 'br', 'hr', 'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'sub', 'sup',
+  'ul', 'ol', 'li', 'blockquote', 'pre', 'code', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'a', 'span', 'div', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption', 'img',
+])
+const ATTR_DIIZINKAN = {
+  a: ['href', 'title'],
+  img: ['src', 'alt'],
+  td: ['colspan', 'rowspan'],
+  th: ['colspan', 'rowspan'],
+  '*': ['style'],
+}
+const STYLE_PROP_AMAN = new Set(['text-align', 'font-weight', 'font-style', 'text-decoration', 'color', 'background-color'])
+
+function bersihkanStyle(v) {
+  const out = []
+  for (const bagian of String(v).split(';')) {
+    const idx = bagian.indexOf(':')
+    if (idx < 0) continue
+    const prop = bagian.slice(0, idx).trim().toLowerCase()
+    const val = bagian.slice(idx + 1).trim()
+    if (!STYLE_PROP_AMAN.has(prop)) continue
+    if (/url\s*\(|expression|javascript:|[<>]/i.test(val)) continue
+    out.push(`${prop}:${val}`)
+  }
+  return out.join(';')
+}
+
 export function sanitizeHtml(html) {
   if (!html) return ''
-  return String(html)
-    .replace(/<\s*(script|style|iframe|object|embed)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/(href|src)\s*=\s*("|')\s*javascript:[^"']*\2/gi, '$1=$2#$2')
+  if (typeof window === 'undefined' || !window.DOMParser) {
+    // Fallback non-DOM (sangat jarang): buang tag berisiko secara kasar.
+    return String(html).replace(/<\s*\/?\s*(script|style|iframe|object|embed|svg|math|link|meta)[^>]*>/gi, '')
+  }
+  const doc = new DOMParser().parseFromString(String(html), 'text/html')
+  const walk = (node) => {
+    for (const el of Array.from(node.children)) {
+      const tag = el.tagName.toLowerCase()
+      if (!TAG_DIIZINKAN.has(tag)) {
+        // Tag tak diizinkan: buang elemennya, pertahankan isi teks yang aman.
+        if (tag === 'script' || tag === 'style') el.remove()
+        else { walk(el); el.replaceWith(...Array.from(el.childNodes)) }
+        continue
+      }
+      for (const attr of Array.from(el.attributes)) {
+        const name = attr.name.toLowerCase()
+        const boleh = (ATTR_DIIZINKAN[tag] || []).includes(name) || (ATTR_DIIZINKAN['*'] || []).includes(name)
+        if (!boleh) { el.removeAttribute(attr.name); continue }
+        if (name === 'href') {
+          const v = attr.value.trim().toLowerCase()
+          if (v.startsWith('javascript:') || v.startsWith('data:') || v.startsWith('vbscript:')) el.removeAttribute('href')
+        } else if (name === 'src') {
+          const v = attr.value.trim().toLowerCase()
+          const aman = v.startsWith('http://') || v.startsWith('https://') || v.startsWith('data:image/')
+          if (!aman) el.removeAttribute('src')
+        } else if (name === 'style') {
+          const bersih = bersihkanStyle(attr.value)
+          if (bersih) el.setAttribute('style', bersih); else el.removeAttribute('style')
+        }
+      }
+      walk(el)
+    }
+  }
+  walk(doc.body)
+  return doc.body.innerHTML
 }
 
 export const htmlKosong = (html) => !html || !String(html).replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim()
