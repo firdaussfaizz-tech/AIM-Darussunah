@@ -149,12 +149,13 @@ export async function loadDokumen(jenis, id) {
   if (g === 'dka') {
     const { data: u } = await supabase.from('dka_usulan').select('*, schools!school_id(nama, jenjang), diajukan_nama:dka_usulan_diajukan_nama').eq('id', id).maybeSingle()
     if (!u) return { _meta: meta }
-    const [{ data: items }, { data: pemel }, { data: proses }] = await Promise.all([
+    const [{ data: items }, { data: pemel }, { data: proses }, { data: kerangka }] = await Promise.all([
       supabase.from('dka_usulan_item').select('*, aset_klasifikasi(kode)').eq('usulan_id', id).order('urutan'),
       supabase.from('dka_pemeliharaan_item').select('*').eq('usulan_id', id).order('urutan'),
       supabase.from('dka_pengadaan_proses').select('*, dka_usulan_item!inner(nama_aset, usulan_id)').eq('dka_usulan_item.usulan_id', id),
+      supabase.from('dka_kerangka').select('*').eq('usulan_id', id).maybeSingle(),
     ])
-    return { _meta: meta, u, items: items || [], pemel: pemel || [], proses: proses || [], school: u?.schools }
+    return { _meta: meta, u, items: items || [], pemel: pemel || [], proses: proses || [], school: u?.schools, kerangka: kerangka || null }
   }
   if (g === 'proses') {
     const { data: p } = await supabase.from('dka_pengadaan_proses').select('*, dka_usulan_item(*, dka_usulan(*, schools!school_id(nama, jenjang)))').eq('id', id).maybeSingle()
@@ -482,15 +483,20 @@ const BUILDERS = {
   }),
 
   // ---------------- Formulir kosong (sumber luar / manual) ----------------
-  kerangka_pengadaan: ({ u, items = [], school } = {}) => (u ? {
+  kerangka_pengadaan: ({ u, items = [], school, kerangka: k } = {}) => (u ? {
     judul: 'KERANGKA KERJA PENGADAAN',
     nomor: `Tahun Anggaran ${u?.tahun ?? ''}`,
     unit: unitName(school),
-    meta: [['Unit', unitName(school)], ['Tahun Anggaran', String(u?.tahun ?? '—')], ['Dasar', `DKA ${u?.tahun ?? ''}${u?.judul ? ' — ' + u.judul : ''} (${u?.status || '—'})`]],
+    meta: [['Unit', unitName(school)], ['Tahun Anggaran', String(u?.tahun ?? '—')],
+      ['Dasar', `DKA ${u?.tahun ?? ''}${u?.judul ? ' — ' + u.judul : ''} (${u?.status || '—'})`],
+      ['Status Kerangka', k?.status || '—'],
+      ['Waktu Pelaksanaan', k?.waktu_pelaksanaan || blank],
+      ['Lokasi', k?.lokasi || blank],
+      ['Persyaratan Penyedia', k?.persyaratan_penyedia || blank]],
     tables: [{ columns: ['No', 'Nama Aset', 'Merk & Spesifikasi', 'Jml', 'Sat', 'Harga Satuan', 'Pagu Anggaran'],
       rows: items.map((r, i) => [i + 1, r.nama_aset, r.spesifikasi || '—', Number(r.jumlah_pengajuan), r.satuan, rp(r.harga_satuan), rp(r.jumlah_harga)]),
       footer: ['', '', '', '', '', 'Total Pagu', rp(items.reduce((a, r) => a + Number(r.jumlah_harga || 0), 0))] }],
-    narasi: ['Kerangka kerja disusun berdasarkan DKA yang ditetapkan & RKAS satuan pendidikan. Waktu, lokasi, dan persyaratan penyedia menyesuaikan ketentuan pengadaan satuan pendidikan.'],
+    narasi: [k?.catatan ? `Catatan: ${k.catatan}` : 'Kerangka kerja disusun berdasarkan DKA yang ditetapkan & RKAS satuan pendidikan.'],
     ttd: ttdDua({ peran: 'Menyetujui,\nKetua Yayasan', jabatan: '', nama: blank }, { peran: 'Kepala Satuan Pendidikan', jabatan: '', nama: blank }),
   } : { judul: 'KERANGKA KERJA PENGADAAN', nomor: blank, narasi: ['Pilih DKA yang telah ditetapkan untuk mengisi kerangka ini otomatis.'], ttd: ttdDua({ peran: 'Menyetujui,\nKetua Yayasan', jabatan: '', nama: blank }, { peran: 'Kepala Satuan Pendidikan', jabatan: '', nama: blank }) }),
   surat_penawaran: ({ u, items = [], school } = {}) => (u ? {
