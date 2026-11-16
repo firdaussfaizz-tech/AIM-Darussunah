@@ -194,7 +194,7 @@ export async function loadDokumen(jenis, id) {
     return { _meta: meta, a, school: a?.schools }
   }
   if (g === 'ruangan') {
-    const { data: rg } = await supabase.from('ruangan').select('*, schools!school_id(nama, jenjang)').eq('id', id).maybeSingle()
+    const { data: rg } = await supabase.from('ruangan').select('*, schools!school_id(nama, jenjang, kepala:kepala_sekolah_id(nama, nip))').eq('id', id).maybeSingle()
     const { data: aset } = await supabase.from('aset').select('*, aset_klasifikasi(kode)').eq('ruangan_id', id).eq('status', 'aktif').order('nama')
     return { _meta: meta, rg, aset: aset || [], school: rg?.schools }
   }
@@ -412,10 +412,13 @@ const BUILDERS = {
     judul: 'KARTU INVENTARIS RUANGAN (KIR)',
     nomor: `Ruangan: ${rg?.nama || '—'}`,
     unit: unitName(school),
-    meta: [['Ruangan', rg?.nama || '—'], ['Kode Ruangan', rg?.kode_ruangan || rg?.kode || '—'], ['Penanggung Jawab', rg?.pic_nama || '—']],
+    meta: [['Ruangan', rg?.nama || '—'], ['Kode Ruangan', rg?.kode_ruangan || rg?.kode || '—'], ['Penanggung Jawab', rg?.pic_nama || school?.kepala?.nama || '—']],
     tables: [{ columns: ['No', 'Kode Aset', 'Nama Aset', 'Merk', 'Jml', 'Kondisi'],
       rows: aset.map((r, i) => [i + 1, r.kode_aset || '—', r.nama, r.merk_tipe || '—', Number(r.jumlah ?? 1), kon(r.kondisi)]) }],
-    ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'Penanggung Jawab Ruangan', jabatan: '', nama: rg?.pic_nama || blank }),
+    ttd: ttdDua(
+      { peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: school?.kepala?.nip ? `NIP. ${school.kepala.nip}` : '', nama: school?.kepala?.nama || blank },
+      { peran: 'Penanggung Jawab Ruangan', jabatan: '', nama: rg?.pic_nama || blank },
+    ),
   }),
   buku_inventaris: ({ school, aset = [] }) => ({
     judul: 'BUKU INVENTARIS ASET SATUAN PENDIDIKAN',
