@@ -38,8 +38,9 @@ export const DOKUMEN_LIST = [
   { jenis: 'rencana_pengadaan', area: 'Perencanaan', label: 'Formulir Rencana Kebutuhan Pengadaan Aset', pick: 'dka' },
   { jenis: 'rencana_pemeliharaan', area: 'Perencanaan', label: 'Formulir Rencana Kebutuhan Pemeliharaan Aset', pick: 'dka' },
   // Pengadaan
-  { jenis: 'kerangka_pengadaan', area: 'Pengadaan', label: 'Kerangka Kerja Pengadaan (formulir)', pick: null },
-  { jenis: 'surat_penawaran', area: 'Pengadaan', label: 'Surat Penawaran / Invoice (formulir)', pick: null },
+  { jenis: 'kerangka_pengadaan', area: 'Pengadaan', label: 'Kerangka Kerja Pengadaan (dari DKA)', pick: 'dka' },
+  { jenis: 'surat_penawaran', area: 'Pengadaan', label: 'Permintaan Penawaran / RFQ (dari DKA)', pick: 'dka' },
+  { jenis: 'surat_penawaran_kosong', area: 'Pengadaan', label: 'Surat Penawaran / Invoice (formulir kosong)', pick: null },
   { jenis: 'spk', area: 'Pengadaan', label: 'Surat Perintah Kerja (SPK)', pick: 'proses' },
   { jenis: 'ba_pemeriksaan', area: 'Pengadaan', label: 'Berita Acara Pemeriksaan', pick: 'proses' },
   { jenis: 'bast_pengadaan', area: 'Pengadaan', label: 'Berita Acara Serah Terima (Pengadaan)', pick: 'proses' },
@@ -153,7 +154,7 @@ export async function loadDokumen(jenis, id) {
       supabase.from('dka_pemeliharaan_item').select('*').eq('usulan_id', id).order('urutan'),
       supabase.from('dka_pengadaan_proses').select('*, dka_usulan_item!inner(nama_aset, usulan_id)').eq('dka_usulan_item.usulan_id', id),
     ])
-    return { _meta: meta, u, items: items || [], pemel: pemel || [], proses: proses || [] }
+    return { _meta: meta, u, items: items || [], pemel: pemel || [], proses: proses || [], school: u?.schools }
   }
   if (g === 'proses') {
     const { data: p } = await supabase.from('dka_pengadaan_proses').select('*, dka_usulan_item(*, dka_usulan(*, schools!school_id(nama, jenjang)))').eq('id', id).maybeSingle()
@@ -481,8 +482,28 @@ const BUILDERS = {
   }),
 
   // ---------------- Formulir kosong (sumber luar / manual) ----------------
-  kerangka_pengadaan: () => ({ judul: 'KERANGKA KERJA PENGADAAN', nomor: blank, meta: [['Nama Aset', blank], ['Merk & Spesifikasi', blank], ['Jumlah', blank], ['Harga Satuan', blank], ['Pagu Anggaran', blank], ['Waktu & Lokasi', blank], ['Persyaratan Penyedia', blank]], narasi: ['Formulir disusun berdasarkan DKA yang ditetapkan & RKAS satuan pendidikan.'], ttd: ttdDua({ peran: 'Menyetujui,\nKetua Yayasan', jabatan: '', nama: blank }, { peran: 'Kepala Satuan Pendidikan', jabatan: '', nama: blank }) }),
-  surat_penawaran: () => ({ judul: 'SURAT PENAWARAN / INVOICE', nomor: blank, tables: [{ columns: ['No', 'Nama Barang', 'Spesifikasi', 'Jumlah', 'Harga Satuan', 'Jumlah'], rows: Array.from({ length: 6 }, (_, i) => [i + 1, '', '', '', '', '']) }], ttd: [{ peran: 'Hormat kami,\nPenyedia', jabatan: '', nama: blank }] }),
+  kerangka_pengadaan: ({ u, items = [], school } = {}) => (u ? {
+    judul: 'KERANGKA KERJA PENGADAAN',
+    nomor: `Tahun Anggaran ${u?.tahun ?? ''}`,
+    unit: unitName(school),
+    meta: [['Unit', unitName(school)], ['Tahun Anggaran', String(u?.tahun ?? '—')], ['Dasar', `DKA ${u?.tahun ?? ''}${u?.judul ? ' — ' + u.judul : ''} (${u?.status || '—'})`]],
+    tables: [{ columns: ['No', 'Nama Aset', 'Merk & Spesifikasi', 'Jml', 'Sat', 'Harga Satuan', 'Pagu Anggaran'],
+      rows: items.map((r, i) => [i + 1, r.nama_aset, r.spesifikasi || '—', Number(r.jumlah_pengajuan), r.satuan, rp(r.harga_satuan), rp(r.jumlah_harga)]),
+      footer: ['', '', '', '', '', 'Total Pagu', rp(items.reduce((a, r) => a + Number(r.jumlah_harga || 0), 0))] }],
+    narasi: ['Kerangka kerja disusun berdasarkan DKA yang ditetapkan & RKAS satuan pendidikan. Waktu, lokasi, dan persyaratan penyedia menyesuaikan ketentuan pengadaan satuan pendidikan.'],
+    ttd: ttdDua({ peran: 'Menyetujui,\nKetua Yayasan', jabatan: '', nama: blank }, { peran: 'Kepala Satuan Pendidikan', jabatan: '', nama: blank }),
+  } : { judul: 'KERANGKA KERJA PENGADAAN', nomor: blank, narasi: ['Pilih DKA yang telah ditetapkan untuk mengisi kerangka ini otomatis.'], ttd: ttdDua({ peran: 'Menyetujui,\nKetua Yayasan', jabatan: '', nama: blank }, { peran: 'Kepala Satuan Pendidikan', jabatan: '', nama: blank }) }),
+  surat_penawaran: ({ u, items = [], school } = {}) => (u ? {
+    judul: 'PERMINTAAN PENAWARAN HARGA (RFQ)',
+    nomor: blank,
+    unit: unitName(school),
+    meta: [['Unit', unitName(school)], ['Tahun Anggaran', String(u?.tahun ?? '—')]],
+    tables: [{ columns: ['No', 'Nama Barang', 'Spesifikasi', 'Jumlah', 'Satuan', 'Harga Satuan', 'Jumlah'],
+      rows: items.map((r, i) => [i + 1, r.nama_aset, r.spesifikasi || '—', Number(r.jumlah_pengajuan), r.satuan, blank, blank]) }],
+    narasi: ['Daftar barang & spesifikasi di atas diambil dari DKA yang ditetapkan. Mohon penyedia mengisi kolom Harga Satuan dan Jumlah, lalu membubuhkan tanda tangan & stempel.'],
+    ttd: [{ peran: 'Hormat kami,\nPenyedia', jabatan: '', nama: blank }],
+  } : { judul: 'PERMINTAAN PENAWARAN HARGA (RFQ)', nomor: blank, narasi: ['Pilih DKA yang telah ditetapkan untuk memuat daftar barang.'], ttd: [{ peran: 'Hormat kami,\nPenyedia', jabatan: '', nama: blank }] }),
+  surat_penawaran_kosong: () => ({ judul: 'SURAT PENAWARAN / INVOICE', nomor: blank, tables: [{ columns: ['No', 'Nama Barang', 'Spesifikasi', 'Jumlah', 'Harga Satuan', 'Jumlah'], rows: Array.from({ length: 6 }, (_, i) => [i + 1, '', '', '', '', '']) }], ttd: [{ peran: 'Hormat kami,\nPenyedia', jabatan: '', nama: blank }] }),
   kartu_persediaan: () => ({ judul: 'KARTU PERSEDIAAN ASET', nomor: blank, meta: [['Nama Barang', blank], ['Satuan', blank]], tables: [{ columns: ['Tanggal', 'Uraian', 'Masuk', 'Keluar', 'Saldo'], rows: Array.from({ length: 10 }, () => ['', '', '', '', '']) }], ttd: [{ peran: 'Petugas Gudang / Tata Usaha', jabatan: '', nama: blank }] }),
   buku_persediaan: ({ b, trx = [], school }) => {
     let saldo = 0
