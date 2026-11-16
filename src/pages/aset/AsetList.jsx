@@ -2318,9 +2318,20 @@ function KerangkaPanel({ usulan, kerangka, hasFullAccess, managesUnit, onChanged
 
   const status = kerangka.status
   const meta = KERANGKA_META[status] || KERANGKA_META.draft
-  const bisaSusun = (managesUnit || hasFullAccess) && (status === 'draft' || status === 'ditolak')
+  const canAct = managesUnit || hasFullAccess
+  const bisaSusun = canAct && (status === 'draft' || status === 'ditolak')
   const bisaSahkan = hasFullAccess && status === 'diajukan'
+  const bisaKembalikan = canAct && (status === 'diajukan' || status === 'disahkan')
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }))
+
+  const kembalikanDraft = async () => {
+    if (!confirm('Kembalikan Kerangka Kerja ke status Draft untuk direvisi? Selama belum disahkan ulang, "Catat Pemesanan" akan nonaktif.')) return
+    setBusy(true); setMsg('')
+    const { error } = await supabase.from('dka_kerangka').update({ status: 'draft', direviu_oleh: null, direviu_nama: null, direviu_at: null, catatan_reviu: null }).eq('id', kerangka.id)
+    setBusy(false)
+    if (error) { setMsg('Gagal: ' + error.message); return }
+    onChanged()
+  }
 
   const ajukan = async () => {
     setBusy(true); setMsg('')
@@ -2355,6 +2366,7 @@ function KerangkaPanel({ usulan, kerangka, hasFullAccess, managesUnit, onChanged
         <Badge color={meta.color}>{meta.label}</Badge>
         {kerangka.disusun?.nama && <span className="text-[12px] text-[var(--color-ink-soft)]">Disusun: {kerangka.disusun.nama}</span>}
         {kerangka.direviu?.nama && <span className="text-[12px] text-[var(--color-ink-soft)]">· Diputuskan: {kerangka.direviu.nama}</span>}
+        {bisaKembalikan && <Button size="sm" variant="ghost" className="ml-auto" onClick={kembalikanDraft} disabled={busy}><RotateCcw className="h-3.5 w-3.5" /> Kembalikan ke Draft</Button>}
       </div>
       {status === 'ditolak' && kerangka.catatan_reviu && (
         <p className="mb-3 rounded-[10px] bg-[var(--color-danger-soft)] px-3 py-2 text-[13px] text-[var(--color-danger)]">Ditolak: {kerangka.catatan_reviu}</p>
