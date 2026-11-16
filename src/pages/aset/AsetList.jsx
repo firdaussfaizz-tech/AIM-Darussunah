@@ -3078,8 +3078,9 @@ function DokumenPreviewModal({ jenis, id, onClose }) {
             <div key={ti} className="overflow-x-auto">
               <Table columns={t.columns}>
                 {(t.rows || []).map((row, ri) => (
-                  <Tr key={ri}>{row.map((cell, ci) => <Td key={ci} className="text-xs">{String(cell ?? '')}</Td>)}</Tr>
+                  <Tr key={ri}>{row.map((cell, ci) => <Td key={ci} className="whitespace-pre-line text-xs align-top">{String(cell ?? '')}</Td>)}</Tr>
                 ))}
+                {t.footer && <Tr>{t.footer.map((cell, ci) => <Td key={ci} className="text-xs font-semibold">{String(cell ?? '')}</Td>)}</Tr>}
               </Table>
               {(t.rows || []).length === 0 && <p className="py-2 text-xs text-[var(--color-ink-soft)]">(formulir kosong — akan dicetak sebagai blanko)</p>}
             </div>

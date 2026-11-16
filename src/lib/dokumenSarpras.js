@@ -152,7 +152,7 @@ export async function loadDokumen(jenis, id) {
     const [{ data: items }, { data: pemel }, { data: proses }, { data: kerangka }] = await Promise.all([
       supabase.from('dka_usulan_item').select('*, aset_klasifikasi(kode)').eq('usulan_id', id).order('urutan'),
       supabase.from('dka_pemeliharaan_item').select('*').eq('usulan_id', id).order('urutan'),
-      supabase.from('dka_pengadaan_proses').select('*, dka_usulan_item!inner(nama_aset, usulan_id)').eq('dka_usulan_item.usulan_id', id),
+      supabase.from('dka_pengadaan_proses').select('*, dka_usulan_item!inner(nama_aset, spesifikasi, satuan, usulan_id), aset:aset_id(kode_aset, kondisi, nilai_perolehan, ruangan(nama))').eq('dka_usulan_item.usulan_id', id),
       supabase.from('dka_kerangka').select('*').eq('usulan_id', id).maybeSingle(),
     ])
     return { _meta: meta, u, items: items || [], pemel: pemel || [], proses: proses || [], school: u?.schools, kerangka: kerangka || null }
@@ -258,15 +258,49 @@ const BUILDERS = {
       footer: ['', '', '', '', '', '', '', '', '', 'Total', rp(pemel.reduce((a, r) => a + Number(r.jumlah_biaya || 0), 0))] }],
     ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'Penyusun,\nWakasek/PKS Sarpras', jabatan: '', nama: blank }),
   }),
-  daftar_hasil_pengadaan: ({ u, proses = [], school }) => ({
-    judul: 'DAFTAR HASIL PENGADAAN ASET',
-    nomor: `Tahun Anggaran ${u?.tahun ?? ''}`,
-    unit: unitName(school),
-    meta: [['Unit', unitName(school)], ['Tahun Anggaran', String(u?.tahun ?? '—')]],
-    tables: [{ columns: ['No', 'Nama Aset', 'Metode', 'Penyedia', 'No. SPK/Nota', 'Jml', 'Harga Satuan', 'Status'],
-      rows: proses.map((r, i) => [i + 1, r.dka_usulan_item?.nama_aset || '—', r.metode_realisasi || '—', r.penyedia || '—', r.nomor_spk || r.nomor_bukti || '—', Number(r.jumlah_realisasi ?? 0), rp(r.harga_realisasi), r.status]) }],
-    ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'Tata Usaha / Sarpras', jabatan: '', nama: blank }),
-  }),
+  daftar_hasil_pengadaan: ({ u, proses = [], school }) => {
+    const totalNilai = proses.reduce((a, r) => a + Number(r.jumlah_realisasi ?? 0) * Number(r.harga_realisasi ?? 0), 0)
+    const sudahDiterima = proses.filter((r) => r.status === 'diterima').length
+    return {
+      judul: 'DAFTAR HASIL PENGADAAN ASET',
+      nomor: `Tahun Anggaran ${u?.tahun ?? ''}`,
+      unit: unitName(school),
+      orientasi: 'landscape',
+      meta: [['Unit', unitName(school)], ['Tahun Anggaran', String(u?.tahun ?? '—')],
+        ['Jumlah Item', `${proses.length} item · ${sudahDiterima} diterima`],
+        ['Total Nilai Realisasi', rp(totalNilai)]],
+      tables: [{
+        columns: ['No', 'Kode Aset', 'Nama & Spesifikasi', 'Jml', 'Metode / Penyedia', 'No. SPK / Nota (Tgl)', 'Harga / Jumlah', 'Pemeriksaan', 'Serah Terima', 'Status / Kondisi / Lokasi'],
+        rows: proses.map((r, i) => {
+          const it = r.dka_usulan_item || {}; const a = r.aset || {}
+          const qty = Number(r.jumlah_realisasi ?? 0); const totalBaris = qty * Number(r.harga_realisasi ?? 0)
+          const spk = r.nomor_spk || r.nomor_bukti || '—'
+          const periksa = r.ba_pemeriksaan_hasil
+            ? `${r.ba_pemeriksaan_hasil === 'sesuai' ? 'Sesuai' : 'Tidak sesuai'}${r.ba_pemeriksaan_tanggal ? '\n' + tgl(r.ba_pemeriksaan_tanggal) : ''}${r.nomor_ba_pemeriksaan ? '\n' + r.nomor_ba_pemeriksaan : ''}`
+            : '—'
+          const serah = r.ba_serah_terima_tanggal
+            ? `${tgl(r.ba_serah_terima_tanggal)}${r.nomor_ba_serah_terima ? '\n' + r.nomor_ba_serah_terima : ''}`
+            : '—'
+          const statusLokasi = [r.status, a.kondisi ? kon(a.kondisi) : null, a.ruangan?.nama ? '@ ' + a.ruangan.nama : null].filter(Boolean).join('\n')
+          return [
+            i + 1,
+            a.kode_aset || '—',
+            `${it.nama_aset || '—'}${it.spesifikasi ? '\n' + it.spesifikasi : ''}`,
+            `${qty} ${it.satuan || ''}`.trim(),
+            `${r.metode_realisasi || '—'}${r.penyedia ? '\n' + r.penyedia : ''}`,
+            `${spk}${r.tanggal_spk ? '\n' + tgl(r.tanggal_spk) : ''}`,
+            `${rp(r.harga_realisasi)}\n= ${rp(totalBaris)}`,
+            periksa,
+            serah,
+            statusLokasi,
+          ]
+        }),
+        footer: ['', '', '', '', '', '', `Total ${rp(totalNilai)}`, '', '', ''],
+      }],
+      narasi: ['Item berstatus "diterima" otomatis tercatat di Inventaris (KIA) dan Penyaluran.'],
+      ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'Tata Usaha / Sarpras', jabatan: '', nama: blank }),
+    }
+  },
 
   // ---------------- Pengadaan ----------------
   spk: ({ p, item, u, school }) => ({
