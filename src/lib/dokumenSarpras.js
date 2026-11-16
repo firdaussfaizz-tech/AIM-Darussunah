@@ -51,8 +51,10 @@ export const DOKUMEN_LIST = [
   { jenis: 'kartu_persediaan', area: 'Penerimaan & Penyaluran', label: 'Kartu Persediaan Aset (penerimaan → penyaluran)', pick: 'aset' },
   { jenis: 'kartu_persediaan_kosong', area: 'Penerimaan & Penyaluran', label: 'Kartu Persediaan Aset (formulir kosong)', pick: null },
   { jenis: 'buku_persediaan', area: 'Penerimaan & Penyaluran', label: 'Buku Persediaan (Kartu Stok Barang Habis Pakai)', pick: 'bhp' },
-  { jenis: 'buku_pengeluaran', area: 'Penerimaan & Penyaluran', label: 'Buku Pengeluaran Barang', pick: 'school' },
-  { jenis: 'bukti_pengambilan', area: 'Penerimaan & Penyaluran', label: 'Bukti Pengambilan Aset (formulir)', pick: null },
+  { jenis: 'buku_pengeluaran', area: 'Penerimaan & Penyaluran', label: 'Buku Pengeluaran Barang (BHP + penyaluran aset)', pick: 'school' },
+  { jenis: 'laporan_realisasi_penyaluran', area: 'Penerimaan & Penyaluran', label: 'Laporan Realisasi Penyaluran Barang', pick: 'school' },
+  { jenis: 'bukti_pengambilan', area: 'Penerimaan & Penyaluran', label: 'Bukti Pengambilan Aset (dari penyaluran)', pick: 'penyaluran' },
+  { jenis: 'bukti_pengambilan_kosong', area: 'Penerimaan & Penyaluran', label: 'Bukti Pengambilan Aset (formulir kosong)', pick: null },
   // Penggunaan
   { jenis: 'surat_pengajuan_penggunaan', area: 'Penggunaan', label: 'Surat Pengajuan Status Penggunaan (formulir)', pick: null },
   { jenis: 'ba_penggunaan', area: 'Penggunaan', label: 'Berita Acara Status Penggunaan', pick: 'penggunaan' },
@@ -208,8 +210,19 @@ export async function loadDokumen(jenis, id) {
       return { _meta: meta, school, logs: logs || [] }
     }
     if (jenis === 'buku_pengeluaran') {
-      const { data: trx } = await supabase.from('bhp_transaksi').select('*, barang_habis_pakai!inner(nama, satuan, school_id)').eq('jenis', 'keluar').eq('barang_habis_pakai.school_id', id).order('tanggal', { ascending: false })
-      return { _meta: meta, school, trx: trx || [] }
+      // Gabungan pengeluaran: BHP keluar + penyaluran aset tetap (disalurkan).
+      const [{ data: trx }, { data: penyaluran }] = await Promise.all([
+        supabase.from('bhp_transaksi').select('*, barang_habis_pakai!inner(nama, satuan, school_id)').eq('jenis', 'keluar').eq('barang_habis_pakai.school_id', id).order('tanggal', { ascending: false }),
+        supabase.from('aset_penyaluran').select('*, aset!inner(nama, kode_aset, satuan, school_id), ruangan:ruangan_tujuan_id(nama)').eq('aset.school_id', id).eq('status', 'disalurkan'),
+      ])
+      return { _meta: meta, school, trx: trx || [], penyaluran: penyaluran || [] }
+    }
+    if (jenis === 'laporan_realisasi_penyaluran') {
+      // Semua permintaan penyaluran (SPA) + status realisasinya (SPPA).
+      const { data: penyaluran } = await supabase.from('aset_penyaluran')
+        .select('*, aset!inner(nama, kode_aset, satuan, school_id), ruangan:ruangan_tujuan_id(nama)')
+        .eq('aset.school_id', id).order('tanggal_permintaan', { ascending: false })
+      return { _meta: meta, school, penyaluran: penyaluran || [] }
     }
     // Buku Inventaris & Buku Induk: hanya aset AKTIF (aset 'dihapus' lewat
     // SK Penghapusan sudah keluar dari inventaris).
@@ -609,13 +622,76 @@ const BUILDERS = {
       ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'Petugas / Tata Usaha', jabatan: '', nama: blank }),
     }
   },
-  buku_pengeluaran: ({ school, trx = [] }) => ({
-    judul: 'BUKU PENGELUARAN BARANG', nomor: unitName(school), unit: unitName(school),
-    tables: [{ columns: ['No', 'Tanggal', 'Barang', 'Jumlah', 'Satuan', 'Penerima/Tujuan', 'Keterangan'],
-      rows: trx.map((t, i) => [i + 1, tgl(t.tanggal), t.barang_habis_pakai?.nama || '—', Number(t.jumlah), t.barang_habis_pakai?.satuan || '—', t.sumber_tujuan || '—', t.keterangan || '—']) }],
-    ttd: [{ peran: 'Tata Usaha', jabatan: '', nama: blank }],
-  }),
-  bukti_pengambilan: () => ({ judul: 'BUKTI PENGAMBILAN ASET', nomor: blank, meta: [['Nama Pengambil', blank], ['Unit/Jabatan', blank], ['Tanggal', blank]], tables: [{ columns: ['Nama Aset', 'Kode', 'Jumlah', 'Keperluan'], rows: Array.from({ length: 4 }, () => ['', '', '', '']) }], ttd: ttdDua({ peran: 'Pengambil', jabatan: '', nama: blank }, { peran: 'Petugas', jabatan: '', nama: blank }) }),
+  buku_pengeluaran: ({ school, trx = [], penyaluran = [] }) => {
+    const items = []
+    for (const t of trx) items.push({
+      t: t.tanggal, barang: t.barang_habis_pakai?.nama || '—', jumlah: Number(t.jumlah || 0),
+      satuan: t.barang_habis_pakai?.satuan || '—', tujuan: t.sumber_tujuan || '—',
+      ket: t.keterangan || 'BHP',
+    })
+    for (const p of penyaluran) items.push({
+      t: p.tanggal_penyaluran || p.tanggal_permintaan,
+      barang: `${p.aset?.nama || '—'}${p.aset?.kode_aset ? ' (' + p.aset.kode_aset + ')' : ''}`,
+      jumlah: Number(p.jumlah || 0), satuan: p.aset?.satuan || 'unit',
+      tujuan: `${p.ruangan?.nama || p.tujuan_lokasi || '—'}${p.penerima ? ' / ' + p.penerima : ''}`,
+      ket: `Penyaluran aset${p.nomor_sppa ? ' · SPPA ' + p.nomor_sppa : ''}`,
+    })
+    items.sort((a, b) => String(b.t || '').localeCompare(String(a.t || '')))
+    const rows = items.map((r, i) => [i + 1, tgl(r.t), r.barang, r.jumlah, r.satuan, r.tujuan, r.ket])
+    return {
+      judul: 'BUKU PENGELUARAN BARANG', nomor: unitName(school), unit: unitName(school),
+      tables: [{ columns: ['No', 'Tanggal', 'Barang', 'Jumlah', 'Satuan', 'Penerima/Tujuan', 'Keterangan'], rows }],
+      narasi: rows.length ? ['Memuat pengeluaran Barang Habis Pakai (dari menu BHP) dan penyaluran aset tetap yang telah disalurkan (SPPA).'] : ['Belum ada pengeluaran barang. Catat pengeluaran BHP di menu Barang Habis Pakai, atau salurkan aset melalui Penyaluran (SPA → SPPA).'],
+      ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'Petugas Gudang / Tata Usaha', jabatan: '', nama: blank }),
+      orientasi: 'landscape',
+    }
+  },
+  laporan_realisasi_penyaluran: ({ school, penyaluran = [] }) => {
+    const LBL = { diminta: 'Diminta (belum disalurkan)', disalurkan: 'Disalurkan', ditolak: 'Ditolak' }
+    const rows = penyaluran.map((p, i) => [
+      i + 1,
+      `${p.aset?.nama || '—'}${p.aset?.kode_aset ? '\n' + p.aset.kode_aset : ''}`,
+      `${Number(p.jumlah || 0)} ${p.aset?.satuan || 'unit'}`,
+      `${p.ruangan?.nama || p.tujuan_lokasi || '—'}${p.penerima ? '\n' + p.penerima : ''}`,
+      `SPA: ${p.nomor_spa || '—'}\n${tgl(p.tanggal_permintaan)}`,
+      `SPPA: ${p.nomor_sppa || '—'}\n${p.tanggal_penyaluran ? tgl(p.tanggal_penyaluran) : '—'}`,
+      LBL[p.status] || p.status || '—',
+    ])
+    const n = penyaluran.length
+    const nReal = penyaluran.filter((p) => p.status === 'disalurkan').length
+    const nMinta = penyaluran.filter((p) => p.status === 'diminta').length
+    const nTolak = penyaluran.filter((p) => p.status === 'ditolak').length
+    const pct = n ? Math.round((nReal / n) * 100) : 0
+    return {
+      judul: 'LAPORAN REALISASI PENYALURAN BARANG', nomor: unitName(school), unit: unitName(school),
+      meta: [
+        ['Total Permintaan (SPA)', `${n} permintaan`],
+        ['Disalurkan (SPPA)', `${nReal} permintaan`],
+        ['Belum Disalurkan', `${nMinta} permintaan`],
+        ['Ditolak', `${nTolak} permintaan`],
+        ['Tingkat Realisasi', `${pct}%`],
+      ],
+      tables: [{ columns: ['No', 'Aset', 'Jumlah', 'Tujuan / Penerima', 'Permintaan (SPA)', 'Realisasi (SPPA)', 'Status'], rows }],
+      narasi: n ? ['Realisasi dihitung dari permintaan penyaluran (SPA) yang telah berstatus "Disalurkan" (SPPA terbit) dibanding seluruh permintaan.'] : ['Belum ada permintaan penyaluran. Realisasi terbentuk saat Penyaluran (SPA) disahkan menjadi "disalurkan" (SPPA).'],
+      ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'Petugas Gudang / Tata Usaha', jabatan: '', nama: blank }),
+      orientasi: 'landscape',
+    }
+  },
+  bukti_pengambilan: ({ r, aset, school } = {}) => {
+    if (!r) return { judul: 'BUKTI PENGAMBILAN ASET', nomor: blank, narasi: ['Pilih data penyaluran untuk mengisi bukti pengambilan secara otomatis.'], ttd: ttdDua({ peran: 'Pengambil', jabatan: '', nama: blank }, { peran: 'Petugas Gudang', jabatan: '', nama: blank }) }
+    return {
+      judul: 'BUKTI PENGAMBILAN ASET', nomor: r?.nomor_sppa || r?.nomor_spa || blank, unit: unitName(school),
+      meta: [
+        ['Nama Pengambil', r?.penerima || blank],
+        ['Unit/Tujuan', r?.ruangan?.nama || r?.tujuan_lokasi || blank],
+        ['Tanggal', r?.tanggal_penyaluran ? tgl(r.tanggal_penyaluran) : tgl(r?.tanggal_permintaan)],
+        ['Dasar', `SPA ${r?.nomor_spa || '—'}${r?.nomor_sppa ? ' · SPPA ' + r.nomor_sppa : ''}`],
+      ],
+      tables: [{ columns: ['Nama Aset', 'Kode', 'Jumlah', 'Keperluan'], rows: [[aset?.nama || '—', aset?.kode_aset || '—', `${Number(r?.jumlah || 0)} ${aset?.satuan || 'unit'}`, r?.keterangan || '—']] }],
+      ttd: ttdDua({ peran: 'Yang Mengambil,\nPengambil', jabatan: '', nama: r?.penerima || blank }, { peran: 'Yang Menyerahkan,\nPetugas Gudang', jabatan: '', nama: blank }),
+    }
+  },
+  bukti_pengambilan_kosong: () => ({ judul: 'BUKTI PENGAMBILAN ASET', nomor: blank, meta: [['Nama Pengambil', blank], ['Unit/Jabatan', blank], ['Tanggal', blank]], tables: [{ columns: ['Nama Aset', 'Kode', 'Jumlah', 'Keperluan'], rows: Array.from({ length: 4 }, () => ['', '', '', '']) }], ttd: ttdDua({ peran: 'Pengambil', jabatan: '', nama: blank }, { peran: 'Petugas', jabatan: '', nama: blank }) }),
   surat_pengajuan_penggunaan: () => ({ judul: 'SURAT PENGAJUAN STATUS PENGGUNAAN', nomor: blank, intro: 'Dengan ini mengajukan permohonan penggunaan aset untuk mendukung pelaksanaan tugas sebagai berikut:', tables: [{ columns: ['Nama Aset', 'Jumlah', 'Keperluan/Tugas'], rows: Array.from({ length: 4 }, () => ['', '', '']) }], ttd: ttdDua({ peran: 'Menyetujui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'Pemohon', jabatan: '', nama: blank }) }),
   rencana_inventarisasi: () => ({ judul: 'RENCANA KERJA INVENTARISASI', nomor: blank, meta: [['Tim Inventarisasi', blank], ['Periode', blank], ['Lokasi/Ruangan', blank]], tables: [{ columns: ['No', 'Kegiatan', 'Jadwal', 'Penanggung Jawab'], rows: Array.from({ length: 6 }, (_, i) => [i + 1, '', '', '']) }], ttd: ttdDua({ peran: 'Menyetujui,\nPengurus Yayasan Bidang Sarpras', jabatan: '', nama: blank }, { peran: 'Ketua Tim Inventarisasi', jabatan: '', nama: blank }) }),
   jadwal_pemeliharaan: () => ({ judul: 'PROGRAM & JADWAL PEMELIHARAAN', nomor: blank, tables: [{ columns: ['No', 'Nama Aset', 'Jenis Pemeliharaan', 'Frekuensi/Jadwal', 'Pelaksana'], rows: Array.from({ length: 8 }, (_, i) => [i + 1, '', '', '', '']) }], ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'PKS Sarpras', jabatan: '', nama: blank }) }),
