@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Boxes, Plus, Pencil, Trash2, DoorOpen, ShieldAlert, Search, ClipboardList, Send, CheckCircle2, RotateCcw, Download, Tag, BookOpen, Clock3, ShieldCheck, Truck, ClipboardCheck, PackageCheck, Wrench, UserCheck, ScanLine, ArchiveX, Printer, Package, Info, MessageSquare } from 'lucide-react'
+import { Boxes, Plus, Pencil, Trash2, DoorOpen, ShieldAlert, Search, ClipboardList, Send, CheckCircle2, RotateCcw, Download, Tag, BookOpen, Clock3, ShieldCheck, Truck, ClipboardCheck, PackageCheck, Wrench, UserCheck, ScanLine, ArchiveX, Printer, Package, Info, MessageSquare, CalendarClock } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Input, Select, Textarea, EmptyState, FullPageSpinner, StatCard } from '../../components/ui'
@@ -10,6 +10,7 @@ import {
   SUMBER_ANGGARAN_OPTIONS, JENIS_PEMELIHARAAN_OPTIONS, validasiHargaItem,
   PENGADAAN_STATUS_LABEL, PENGADAAN_STATUS_BADGE, METODE_REALISASI_OPTIONS,
   PENGGUNAAN_STATUS_LABEL, PENGGUNAAN_STATUS_BADGE, PEMELIHARAAN_JENIS_OPTIONS,
+  PEMELIHARAAN_STATUS_LABEL, PEMELIHARAAN_STATUS_BADGE, PEMELIHARAAN_FREKUENSI_OPTIONS,
   PENYALURAN_STATUS_LABEL, PENYALURAN_STATUS_BADGE, OPNAME_STATUS_LABEL, OPNAME_STATUS_BADGE,
   PENGHAPUSAN_STATUS_LABEL, PENGHAPUSAN_STATUS_BADGE, PENGHAPUSAN_ALASAN_OPTIONS, PENGHAPUSAN_CARA_OPTIONS,
 } from '../../lib/dka'
@@ -3346,19 +3347,27 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
   const managesUnit = useMemo(() => !!mySchools.find((s) => s.id === schoolId)?.kelola, [mySchools, schoolId])
   const canManage = hasFullAccess || managesUnit
   const [rows, setRows] = useState([])
+  const [program, setProgram] = useState([])
   const [loading, setLoading] = useState(true)
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState(null)
+  const [prefillItemId, setPrefillItemId] = useState('')
+  const [jadwalRow, setJadwalRow] = useState(null)
 
   const load = useCallback(async () => {
-    if (!schoolId) { setRows([]); setLoading(false); return }
+    if (!schoolId) { setRows([]); setProgram([]); setLoading(false); return }
     setLoading(true)
-    const { data } = await supabase
-      .from('aset_pemeliharaan_log')
-      .select('*, aset!inner(id, nama, kode_aset, school_id)')
-      .eq('aset.school_id', schoolId)
-      .order('tanggal', { ascending: false })
-    setRows(data || [])
+    const [{ data: logs }, { data: prog }] = await Promise.all([
+      supabase.from('aset_pemeliharaan_log')
+        .select('*, aset!inner(id, nama, kode_aset, school_id)')
+        .eq('aset.school_id', schoolId).order('tanggal', { ascending: false }),
+      supabase.from('dka_pemeliharaan_proses')
+        .select('*, dka_pemeliharaan_item!inner(id, nama_aset, kode_aset, aset_id, jenis_pemeliharaan, lokasi, volume, satuan, dka_usulan!inner(school_id, tahun, judul))')
+        .eq('dka_pemeliharaan_item.dka_usulan.school_id', schoolId)
+        .order('status').order('jadwal_mulai', { nullsFirst: false }),
+    ])
+    setRows(logs || [])
+    setProgram(prog || [])
     setLoading(false)
   }, [schoolId])
   useEffect(() => { load() }, [load])
@@ -3369,23 +3378,59 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
     if (error) { alert('Gagal: ' + error.message); return }
     load()
   }
+  const catatPelaksanaan = (p) => { setEditing(null); setPrefillItemId(p.dka_pemeliharaan_item?.id || ''); setFormOpen(true) }
   const totalBiaya = useMemo(() => rows.reduce((a, r) => a + Number(r.biaya || 0), 0), [rows])
+  const belumSelesai = useMemo(() => program.filter((p) => p.status !== 'dilaksanakan').length, [program])
 
   return (
     <div className="flex flex-col gap-5">
       <UnitBar hasFullAccess={hasFullAccess} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}
-        right={canManage && schoolId && <Button onClick={() => { setEditing(null); setFormOpen(true) }}><Plus className="h-4 w-4" /> Catat Pemeliharaan</Button>} />
+        right={canManage && schoolId && <Button onClick={() => { setEditing(null); setPrefillItemId(''); setFormOpen(true) }}><Plus className="h-4 w-4" /> Catat Pemeliharaan</Button>} />
       {!schoolId ? (
         hasFullAccess ? <PemeliharaanRekap onOpen={setSchoolId} /> : <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
       ) : loading ? <FullPageSpinner /> : (
         <>
           <Card className="bg-[var(--color-navy-50)]">
-            <p className="text-[13px] text-[var(--color-ink)]"><b>Alur SOP (BAB IX):</b> <b>Pemeliharaan</b> terjadwal berpedoman Daftar Kebutuhan Pemeliharaan (DKA) → catat Logbook. <b>Perbaikan</b>: Laporan Kerusakan → verifikasi → bila perlu sparepart ikuti prosedur Pengadaan → laksanakan (boleh eksternal + BAST Perbaikan) → catat Logbook. <b>Otomatis:</b> kondisi &quot;sesudah&quot; memperbarui Inventaris/KIA/KIR; biaya tercatat sebagai Belanja Pemeliharaan di Buku Kas; aset rusak ringan dari Inventarisasi muncul di sini sebagai &quot;perlu perbaikan&quot;.</p>
+            <p className="text-[13px] text-[var(--color-ink)]"><b>Alur SOP (BAB IX):</b> <b>DKA Pemeliharaan disahkan</b> → otomatis muncul di <b>Program &amp; Jadwal</b> (direncanakan) → Kepsek/pengelola <b>menjadwalkan</b> (waktu + pelaksana) → <b>laksanakan &amp; catat Logbook</b> (status otomatis jadi &quot;dilaksanakan&quot;). <b>Perbaikan</b>: Laporan Kerusakan → verifikasi → bila perlu sparepart ikuti prosedur Pengadaan → catat Logbook. <b>Otomatis:</b> kondisi &quot;sesudah&quot; memperbarui Inventaris/KIA/KIR; biaya tercatat sebagai Belanja Pemeliharaan di Buku Kas.</p>
           </Card>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="Program (dari DKA)" value={program.length} />
+            <StatCard label="Belum Selesai" value={belumSelesai} accent={belumSelesai ? 'gold' : undefined} />
             <StatCard label="Catatan Pemeliharaan" value={rows.length} />
             <StatCard label="Total Biaya" value={formatRupiah(totalBiaya)} accent="gold" />
           </div>
+          <SectionCard title="Program & Jadwal Pemeliharaan" description="Otomatis terisi dari item pemeliharaan pada DKA yang telah disahkan Yayasan. Jadwalkan waktu & pelaksana, lalu catat pelaksanaannya.">
+            {program.length === 0 ? (
+              <EmptyState icon={CalendarClock} title="Belum ada program" description="Program muncul otomatis setelah DKA berisi kebutuhan pemeliharaan disahkan Yayasan." />
+            ) : (
+              <div className="overflow-x-auto">
+                <Table columns={['Aset', 'Jenis', 'Lokasi', 'Frekuensi', 'Jadwal', 'Pelaksana', 'Status', canManage ? '' : null].filter((c) => c !== null)}>
+                  {program.map((p) => {
+                    const it = p.dka_pemeliharaan_item || {}
+                    return (
+                      <Tr key={p.id}>
+                        <Td><span className="font-medium">{it.nama_aset}</span><span className="block font-mono text-[11px] text-[var(--color-ink-soft)]">{it.kode_aset || '—'}</span></Td>
+                        <Td className="text-xs">{it.jenis_pemeliharaan || '—'}</Td>
+                        <Td className="text-xs">{it.lokasi || '—'}</Td>
+                        <Td className="text-xs">{p.frekuensi || '—'}</Td>
+                        <Td className="text-xs">{p.jadwal_mulai ? new Date(p.jadwal_mulai).toLocaleDateString('id-ID') : '—'}{p.jadwal_selesai ? ` – ${new Date(p.jadwal_selesai).toLocaleDateString('id-ID')}` : ''}</Td>
+                        <Td className="text-xs">{p.pelaksana || '—'}</Td>
+                        <Td><Badge color={PEMELIHARAAN_STATUS_BADGE[p.status]}>{PEMELIHARAAN_STATUS_LABEL[p.status]}</Badge></Td>
+                        {canManage && (
+                          <Td>
+                            <div className="flex justify-end gap-1.5">
+                              <button onClick={() => setJadwalRow(p)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Jadwalkan"><CalendarClock className="h-4 w-4" /></button>
+                              {p.status !== 'dilaksanakan' && it.aset_id && <button onClick={() => catatPelaksanaan(p)} className="rounded-md bg-[var(--color-navy)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90">Catat Pelaksanaan</button>}
+                            </div>
+                          </Td>
+                        )}
+                      </Tr>
+                    )
+                  })}
+                </Table>
+              </div>
+            )}
+          </SectionCard>
           <SectionCard title="Logbook Pemeliharaan & Perbaikan" description="Kondisi 'sesudah' otomatis memperbarui kondisi aset di Inventaris; biaya otomatis tercatat sebagai Belanja Pemeliharaan di Buku Kas.">
             {rows.length === 0 ? (
               <EmptyState icon={Wrench} title="Belum ada catatan" description="Catat pelaksanaan pemeliharaan/perbaikan aset." />
@@ -3408,7 +3453,7 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
                       {canManage && (
                         <Td>
                           <div className="flex justify-end gap-1.5">
-                            <button onClick={() => { setEditing(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
+                            <button onClick={() => { setEditing(r); setPrefillItemId(''); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
                             <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
                           </div>
                         </Td>
@@ -3422,12 +3467,75 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
         </>
       )}
       {schoolId && <DokumenAreaCard area="Pemeliharaan" schoolId={schoolId} />}
-      <PemeliharaanModal open={formOpen} schoolId={schoolId} editing={editing} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={() => { setFormOpen(false); setEditing(null); load() }} />
+      <PemeliharaanModal open={formOpen} schoolId={schoolId} editing={editing} prefillItemId={prefillItemId} onClose={() => { setFormOpen(false); setEditing(null); setPrefillItemId('') }} onSaved={() => { setFormOpen(false); setEditing(null); setPrefillItemId(''); load() }} />
+      <JadwalPemeliharaanModal open={!!jadwalRow} row={jadwalRow} onClose={() => setJadwalRow(null)} onSaved={() => { setJadwalRow(null); load() }} />
     </div>
   )
 }
 
-function PemeliharaanModal({ open, schoolId, editing, onClose, onSaved }) {
+function JadwalPemeliharaanModal({ open, row, onClose, onSaved }) {
+  const [f, setF] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    if (!open || !row) return
+    setError('')
+    setF({ status: row.status || 'direncanakan', frekuensi: row.frekuensi || '', jadwal_mulai: row.jadwal_mulai || '', jadwal_selesai: row.jadwal_selesai || '', pelaksana: row.pelaksana || '', catatan: row.catatan || '' })
+  }, [open, row])
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError(''); setSaving(true)
+    // Bila dijadwalkan tapi status masih 'direncanakan', naikkan ke 'dijadwalkan'.
+    let status = f.status
+    if (status === 'direncanakan' && (f.jadwal_mulai || f.pelaksana || f.frekuensi)) status = 'dijadwalkan'
+    const payload = {
+      status,
+      frekuensi: f.frekuensi?.trim() || null,
+      jadwal_mulai: f.jadwal_mulai || null,
+      jadwal_selesai: f.jadwal_selesai || null,
+      pelaksana: f.pelaksana?.trim() || null,
+      catatan: f.catatan?.trim() || null,
+    }
+    const { error: err } = await supabase.from('dka_pemeliharaan_proses').update(payload).eq('id', row.id)
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    onSaved()
+  }
+  const it = row?.dka_pemeliharaan_item || {}
+  return (
+    <Modal open={open} onClose={onClose} title="Jadwalkan Pemeliharaan" width="max-w-lg">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <div className="rounded-lg bg-[var(--color-navy-50)] p-3 text-[13px]">
+          <b>{it.nama_aset}</b> <span className="font-mono text-[11px] text-[var(--color-ink-soft)]">{it.kode_aset || ''}</span>
+          <span className="block text-xs text-[var(--color-ink-soft)]">{it.jenis_pemeliharaan || '—'}{it.lokasi ? ` · ${it.lokasi}` : ''}</span>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Select label="Frekuensi" value={f.frekuensi || ''} onChange={(e) => set('frekuensi', e.target.value)}>
+            <option value="">— pilih —</option>
+            {PEMELIHARAAN_FREKUENSI_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </Select>
+          <Select label="Status" value={f.status || 'direncanakan'} onChange={(e) => set('status', e.target.value)}>
+            {Object.entries(PEMELIHARAAN_STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </Select>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Jadwal Mulai" type="date" value={f.jadwal_mulai || ''} onChange={(e) => set('jadwal_mulai', e.target.value)} />
+          <Input label="Jadwal Selesai" type="date" value={f.jadwal_selesai || ''} onChange={(e) => set('jadwal_selesai', e.target.value)} />
+        </div>
+        <Input label="Pelaksana (internal / eksternal)" value={f.pelaksana || ''} onChange={(e) => set('pelaksana', e.target.value)} />
+        <Textarea label="Catatan" value={f.catatan || ''} onChange={(e) => set('catatan', e.target.value)} />
+        {error && <p className="text-sm text-[var(--color-danger)]">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose}>Batal</Button>
+          <Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan Jadwal'}</Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function PemeliharaanModal({ open, schoolId, editing, prefillItemId, onClose, onSaved }) {
   const [f, setF] = useState({})
   const [rencana, setRencana] = useState([])
   const [saving, setSaving] = useState(false)
@@ -3450,6 +3558,12 @@ function PemeliharaanModal({ open, schoolId, editing, onClose, onSaved }) {
       .eq('dka_usulan.school_id', schoolId).eq('dka_usulan.status', 'disahkan')
       .then(({ data }) => setRencana((data || []).filter((r) => r.aset_id)))
   }, [open, schoolId])
+  // Prefill dari Program & Jadwal ("Catat Pelaksanaan").
+  useEffect(() => {
+    if (!open || editing || !prefillItemId || !rencana.length) return
+    const r = rencana.find((x) => x.id === prefillItemId)
+    if (r) setF((s) => ({ ...s, dka_pemeliharaan_item_id: r.id, aset_id: r.aset_id || s.aset_id, jenis: r.jenis_pemeliharaan || s.jenis, kondisi_sebelum: r.kondisi || s.kondisi_sebelum }))
+  }, [open, editing, prefillItemId, rencana])
 
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
   const pickRencana = (id) => {

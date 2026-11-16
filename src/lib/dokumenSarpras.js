@@ -70,7 +70,8 @@ export const DOKUMEN_LIST = [
   { jenis: 'ba_inventarisasi', area: 'Inventarisasi', label: 'Berita Acara Hasil Inventarisasi', pick: 'opname' },
   { jenis: 'laporan_aset', area: 'Inventarisasi', label: 'Laporan Aset (Semester/Tahunan)', pick: 'school' },
   // Pemeliharaan
-  { jenis: 'jadwal_pemeliharaan', area: 'Pemeliharaan', label: 'Program & Jadwal Pemeliharaan (formulir)', pick: null },
+  { jenis: 'jadwal_pemeliharaan', area: 'Pemeliharaan', label: 'Program & Jadwal Pemeliharaan (dari DKA)', pick: 'school' },
+  { jenis: 'jadwal_pemeliharaan_kosong', area: 'Pemeliharaan', label: 'Program & Jadwal Pemeliharaan (formulir kosong)', pick: null },
   { jenis: 'laporan_kerusakan', area: 'Pemeliharaan', label: 'Laporan Kerusakan & Permintaan Perbaikan (formulir)', pick: null },
   { jenis: 'bast_perbaikan', area: 'Pemeliharaan', label: 'Berita Acara Serah Terima Perbaikan (formulir)', pick: null },
   { jenis: 'logbook_pemeliharaan', area: 'Pemeliharaan', label: 'Logbook Pemeliharaan & Perbaikan', pick: 'school' },
@@ -216,6 +217,14 @@ export async function loadDokumen(jenis, id) {
         supabase.from('aset_penyaluran').select('*, aset!inner(nama, kode_aset, satuan, school_id), ruangan:ruangan_tujuan_id(nama)').eq('aset.school_id', id).eq('status', 'disalurkan'),
       ])
       return { _meta: meta, school, trx: trx || [], penyaluran: penyaluran || [] }
+    }
+    if (jenis === 'jadwal_pemeliharaan') {
+      const { data: school2 } = await supabase.from('schools').select('id, nama, jenjang, kepala:kepala_sekolah_id(nama, nip)').eq('id', id).maybeSingle()
+      const { data: program } = await supabase.from('dka_pemeliharaan_proses')
+        .select('*, dka_pemeliharaan_item!inner(nama_aset, kode_aset, jenis_pemeliharaan, lokasi, volume, satuan, dka_usulan!inner(school_id, tahun))')
+        .eq('dka_pemeliharaan_item.dka_usulan.school_id', id)
+        .order('jadwal_mulai', { nullsFirst: false })
+      return { _meta: meta, school: school2, program: program || [] }
     }
     if (jenis === 'laporan_realisasi_penyaluran') {
       // Semua permintaan penyaluran (SPA) + status realisasinya (SPPA).
@@ -697,7 +706,34 @@ const BUILDERS = {
   bukti_pengambilan_kosong: () => ({ judul: 'BUKTI PENGAMBILAN ASET', nomor: blank, meta: [['Nama Pengambil', blank], ['Unit/Jabatan', blank], ['Tanggal', blank]], tables: [{ columns: ['Nama Aset', 'Kode', 'Jumlah', 'Keperluan'], rows: Array.from({ length: 4 }, () => ['', '', '', '']) }], ttd: ttdDua({ peran: 'Pengambil', jabatan: '', nama: blank }, { peran: 'Petugas', jabatan: '', nama: blank }) }),
   surat_pengajuan_penggunaan: () => ({ judul: 'SURAT PENGAJUAN STATUS PENGGUNAAN', nomor: blank, intro: 'Dengan ini mengajukan permohonan penggunaan aset untuk mendukung pelaksanaan tugas sebagai berikut:', tables: [{ columns: ['Nama Aset', 'Jumlah', 'Keperluan/Tugas'], rows: Array.from({ length: 4 }, () => ['', '', '']) }], ttd: ttdDua({ peran: 'Menyetujui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'Pemohon', jabatan: '', nama: blank }) }),
   rencana_inventarisasi: () => ({ judul: 'RENCANA KERJA INVENTARISASI', nomor: blank, meta: [['Tim Inventarisasi', blank], ['Periode', blank], ['Lokasi/Ruangan', blank]], tables: [{ columns: ['No', 'Kegiatan', 'Jadwal', 'Penanggung Jawab'], rows: Array.from({ length: 6 }, (_, i) => [i + 1, '', '', '']) }], ttd: ttdDua({ peran: 'Menyetujui,\nPengurus Yayasan Bidang Sarpras', jabatan: '', nama: blank }, { peran: 'Ketua Tim Inventarisasi', jabatan: '', nama: blank }) }),
-  jadwal_pemeliharaan: () => ({ judul: 'PROGRAM & JADWAL PEMELIHARAAN', nomor: blank, tables: [{ columns: ['No', 'Nama Aset', 'Jenis Pemeliharaan', 'Frekuensi/Jadwal', 'Pelaksana'], rows: Array.from({ length: 8 }, (_, i) => [i + 1, '', '', '', '']) }], ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'PKS Sarpras', jabatan: '', nama: blank }) }),
+  jadwal_pemeliharaan: ({ school, program = [] } = {}) => {
+    const SLABEL = { direncanakan: 'Direncanakan', dijadwalkan: 'Dijadwalkan', dilaksanakan: 'Dilaksanakan', ditunda: 'Ditunda' }
+    const rows = program.map((p, i) => {
+      const it = p.dka_pemeliharaan_item || {}
+      const jadwal = `${p.jadwal_mulai ? tgl(p.jadwal_mulai) : '—'}${p.jadwal_selesai ? ' s/d ' + tgl(p.jadwal_selesai) : ''}`
+      return [
+        i + 1,
+        `${it.nama_aset || '—'}${it.kode_aset ? '\n' + it.kode_aset : ''}`,
+        it.jenis_pemeliharaan || '—',
+        it.lokasi || '—',
+        p.frekuensi || '—',
+        jadwal,
+        p.pelaksana || '—',
+        SLABEL[p.status] || p.status || '—',
+      ]
+    })
+    return {
+      judul: 'PROGRAM & JADWAL PEMELIHARAAN', nomor: unitName(school), unit: unitName(school),
+      tables: [{ columns: ['No', 'Aset', 'Jenis', 'Lokasi', 'Frekuensi', 'Jadwal', 'Pelaksana', 'Status'], rows }],
+      narasi: rows.length ? ['Program disusun otomatis dari kebutuhan pemeliharaan pada DKA yang telah disahkan Yayasan.'] : ['Belum ada program pemeliharaan. Program muncul otomatis setelah DKA berisi kebutuhan pemeliharaan disahkan.'],
+      ttd: ttdDua(
+        { peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: school?.kepala?.nip ? `NIP. ${school.kepala.nip}` : '', nama: school?.kepala?.nama || blank },
+        { peran: 'PKS Sarpras', jabatan: '', nama: blank },
+      ),
+      orientasi: 'landscape',
+    }
+  },
+  jadwal_pemeliharaan_kosong: () => ({ judul: 'PROGRAM & JADWAL PEMELIHARAAN', nomor: blank, tables: [{ columns: ['No', 'Nama Aset', 'Jenis Pemeliharaan', 'Frekuensi/Jadwal', 'Pelaksana'], rows: Array.from({ length: 8 }, (_, i) => [i + 1, '', '', '', '']) }], ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'PKS Sarpras', jabatan: '', nama: blank }) }),
   laporan_kerusakan: () => ({ judul: 'LAPORAN KERUSAKAN & PERMINTAAN PERBAIKAN', nomor: blank, meta: [['Nama Aset', blank], ['Kode Aset', blank], ['Lokasi/Ruangan', blank], ['Tanggal Laporan', blank], ['Pelapor', blank]], intro: 'Dengan ini melaporkan kerusakan aset dan mengajukan permintaan perbaikan sebagai berikut:', tables: [{ columns: ['Uraian Kerusakan', 'Perkiraan Penyebab', 'Usulan Perbaikan / Sparepart'], rows: Array.from({ length: 4 }, () => ['', '', '']) }], narasi: ['Perbaikan ditindaklanjuti oleh Pengurus Yayasan Bidang Sarpras; bila memerlukan sparepart mengikuti prosedur pengadaan.'], ttd: ttdDua({ peran: 'Mengetahui,\nPKS Sarpras', jabatan: '', nama: blank }, { peran: 'Pelapor', jabatan: '', nama: blank }) }),
   bast_perbaikan: () => ({ judul: 'BERITA ACARA SERAH TERIMA PERBAIKAN', nomor: blank, meta: [['Nama Aset', blank], ['Kode Aset', blank], ['Pelaksana Perbaikan', blank], ['Tanggal', blank]], intro: 'Pada hari ini telah dilaksanakan serah terima hasil perbaikan aset:', tables: [{ columns: ['Uraian Pekerjaan', 'Bahan/Sparepart', 'Biaya', 'Kondisi Sesudah'], rows: Array.from({ length: 4 }, () => ['', '', '', '']) }], narasi: ['Pekerjaan perbaikan dinyatakan selesai dan aset diterima kembali dalam kondisi layak pakai; hasil dicatat ke Logbook Pemeliharaan.'], ttd: ttdDua({ peran: 'Yang Menyerahkan,\nPelaksana Perbaikan', jabatan: '', nama: blank }, { peran: 'Yang Menerima,\nPKS Sarpras', jabatan: '', nama: blank }) }),
 }

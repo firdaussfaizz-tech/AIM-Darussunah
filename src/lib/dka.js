@@ -83,6 +83,21 @@ export const PENGGUNAAN_STATUS_BADGE = { aktif: 'navy', dikembalikan: 'neutral' 
 // Pemeliharaan pelaksanaan (BAB IX)
 export const PEMELIHARAAN_JENIS_OPTIONS = ['Preventif', 'Korektif', 'Perbaikan']
 
+// Program & Jadwal Pemeliharaan (turunan DKA pemeliharaan yang disahkan)
+export const PEMELIHARAAN_STATUS_LABEL = {
+  direncanakan: 'Direncanakan (dari DKA)',
+  dijadwalkan: 'Dijadwalkan',
+  dilaksanakan: 'Dilaksanakan',
+  ditunda: 'Ditunda',
+}
+export const PEMELIHARAAN_STATUS_BADGE = {
+  direncanakan: 'neutral',
+  dijadwalkan: 'gold',
+  dilaksanakan: 'success',
+  ditunda: 'danger',
+}
+export const PEMELIHARAAN_FREKUENSI_OPTIONS = ['Harian', 'Mingguan', 'Bulanan', 'Triwulan', 'Semester', 'Tahunan', 'Insidental']
+
 // Penerimaan & Penyaluran (BAB V)
 export const PENYALURAN_STATUS_LABEL = { diminta: 'Diminta (SPA)', disalurkan: 'Disalurkan (SPPA)', ditolak: 'Ditolak' }
 export const PENYALURAN_STATUS_BADGE = { diminta: 'gold', disalurkan: 'success', ditolak: 'danger' }
