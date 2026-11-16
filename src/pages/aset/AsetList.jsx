@@ -93,23 +93,27 @@ function PenghapusanRekap({ onOpen }) {
 // Tiap area = satu halaman /aset/:area (menu dropdown di Sidebar). Konten
 // dipilih dari SARPRAS_AREAS berdasarkan slug pada URL.
 export default function AsetList() {
-  const { isManager, hasFullAccess, roles, can, permsReady, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, roles, employee, can, permsReady, loading: authLoading } = useAuth()
   const { area } = useParams()
   const [sopOpen, setSopOpen] = useState(false)
 
+  // Daftar unit yang relevan untuk pengguna. `kelola: true` = boleh mengelola
+  // (menulis); `kelola: false` = hanya boleh MELIHAT (mis. Guru → unitnya
+  // sendiri). Tombol aksi digerbang oleh flag ini, jadi Guru hanya read-only.
   const mySchools = useMemo(() => {
     const seen = new Map()
     for (const r of roles) {
-      // Kenali peran manajer unit BAIK dari enum lama (admin_sekolah/
-      // kepala_sekolah) MAUPUN dari model peran dinamis (tingkat_akses
-      // 'manajer_unit', mis. Kepala Sekolah yang perannya via jabatan).
       const manajerUnit = ['admin_sekolah', 'kepala_sekolah'].includes(r.role) || r.roles?.tingkat_akses === 'manajer_unit'
       if (manajerUnit && r.school_id && !seen.has(r.school_id)) {
-        seen.set(r.school_id, { id: r.school_id, nama: r.schools?.nama, jenjang: r.schools?.jenjang })
+        seen.set(r.school_id, { id: r.school_id, nama: r.schools?.nama, jenjang: r.schools?.jenjang, kelola: true })
       }
     }
+    // Unit pegawai sendiri (mis. Guru) — tampil untuk dilihat, bukan dikelola.
+    if (employee?.school_id && !seen.has(employee.school_id)) {
+      seen.set(employee.school_id, { id: employee.school_id, nama: employee.schools?.nama, jenjang: employee.schools?.jenjang, kelola: false })
+    }
     return Array.from(seen.values())
-  }, [roles])
+  }, [roles, employee])
 
   if (authLoading) return <FullPageSpinner />
   const bolehLihat = permsReady ? can('sarpras', 'lihat') : isManager
@@ -334,6 +338,7 @@ function KlasifikasiPicker({ klasifikasiList, value, onChange, disabled }) {
 // =========================================================================
 function InventarisTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
+  const canKelola = hasFullAccess || !!mySchools.find((s) => s.id === schoolId)?.kelola
   const [klasifikasiList, setKlasifikasiList] = useState([])
   const [golonganMap, setGolonganMap] = useState({})
   const [ruanganList, setRuanganList] = useState([])
@@ -425,7 +430,7 @@ function InventarisTab({ hasFullAccess, mySchools }) {
         </div>
         <div className="flex flex-wrap gap-2">
           {hasFullAccess && <Button variant="outline" onClick={() => openCetak('buku_induk_inventaris')} title="Himpunan Buku Inventaris seluruh unit (Yayasan)"><Printer className="h-4 w-4" /> Buku Induk Inventaris</Button>}
-          <Button onClick={() => { setEditingRow(null); setFormOpen(true) }} disabled={!schoolId && !hasFullAccess}><Plus className="h-4 w-4" /> Tambah Aset</Button>
+          {canKelola && <Button onClick={() => { setEditingRow(null); setFormOpen(true) }} disabled={!schoolId}><Plus className="h-4 w-4" /> Tambah Aset</Button>}
         </div>
       </div>
 
@@ -458,8 +463,8 @@ function InventarisTab({ hasFullAccess, mySchools }) {
                 <Td>
                   {r.status !== 'dihapus' && (
                     <div className="flex justify-end gap-1.5">
-                      <button onClick={() => { setEditingRow(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
-                      <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                      {canKelola && <button onClick={() => { setEditingRow(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>}
+                      {canKelola && <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>}
                     </div>
                   )}
                 </Td>
@@ -606,6 +611,7 @@ function nextKodeRuangan(rows, unitKode, excludeId) {
 
 function RuanganTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
+  const canKelola = hasFullAccess || !!mySchools.find((s) => s.id === schoolId)?.kelola
   const [rows, setRows] = useState([])
   const [counts, setCounts] = useState({})
   const [unitKerjaList, setUnitKerjaList] = useState([])
@@ -692,10 +698,10 @@ function RuanganTab({ hasFullAccess, mySchools }) {
           </Select>
         ) : <span />}
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" onClick={generateFromRombel} disabled={!schoolId || generating || rombelList.length === 0} title={rombelList.length === 0 ? 'Belum ada kelas pada tahun ajaran aktif' : `Buat ruang kelas dari ${rombelList.length} kelas ${taNama}`}>
+          {canKelola && <Button variant="outline" onClick={generateFromRombel} disabled={!schoolId || generating || rombelList.length === 0} title={rombelList.length === 0 ? 'Belum ada kelas pada tahun ajaran aktif' : `Buat ruang kelas dari ${rombelList.length} kelas ${taNama}`}>
             <BookOpen className="h-4 w-4" /> {generating ? 'Memproses…' : 'Buat ruangan dari kelas'}
-          </Button>
-          <Button onClick={() => { setEditingRow(null); setFormOpen(true) }} disabled={!schoolId}><Plus className="h-4 w-4" /> Tambah Ruangan</Button>
+          </Button>}
+          {canKelola && <Button onClick={() => { setEditingRow(null); setFormOpen(true) }} disabled={!schoolId}><Plus className="h-4 w-4" /> Tambah Ruangan</Button>}
         </div>
       </div>
 
@@ -720,8 +726,8 @@ function RuanganTab({ hasFullAccess, mySchools }) {
                 <Td>
                   <div className="flex justify-end gap-1.5">
                     <button onClick={() => setAsetRoom(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Lihat Aset (KIR)" title="Lihat aset di ruangan (KIR)"><Info className="h-4 w-4" /></button>
-                    <button onClick={() => { setEditingRow(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>
-                    <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                    {canKelola && <button onClick={() => { setEditingRow(r); setFormOpen(true) }} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>}
+                    {canKelola && <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>}
                   </div>
                 </Td>
               </Tr>
@@ -1344,7 +1350,7 @@ function DkaTab({ hasFullAccess, mySchools }) {
   const nowY = new Date().getFullYear()
   const [tahun, setTahun] = useState(nowY)
   const years = [nowY - 1, nowY, nowY + 1, nowY + 2]
-  const managesUnit = useMemo(() => mySchools.some((s) => s.id === schoolId), [mySchools, schoolId])
+  const managesUnit = useMemo(() => !!mySchools.find((s) => s.id === schoolId)?.kelola, [mySchools, schoolId])
 
   return (
     <div className="flex flex-col gap-5">
@@ -2190,7 +2196,7 @@ function PengadaanTab({ hasFullAccess, mySchools }) {
   const nowY = new Date().getFullYear()
   const [tahun, setTahun] = useState(nowY)
   const years = [nowY - 1, nowY, nowY + 1, nowY + 2]
-  const managesUnit = useMemo(() => mySchools.some((s) => s.id === schoolId), [mySchools, schoolId])
+  const managesUnit = useMemo(() => !!mySchools.find((s) => s.id === schoolId)?.kelola, [mySchools, schoolId])
 
   return (
     <div className="flex flex-col gap-5">
@@ -3175,7 +3181,7 @@ function DokumenTab({ hasFullAccess, mySchools }) {
 // =========================================================================
 function PenggunaanTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
-  const managesUnit = useMemo(() => mySchools.some((s) => s.id === schoolId), [mySchools, schoolId])
+  const managesUnit = useMemo(() => !!mySchools.find((s) => s.id === schoolId)?.kelola, [mySchools, schoolId])
   const canManage = hasFullAccess || managesUnit
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
@@ -3337,7 +3343,7 @@ function PenggunaanModal({ open, schoolId, editing, onClose, onSaved }) {
 // =========================================================================
 function PemeliharaanTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
-  const managesUnit = useMemo(() => mySchools.some((s) => s.id === schoolId), [mySchools, schoolId])
+  const managesUnit = useMemo(() => !!mySchools.find((s) => s.id === schoolId)?.kelola, [mySchools, schoolId])
   const canManage = hasFullAccess || managesUnit
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
@@ -3519,7 +3525,7 @@ function PemeliharaanModal({ open, schoolId, editing, onClose, onSaved }) {
 // =========================================================================
 function PenyaluranTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
-  const managesUnit = useMemo(() => mySchools.some((s) => s.id === schoolId), [mySchools, schoolId])
+  const managesUnit = useMemo(() => !!mySchools.find((s) => s.id === schoolId)?.kelola, [mySchools, schoolId])
   const canManage = hasFullAccess || managesUnit
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
@@ -3725,7 +3731,7 @@ function PenyaluranModal({ open, schoolId, onClose, onSaved }) {
 // =========================================================================
 function InventarisasiTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
-  const managesUnit = useMemo(() => mySchools.some((s) => s.id === schoolId), [mySchools, schoolId])
+  const managesUnit = useMemo(() => !!mySchools.find((s) => s.id === schoolId)?.kelola, [mySchools, schoolId])
   const canManage = hasFullAccess || managesUnit
   const nowY = new Date().getFullYear()
   const [sessions, setSessions] = useState([])
@@ -3941,7 +3947,7 @@ function OpnameItemModal({ open, item, onClose, onSaved }) {
 // =========================================================================
 function PenghapusanTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
-  const managesUnit = useMemo(() => mySchools.some((s) => s.id === schoolId), [mySchools, schoolId])
+  const managesUnit = useMemo(() => !!mySchools.find((s) => s.id === schoolId)?.kelola, [mySchools, schoolId])
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [openId, setOpenId] = useState(null)
@@ -4181,7 +4187,7 @@ const BHP_PRESET = [
 
 function BhpTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
-  const managesUnit = useMemo(() => mySchools.some((s) => s.id === schoolId), [mySchools, schoolId])
+  const managesUnit = useMemo(() => !!mySchools.find((s) => s.id === schoolId)?.kelola, [mySchools, schoolId])
   const canManage = hasFullAccess || managesUnit
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
