@@ -423,30 +423,39 @@ function Evaluasi({ ctx }) {
   if (loading) return <p className="text-sm text-[var(--color-ink-soft)]">Memuat…</p>
   return (
     <SectionCard title="Evaluasi & Rencana Tindak Lanjut" description="Register tindakan perbaikan (ISO 9001). Indikator di bawah target disorot & diurutkan prioritas.">
-      <div className="overflow-x-auto">
-        <Table columns={['Kode', 'Indikator', 'Capaian', 'Gap', 'Akar Masalah', 'Tindakan Perbaikan', 'PIC', 'Tenggat', 'Status']}>
-          {list.map((i) => {
-            const e = evalr[i.id] || {}; const below = i.cap !== null && i.cap < 100
-            const gap = i.cap === null ? '–' : (i.cap >= 100 ? 'Tercapai' : fmt(100 - i.cap))
-            return (
-              <Tr key={i.id} className={below ? 'bg-[var(--color-danger-soft)]' : undefined}>
-                <Td className="text-[var(--color-ink-soft)]">{i.kode}</Td>
-                <Td className="text-[var(--color-ink)]">{i.nama}</Td>
-                <Td className="font-bold" style={{ color: predikatHex(i.cap) }}>{fmt(i.cap)}</Td>
-                <Td className="font-bold" style={{ color: below ? '#e53935' : '#2e7d32' }}>{gap}</Td>
-                <Td><Input defaultValue={e.akar || ''} onBlur={(ev) => simpan(i.id, 'akar', ev.target.value)} className="min-w-[140px]" /></Td>
-                <Td><Input defaultValue={e.tindakan || ''} onBlur={(ev) => simpan(i.id, 'tindakan', ev.target.value)} className="min-w-[140px]" /></Td>
-                <Td><Input defaultValue={e.pic || ''} onBlur={(ev) => simpan(i.id, 'pic', ev.target.value)} className="max-w-[90px]" /></Td>
-                <Td><Input type="date" defaultValue={e.tenggat || ''} onBlur={(ev) => simpan(i.id, 'tenggat', ev.target.value)} className="max-w-[140px]" /></Td>
-                <Td>
+      <div className="flex flex-col gap-3">
+        {list.map((i) => {
+          const e = evalr[i.id] || {}; const below = i.cap !== null && i.cap < 100
+          const gap = i.cap === null ? '–' : (i.cap >= 100 ? 'Tercapai' : fmt(100 - i.cap))
+          return (
+            <div key={i.id} className="rounded-xl border border-[var(--color-border)] p-3.5" style={below ? { borderLeft: '4px solid #e53935' } : undefined}>
+              <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="rounded bg-[var(--color-paper)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--color-ink-soft)]">{i.kode}</span>
+                <span className="font-medium text-[var(--color-ink)]">{i.nama}</span>
+                <span className="ml-auto flex items-center gap-3 text-[13px]">
+                  <span>Capaian <b style={{ color: predikatHex(i.cap) }}>{fmt(i.cap)}</b></span>
+                  <span>Gap <b style={{ color: below ? '#e53935' : '#2e7d32' }}>{gap}</b></span>
+                </span>
+              </div>
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                <label className="block"><span className="mb-1 block text-[12px] font-medium text-[var(--color-ink-soft)]">Akar Masalah</span>
+                  <Textarea defaultValue={e.akar || ''} onBlur={(ev) => simpan(i.id, 'akar', ev.target.value)} rows={2} /></label>
+                <label className="block"><span className="mb-1 block text-[12px] font-medium text-[var(--color-ink-soft)]">Tindakan Perbaikan</span>
+                  <Textarea defaultValue={e.tindakan || ''} onBlur={(ev) => simpan(i.id, 'tindakan', ev.target.value)} rows={2} /></label>
+              </div>
+              <div className="mt-2.5 grid gap-2.5 sm:grid-cols-3">
+                <label className="block"><span className="mb-1 block text-[12px] font-medium text-[var(--color-ink-soft)]">PIC</span>
+                  <Input defaultValue={e.pic || ''} onBlur={(ev) => simpan(i.id, 'pic', ev.target.value)} /></label>
+                <label className="block"><span className="mb-1 block text-[12px] font-medium text-[var(--color-ink-soft)]">Tenggat</span>
+                  <Input type="date" defaultValue={e.tenggat || ''} onBlur={(ev) => simpan(i.id, 'tenggat', ev.target.value)} /></label>
+                <label className="block"><span className="mb-1 block text-[12px] font-medium text-[var(--color-ink-soft)]">Status</span>
                   <Select value={e.status || ''} onChange={(ev) => simpan(i.id, 'status', ev.target.value)}>
                     {['', 'Belum mulai', 'Dalam proses', 'Selesai', 'Dibatalkan'].map((s) => <option key={s} value={s}>{s || '—'}</option>)}
-                  </Select>
-                </Td>
-              </Tr>
-            )
-          })}
-        </Table>
+                  </Select></label>
+              </div>
+            </div>
+          )
+        })}
       </div>
     </SectionCard>
   )
@@ -505,30 +514,32 @@ function MasterInstitusi({ ctx, reloadMaster }) {
       {ctx.indikator.length === 0 ? (
         <p className="text-[13px] text-[var(--color-ink-soft)]">Belum ada indikator untuk jenjang ini. Klik Tambah Indikator.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <Table columns={['Kode', 'Indikator & Deskripsi', 'Satuan', 'Target', 'Arah', 'Bobot', 'Sumber', 'PIC', '']}>
-            {groups.map((b) => (
-              <Fragment key={b.kode}>
-                <Tr><Td className="bg-[var(--color-paper)] font-bold text-[var(--color-navy)]" colSpan={9}>{b.nama}</Td></Tr>
+        <div className="flex flex-col gap-4">
+          {groups.map((b) => (
+            <div key={b.kode}>
+              <p className="mb-2 text-[13px] font-bold text-[var(--color-navy)]">{b.nama}</p>
+              <div className="flex flex-col gap-2.5">
                 {b.indikator.map((i) => (
-                  <Tr key={i.id}>
-                    <Td><Input defaultValue={i.kode} onBlur={(e) => simpan(i.id, 'kode', e.target.value)} className="max-w-[72px]" /></Td>
-                    <Td>
-                      <Input defaultValue={i.nama} onBlur={(e) => simpan(i.id, 'nama', e.target.value)} className="min-w-[200px]" />
-                      <Textarea defaultValue={i.deskripsi || ''} onBlur={(e) => simpan(i.id, 'deskripsi', e.target.value)} rows={1} placeholder="Deskripsi / cara hitung (opsional)…" className="mt-1 min-w-[200px] text-[12px]" />
-                    </Td>
-                    <Td><Input defaultValue={i.satuan} onBlur={(e) => simpan(i.id, 'satuan', e.target.value)} className="max-w-[64px] text-center" /></Td>
-                    <Td><Input type="number" step="any" defaultValue={i.target} onBlur={(e) => simpan(i.id, 'target', e.target.value)} className="max-w-[72px] text-center" /></Td>
-                    <Td><Select value={i.arah} onChange={(e) => simpan(i.id, 'arah', e.target.value)}><option value="naik">naik</option><option value="turun">turun</option></Select></Td>
-                    <Td><Input type="number" step="any" defaultValue={i.bobot} onBlur={(e) => simpan(i.id, 'bobot', e.target.value)} className="max-w-[64px] text-center" /></Td>
-                    <Td><Select value={i.sumber} onChange={(e) => simpan(i.id, 'sumber', e.target.value)}>{Object.entries(SUMBER_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></Td>
-                    <Td><Input defaultValue={i.pic || ''} onBlur={(e) => simpan(i.id, 'pic', e.target.value)} className="max-w-[90px]" /></Td>
-                    <Td><button onClick={() => hapus(i)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button></Td>
-                  </Tr>
+                  <div key={i.id} className="rounded-xl border border-[var(--color-border)] p-3.5">
+                    <div className="mb-2.5 flex items-start gap-2">
+                      <Input defaultValue={i.kode} onBlur={(e) => simpan(i.id, 'kode', e.target.value)} className="w-20 shrink-0 text-center" />
+                      <Input defaultValue={i.nama} onBlur={(e) => simpan(i.id, 'nama', e.target.value)} className="flex-1" />
+                      <button onClick={() => hapus(i)} className="mt-2 shrink-0 text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+                      <L label="Satuan"><Input defaultValue={i.satuan} onBlur={(e) => simpan(i.id, 'satuan', e.target.value)} /></L>
+                      <L label="Target"><Input type="number" step="any" defaultValue={i.target} onBlur={(e) => simpan(i.id, 'target', e.target.value)} /></L>
+                      <L label="Arah"><Select value={i.arah} onChange={(e) => simpan(i.id, 'arah', e.target.value)}><option value="naik">naik</option><option value="turun">turun</option></Select></L>
+                      <L label="Bobot %"><Input type="number" step="any" defaultValue={i.bobot} onBlur={(e) => simpan(i.id, 'bobot', e.target.value)} /></L>
+                      <L label="Sumber"><Select value={i.sumber} onChange={(e) => simpan(i.id, 'sumber', e.target.value)}>{Object.entries(SUMBER_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></L>
+                      <L label="PIC"><Input defaultValue={i.pic || ''} onBlur={(e) => simpan(i.id, 'pic', e.target.value)} /></L>
+                    </div>
+                    <div className="mt-2.5"><L label="Deskripsi / cara hitung (opsional)"><Textarea defaultValue={i.deskripsi || ''} onBlur={(e) => simpan(i.id, 'deskripsi', e.target.value)} rows={2} /></L></div>
+                  </div>
                 ))}
-              </Fragment>
-            ))}
-          </Table>
+              </div>
+            </div>
+          ))}
         </div>
       )}
       {tambah && <IndikatorModal bidang={ctx.bidang} onClose={() => setTambah(false)} onSave={tambahIndikator} />}
@@ -629,24 +640,25 @@ function MasterIndividu() {
         <p className="text-[13px] text-[var(--color-ink-soft)]">Belum ada profil. Tambahkan profil/peran dulu.</p>
       ) : (
         <>
-          <div className="mb-2"><Button size="sm" variant="outline" onClick={tambahAspek}><Plus className="h-4 w-4" /> Tambah Aspek</Button></div>
-          <div className="overflow-x-auto">
-            <Table columns={['Kode', 'Aspek & Deskripsi', 'Satuan', 'Target', 'Arah', 'Bobot', '']}>
-              {list.map((a) => (
-                <Tr key={a.id}>
-                  <Td><Input defaultValue={a.kode} onBlur={(e) => simpanAspek(a.id, 'kode', e.target.value)} className="max-w-[72px]" /></Td>
-                  <Td>
-                    <Input defaultValue={a.nama} onBlur={(e) => simpanAspek(a.id, 'nama', e.target.value)} className="min-w-[220px]" />
-                    <Textarea defaultValue={a.deskripsi || ''} onBlur={(e) => simpanAspek(a.id, 'deskripsi', e.target.value)} rows={1} placeholder="Deskripsi / cara hitung (opsional)…" className="mt-1 min-w-[220px] text-[12px]" />
-                  </Td>
-                  <Td><Input defaultValue={a.satuan} onBlur={(e) => simpanAspek(a.id, 'satuan', e.target.value)} className="max-w-[64px] text-center" /></Td>
-                  <Td><Input type="number" step="any" defaultValue={a.target} onBlur={(e) => simpanAspek(a.id, 'target', e.target.value)} className="max-w-[72px] text-center" /></Td>
-                  <Td><Select value={a.arah} onChange={(e) => simpanAspek(a.id, 'arah', e.target.value)}><option value="naik">naik</option><option value="turun">turun</option></Select></Td>
-                  <Td><Input type="number" step="any" defaultValue={a.bobot} onBlur={(e) => simpanAspek(a.id, 'bobot', e.target.value)} className="max-w-[64px] text-center" /></Td>
-                  <Td><button onClick={() => hapusAspek(a)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button></Td>
-                </Tr>
-              ))}
-            </Table>
+          <div className="mb-2.5"><Button size="sm" variant="outline" onClick={tambahAspek}><Plus className="h-4 w-4" /> Tambah Aspek</Button></div>
+          <div className="flex flex-col gap-2.5">
+            {list.length === 0 && <p className="text-[13px] text-[var(--color-ink-soft)]">Belum ada aspek. Klik Tambah Aspek.</p>}
+            {list.map((a) => (
+              <div key={a.id} className="rounded-xl border border-[var(--color-border)] p-3.5">
+                <div className="mb-2.5 flex items-start gap-2">
+                  <Input defaultValue={a.kode} onBlur={(e) => simpanAspek(a.id, 'kode', e.target.value)} className="w-20 shrink-0 text-center" />
+                  <Input defaultValue={a.nama} onBlur={(e) => simpanAspek(a.id, 'nama', e.target.value)} className="flex-1" />
+                  <button onClick={() => hapusAspek(a)} className="mt-2 shrink-0 text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                  <L label="Satuan"><Input defaultValue={a.satuan} onBlur={(e) => simpanAspek(a.id, 'satuan', e.target.value)} /></L>
+                  <L label="Target"><Input type="number" step="any" defaultValue={a.target} onBlur={(e) => simpanAspek(a.id, 'target', e.target.value)} /></L>
+                  <L label="Arah"><Select value={a.arah} onChange={(e) => simpanAspek(a.id, 'arah', e.target.value)}><option value="naik">naik</option><option value="turun">turun</option></Select></L>
+                  <L label="Bobot %"><Input type="number" step="any" defaultValue={a.bobot} onBlur={(e) => simpanAspek(a.id, 'bobot', e.target.value)} /></L>
+                </div>
+                <div className="mt-2.5"><L label="Deskripsi / cara hitung (opsional)"><Textarea defaultValue={a.deskripsi || ''} onBlur={(e) => simpanAspek(a.id, 'deskripsi', e.target.value)} rows={2} /></L></div>
+              </div>
+            ))}
           </div>
         </>
       )}
