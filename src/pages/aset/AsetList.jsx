@@ -2289,6 +2289,123 @@ function PengadaanRekap({ tahun, onOpen }) {
   )
 }
 
+const KERANGKA_META = {
+  draft: { label: 'Draft — belum diajukan', color: 'neutral' },
+  diajukan: { label: 'Diajukan — menunggu pengesahan Yayasan', color: 'gold' },
+  disahkan: { label: 'Disahkan — pengadaan dapat dilaksanakan', color: 'success' },
+  ditolak: { label: 'Ditolak', color: 'danger' },
+}
+
+// Kerangka Kerja Pengadaan: disusun Kepala Sekolah → disahkan Yayasan.
+// Gerbang sebelum "Catat Pemesanan" dapat dijalankan.
+function KerangkaPanel({ usulan, kerangka, hasFullAccess, managesUnit, onChanged }) {
+  const [f, setF] = useState({ waktu_pelaksanaan: '', lokasi: '', persyaratan_penyedia: '', catatan: '' })
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [tolakMode, setTolakMode] = useState(false)
+  const [catatanReviu, setCatatanReviu] = useState('')
+
+  useEffect(() => {
+    if (kerangka) setF({ waktu_pelaksanaan: kerangka.waktu_pelaksanaan || '', lokasi: kerangka.lokasi || '', persyaratan_penyedia: kerangka.persyaratan_penyedia || '', catatan: kerangka.catatan || '' })
+  }, [kerangka])
+
+  if (!usulan) return null
+  if (!kerangka) return (
+    <SectionCard title="Kerangka Kerja Pengadaan">
+      <p className="text-[13px] text-[var(--color-ink-soft)]">Kerangka kerja untuk DKA ini belum tersedia. Muat ulang halaman; bila tetap kosong, hubungi Admin Yayasan.</p>
+    </SectionCard>
+  )
+
+  const status = kerangka.status
+  const meta = KERANGKA_META[status] || KERANGKA_META.draft
+  const bisaSusun = (managesUnit || hasFullAccess) && (status === 'draft' || status === 'ditolak')
+  const bisaSahkan = hasFullAccess && status === 'diajukan'
+  const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }))
+
+  const ajukan = async () => {
+    setBusy(true); setMsg('')
+    const { error } = await supabase.from('dka_kerangka').update({ ...f, status: 'diajukan' }).eq('id', kerangka.id)
+    setBusy(false)
+    if (error) { setMsg('Gagal: ' + error.message); return }
+    onChanged()
+  }
+  const sahkan = async () => {
+    setBusy(true); setMsg('')
+    const { error } = await supabase.from('dka_kerangka').update({ status: 'disahkan' }).eq('id', kerangka.id)
+    setBusy(false)
+    if (error) { setMsg('Gagal: ' + error.message); return }
+    onChanged()
+  }
+  const tolak = async () => {
+    if (!catatanReviu.trim()) { setMsg('Isi alasan penolakan.'); return }
+    setBusy(true); setMsg('')
+    const { error } = await supabase.from('dka_kerangka').update({ status: 'ditolak', catatan_reviu: catatanReviu }).eq('id', kerangka.id)
+    setBusy(false)
+    if (error) { setMsg('Gagal: ' + error.message); return }
+    setTolakMode(false); setCatatanReviu(''); onChanged()
+  }
+
+  const Baris = ({ label, val }) => (
+    <div className="grid grid-cols-[150px_1fr] gap-2 py-1 text-[13px]"><span className="text-[var(--color-ink-soft)]">{label}</span><span>{val || '—'}</span></div>
+  )
+
+  return (
+    <SectionCard title="Kerangka Kerja Pengadaan" description="Disusun Kepala Sekolah lalu disahkan Yayasan. Pengadaan (pemesanan) baru bisa berjalan setelah ini disahkan.">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Badge color={meta.color}>{meta.label}</Badge>
+        {kerangka.disusun?.nama && <span className="text-[12px] text-[var(--color-ink-soft)]">Disusun: {kerangka.disusun.nama}</span>}
+        {kerangka.direviu?.nama && <span className="text-[12px] text-[var(--color-ink-soft)]">· Diputuskan: {kerangka.direviu.nama}</span>}
+      </div>
+      {status === 'ditolak' && kerangka.catatan_reviu && (
+        <p className="mb-3 rounded-[10px] bg-[var(--color-danger-soft)] px-3 py-2 text-[13px] text-[var(--color-danger)]">Ditolak: {kerangka.catatan_reviu}</p>
+      )}
+      {msg && <p className="mb-3 rounded-[10px] bg-[var(--color-paper)] px-3 py-2 text-[13px]">{msg}</p>}
+
+      {bisaSusun ? (
+        <div className="flex flex-col gap-2.5">
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            <Input label="Waktu Pelaksanaan" value={f.waktu_pelaksanaan} onChange={set('waktu_pelaksanaan')} placeholder="mis. Triwulan I 2026" />
+            <Input label="Lokasi" value={f.lokasi} onChange={set('lokasi')} placeholder="mis. Unit SD" />
+          </div>
+          <Textarea label="Persyaratan Penyedia" value={f.persyaratan_penyedia} onChange={set('persyaratan_penyedia')} rows={2} />
+          <Textarea label="Catatan" value={f.catatan} onChange={set('catatan')} rows={2} />
+          <div className="flex justify-end">
+            <Button onClick={ajukan} disabled={busy}><Send className="h-4 w-4" /> Ajukan ke Yayasan</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-[10px] border border-[var(--color-border)] p-3">
+          <Baris label="Waktu Pelaksanaan" val={kerangka.waktu_pelaksanaan} />
+          <Baris label="Lokasi" val={kerangka.lokasi} />
+          <Baris label="Persyaratan Penyedia" val={kerangka.persyaratan_penyedia} />
+          <Baris label="Catatan" val={kerangka.catatan} />
+        </div>
+      )}
+
+      {bisaSahkan && (
+        tolakMode ? (
+          <div className="mt-3 flex flex-col gap-2">
+            <Textarea label="Alasan penolakan" value={catatanReviu} onChange={(e) => setCatatanReviu(e.target.value)} rows={2} />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setTolakMode(false)}>Batal</Button>
+              <Button variant="danger" onClick={tolak} disabled={busy}>Tolak</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 flex items-center justify-end gap-2">
+            <ShieldCheck className="h-4 w-4 text-[var(--color-navy)]" />
+            <Button onClick={sahkan} disabled={busy}><CheckCircle2 className="h-4 w-4" /> Sahkan</Button>
+            <Button variant="danger" onClick={() => setTolakMode(true)} disabled={busy}>Tolak</Button>
+          </div>
+        )
+      )}
+      {status === 'diajukan' && !hasFullAccess && (
+        <p className="mt-3 text-[13px] text-[var(--color-ink-soft)]">Menunggu pengesahan Yayasan.</p>
+      )}
+    </SectionCard>
+  )
+}
+
 function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
   const [usulan, setUsulan] = useState(null)
   const [items, setItems] = useState([])
@@ -2298,12 +2415,15 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
   const [bastOpen, setBastOpen] = useState(false)
   const [activeItem, setActiveItem] = useState(null)
   const [detailItem, setDetailItem] = useState(null)
+  const [kerangka, setKerangka] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     const { data: u } = await supabase.from('dka_usulan').select('*').eq('school_id', schoolId).eq('tahun', tahun).eq('status', 'disahkan').maybeSingle()
     setUsulan(u || null)
     if (u) {
+      const { data: kr } = await supabase.from('dka_kerangka').select('*, disusun:disusun_oleh(nama), direviu:direviu_oleh(nama)').eq('usulan_id', u.id).maybeSingle()
+      setKerangka(kr || null)
       const { data: it } = await supabase.from('dka_usulan_item').select('*, aset_klasifikasi(kode, uraian), ruangan(nama)').eq('usulan_id', u.id).order('urutan')
       const itemIds = (it || []).map((x) => x.id)
       let prosesMap = {}
@@ -2314,6 +2434,7 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
       setItems((it || []).map((x) => ({ ...x, proses: prosesMap[x.id] || null })))
     } else {
       setItems([])
+      setKerangka(null)
     }
     setLoading(false)
   }, [schoolId, tahun])
@@ -2321,6 +2442,7 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
   useEffect(() => { load() }, [load])
 
   const canAct = hasFullAccess || managesUnit
+  const kerangkaOk = kerangka?.status === 'disahkan'
 
   if (loading) return <FullPageSpinner />
 
@@ -2359,7 +2481,12 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
         <StatCard label="Serapan Anggaran" value={`${serapanPersen}%`} sub={nilaiRealisasi > nilaiDKA ? 'Realisasi melebihi rencana DKA' : `Sisa ${formatRupiah(Math.max(nilaiDKA - nilaiRealisasi, 0))}`} />
       </div>
 
-      <SectionCard title="Daftar Hasil Pengadaan" description="Berdasarkan DKA disahkan. Ikuti tahap: Catat Pemesanan (SPK) → BA Pemeriksaan → BA Serah Terima (otomatis masuk Inventaris).">
+      <KerangkaPanel usulan={usulan} kerangka={kerangka} hasFullAccess={hasFullAccess} managesUnit={managesUnit} onChanged={load} />
+
+      <SectionCard title="Daftar Hasil Pengadaan" description="Berdasarkan DKA disahkan. Pengadaan baru dapat dilaksanakan setelah Kerangka Kerja Pengadaan disahkan Yayasan. Tahap: Catat Pemesanan (SPK) → BA Pemeriksaan → BA Serah Terima (otomatis masuk Inventaris).">
+        {kerangkaOk === false && (
+          <p className="mb-3 rounded-[10px] bg-[var(--color-gold-soft,#fff7d6)] px-3 py-2 text-[13px] text-[var(--color-ink)]">Tombol <b>Catat Pemesanan</b> nonaktif sampai Kerangka Kerja Pengadaan di atas <b>disahkan Yayasan</b>.</p>
+        )}
         {items.length === 0 ? (
           <EmptyState icon={ClipboardList} title="Tidak ada item pengadaan" description="DKA unit ini tidak memiliki item rencana pengadaan." />
         ) : (
@@ -2386,7 +2513,7 @@ function PengadaanDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
                       <div className="inline-flex items-center gap-1.5">
                         <button onClick={() => setDetailItem(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Detail informasi"><Info className="h-4 w-4" /></button>
                         {canAct && (st === 'menunggu' || st === 'ditolak') && (
-                          <Button size="sm" variant="outline" onClick={() => { setActiveItem(r); setPesanOpen(true) }}><Truck className="h-3.5 w-3.5" /> {st === 'ditolak' ? 'Pesan Ulang' : 'Catat Pemesanan'}</Button>
+                          <Button size="sm" variant="outline" disabled={!kerangkaOk} title={kerangkaOk ? undefined : 'Kerangka Kerja Pengadaan belum disahkan Yayasan'} onClick={() => { setActiveItem(r); setPesanOpen(true) }}><Truck className="h-3.5 w-3.5" /> {st === 'ditolak' ? 'Pesan Ulang' : 'Catat Pemesanan'}</Button>
                         )}
                         {canAct && st === 'dipesan' && (
                           <Button size="sm" variant="outline" onClick={() => { setActiveItem(r); setPeriksaOpen(true) }}><ClipboardCheck className="h-3.5 w-3.5" /> BA Pemeriksaan</Button>
