@@ -48,7 +48,8 @@ export const DOKUMEN_LIST = [
   // Penerimaan & Penyaluran
   { jenis: 'spa', area: 'Penerimaan & Penyaluran', label: 'Surat Permintaan Aset (SPA)', pick: 'penyaluran' },
   { jenis: 'sppa', area: 'Penerimaan & Penyaluran', label: 'Surat Perintah Penyaluran Aset (SPPA)', pick: 'penyaluran' },
-  { jenis: 'kartu_persediaan', area: 'Penerimaan & Penyaluran', label: 'Kartu Persediaan Aset (formulir)', pick: null },
+  { jenis: 'kartu_persediaan', area: 'Penerimaan & Penyaluran', label: 'Kartu Persediaan / Stok (dari data BHP)', pick: 'bhp' },
+  { jenis: 'kartu_persediaan_kosong', area: 'Penerimaan & Penyaluran', label: 'Kartu Persediaan Aset (formulir kosong)', pick: null },
   { jenis: 'buku_persediaan', area: 'Penerimaan & Penyaluran', label: 'Buku Persediaan (Kartu Stok Barang Habis Pakai)', pick: 'bhp' },
   { jenis: 'buku_pengeluaran', area: 'Penerimaan & Penyaluran', label: 'Buku Pengeluaran Barang', pick: 'school' },
   { jenis: 'bukti_pengambilan', area: 'Penerimaan & Penyaluran', label: 'Bukti Pengambilan Aset (formulir)', pick: null },
@@ -203,7 +204,9 @@ export async function loadDokumen(jenis, id) {
       const { data: trx } = await supabase.from('bhp_transaksi').select('*, barang_habis_pakai!inner(nama, satuan, school_id)').eq('jenis', 'keluar').eq('barang_habis_pakai.school_id', id).order('tanggal', { ascending: false })
       return { _meta: meta, school, trx: trx || [] }
     }
-    const { data: aset } = await supabase.from('aset').select('*, aset_klasifikasi(kode, uraian), ruangan(nama)').eq('school_id', id).order('kode_aset', { nullsFirst: false })
+    // Buku Inventaris & Buku Induk: hanya aset AKTIF (aset 'dihapus' lewat
+    // SK Penghapusan sudah keluar dari inventaris).
+    const { data: aset } = await supabase.from('aset').select('*, aset_klasifikasi(kode, uraian), ruangan(nama)').eq('school_id', id).eq('status', 'aktif').order('kode_aset', { nullsFirst: false })
     return { _meta: meta, school, aset: aset || [] }
   }
   return { _meta: meta }
@@ -544,7 +547,24 @@ const BUILDERS = {
     ttd: [{ peran: 'Hormat kami,\nPenyedia', jabatan: '', nama: blank }],
   } : { judul: 'PERMINTAAN PENAWARAN HARGA (RFQ)', nomor: blank, narasi: ['Pilih DKA yang telah ditetapkan untuk memuat daftar barang.'], ttd: [{ peran: 'Hormat kami,\nPenyedia', jabatan: '', nama: blank }] }),
   surat_penawaran_kosong: () => ({ judul: 'SURAT PENAWARAN / INVOICE', nomor: blank, tables: [{ columns: ['No', 'Nama Barang', 'Spesifikasi', 'Jumlah', 'Harga Satuan', 'Jumlah'], rows: Array.from({ length: 6 }, (_, i) => [i + 1, '', '', '', '', '']) }], ttd: [{ peran: 'Hormat kami,\nPenyedia', jabatan: '', nama: blank }] }),
-  kartu_persediaan: () => ({ judul: 'KARTU PERSEDIAAN ASET', nomor: blank, meta: [['Nama Barang', blank], ['Satuan', blank]], tables: [{ columns: ['Tanggal', 'Uraian', 'Masuk', 'Keluar', 'Saldo'], rows: Array.from({ length: 10 }, () => ['', '', '', '', '']) }], ttd: [{ peran: 'Petugas Gudang / Tata Usaha', jabatan: '', nama: blank }] }),
+  kartu_persediaan: ({ b, trx = [], school } = {}) => {
+    if (!b) return { judul: 'KARTU PERSEDIAAN ASET', nomor: blank, narasi: ['Pilih barang persediaan (BHP) untuk menampilkan kartu stoknya.'], ttd: [{ peran: 'Petugas Gudang / Tata Usaha', jabatan: '', nama: blank }] }
+    let saldo = 0
+    const rows = trx.map((t) => {
+      const masuk = t.jenis === 'masuk' ? Number(t.jumlah) : 0
+      const keluar = t.jenis === 'keluar' ? Number(t.jumlah) : 0
+      saldo += masuk - keluar
+      return [tgl(t.tanggal), t.sumber_tujuan || (t.jenis === 'masuk' ? 'Barang masuk' : 'Barang keluar'), masuk || '', keluar || '', saldo]
+    })
+    return {
+      judul: 'KARTU PERSEDIAAN ASET', nomor: b?.nama || '', unit: unitName(school),
+      meta: [['Nama Barang', b?.nama || '—'], ['Satuan', b?.satuan || '—'], ['Stok Saat Ini', `${Number(b?.stok ?? 0)} ${b?.satuan || ''}`]],
+      tables: [{ columns: ['Tanggal', 'Uraian', 'Masuk', 'Keluar', 'Saldo'], rows }],
+      narasi: ['Masuk = barang diterima ke ruang penyimpanan; Keluar = barang disalurkan. Saldo = sisa stok.'],
+      ttd: [{ peran: 'Petugas Gudang / Tata Usaha', jabatan: '', nama: blank }],
+    }
+  },
+  kartu_persediaan_kosong: () => ({ judul: 'KARTU PERSEDIAAN ASET', nomor: blank, meta: [['Nama Barang', blank], ['Satuan', blank]], tables: [{ columns: ['Tanggal', 'Uraian', 'Masuk', 'Keluar', 'Saldo'], rows: Array.from({ length: 10 }, () => ['', '', '', '', '']) }], ttd: [{ peran: 'Petugas Gudang / Tata Usaha', jabatan: '', nama: blank }] }),
   buku_persediaan: ({ b, trx = [], school }) => {
     let saldo = 0
     const rows = trx.map((t, i) => {
