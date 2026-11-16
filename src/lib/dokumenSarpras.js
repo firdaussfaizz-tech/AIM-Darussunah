@@ -48,7 +48,7 @@ export const DOKUMEN_LIST = [
   // Penerimaan & Penyaluran
   { jenis: 'spa', area: 'Penerimaan & Penyaluran', label: 'Surat Permintaan Aset (SPA)', pick: 'penyaluran' },
   { jenis: 'sppa', area: 'Penerimaan & Penyaluran', label: 'Surat Perintah Penyaluran Aset (SPPA)', pick: 'penyaluran' },
-  { jenis: 'kartu_persediaan', area: 'Penerimaan & Penyaluran', label: 'Kartu Persediaan / Stok (dari data BHP)', pick: 'bhp' },
+  { jenis: 'kartu_persediaan', area: 'Penerimaan & Penyaluran', label: 'Kartu Persediaan Aset (penerimaan → penyaluran)', pick: 'aset' },
   { jenis: 'kartu_persediaan_kosong', area: 'Penerimaan & Penyaluran', label: 'Kartu Persediaan Aset (formulir kosong)', pick: null },
   { jenis: 'buku_persediaan', area: 'Penerimaan & Penyaluran', label: 'Buku Persediaan (Kartu Stok Barang Habis Pakai)', pick: 'bhp' },
   { jenis: 'buku_pengeluaran', area: 'Penerimaan & Penyaluran', label: 'Buku Pengeluaran Barang', pick: 'school' },
@@ -182,6 +182,13 @@ export async function loadDokumen(jenis, id) {
   }
   if (g === 'aset') {
     const { data: a } = await supabase.from('aset').select('*, schools!school_id(nama, jenjang), ruangan(nama), aset_klasifikasi(kode, uraian)').eq('id', id).maybeSingle()
+    // Kartu Persediaan: butuh riwayat penyaluran (keluar gudang) untuk aset ini.
+    if (jenis === 'kartu_persediaan') {
+      const { data: penyaluran } = await supabase.from('aset_penyaluran')
+        .select('*, ruangan:ruangan_tujuan_id(nama)').eq('aset_id', id)
+        .order('tanggal_penyaluran', { nullsFirst: false }).order('tanggal_permintaan')
+      return { _meta: meta, a, penyaluran: penyaluran || [], school: a?.schools }
+    }
     return { _meta: meta, a, school: a?.schools }
   }
   if (g === 'ruangan') {
@@ -547,20 +554,44 @@ const BUILDERS = {
     ttd: [{ peran: 'Hormat kami,\nPenyedia', jabatan: '', nama: blank }],
   } : { judul: 'PERMINTAAN PENAWARAN HARGA (RFQ)', nomor: blank, narasi: ['Pilih DKA yang telah ditetapkan untuk memuat daftar barang.'], ttd: [{ peran: 'Hormat kami,\nPenyedia', jabatan: '', nama: blank }] }),
   surat_penawaran_kosong: () => ({ judul: 'SURAT PENAWARAN / INVOICE', nomor: blank, tables: [{ columns: ['No', 'Nama Barang', 'Spesifikasi', 'Jumlah', 'Harga Satuan', 'Jumlah'], rows: Array.from({ length: 6 }, (_, i) => [i + 1, '', '', '', '', '']) }], ttd: [{ peran: 'Hormat kami,\nPenyedia', jabatan: '', nama: blank }] }),
-  kartu_persediaan: ({ b, trx = [], school } = {}) => {
-    if (!b) return { judul: 'KARTU PERSEDIAAN ASET', nomor: blank, narasi: ['Pilih barang persediaan (BHP) untuk menampilkan kartu stoknya.'], ttd: [{ peran: 'Petugas Gudang / Tata Usaha', jabatan: '', nama: blank }] }
+  kartu_persediaan: ({ a, penyaluran = [], school } = {}) => {
+    if (!a) return { judul: 'KARTU PERSEDIAAN ASET', nomor: blank, narasi: ['Pilih aset untuk menampilkan kartu keluar-masuk gudang (penerimaan → penyaluran).'], ttd: [{ peran: 'Petugas Gudang / Tata Usaha', jabatan: '', nama: blank }] }
+    const sat = a?.satuan || 'unit'
+    // Bangun mutasi: Masuk = penerimaan/perolehan aset; Keluar = tiap penyaluran
+    // yang berstatus 'disalurkan' ke ruangan/lokasi tujuan.
+    const mutasi = [{
+      t: a?.tanggal_perolehan || a?.created_at,
+      uraian: `Penerimaan aset (perolehan)${a?.sumber_dana ? ' — ' + a.sumber_dana : ''}`,
+      masuk: Number(a?.jumlah || 0), keluar: 0,
+    }]
+    for (const p of penyaluran) {
+      if (p?.status !== 'disalurkan') continue
+      const tujuan = p?.ruangan?.nama || p?.tujuan_lokasi || 'lokasi tujuan'
+      mutasi.push({
+        t: p?.tanggal_penyaluran || p?.tanggal_permintaan,
+        uraian: `Penyaluran → ${tujuan}${p?.penerima ? ' (' + p.penerima + ')' : ''}${p?.nomor_sppa ? ' · SPPA ' + p.nomor_sppa : ''}`,
+        masuk: 0, keluar: Number(p?.jumlah || 0),
+      })
+    }
+    mutasi.sort((x, y) => String(x.t || '').localeCompare(String(y.t || '')))
     let saldo = 0
-    const rows = trx.map((t) => {
-      const masuk = t.jenis === 'masuk' ? Number(t.jumlah) : 0
-      const keluar = t.jenis === 'keluar' ? Number(t.jumlah) : 0
-      saldo += masuk - keluar
-      return [tgl(t.tanggal), t.sumber_tujuan || (t.jenis === 'masuk' ? 'Barang masuk' : 'Barang keluar'), masuk || '', keluar || '', saldo]
+    const rows = mutasi.map((m) => {
+      saldo += m.masuk - m.keluar
+      return [tgl(m.t), m.uraian, m.masuk || '', m.keluar || '', `${saldo} ${sat}`]
     })
+    const keluarTotal = mutasi.reduce((s, m) => s + m.keluar, 0)
     return {
-      judul: 'KARTU PERSEDIAAN ASET', nomor: b?.nama || '', unit: unitName(school),
-      meta: [['Nama Barang', b?.nama || '—'], ['Satuan', b?.satuan || '—'], ['Stok Saat Ini', `${Number(b?.stok ?? 0)} ${b?.satuan || ''}`]],
+      judul: 'KARTU PERSEDIAAN ASET', nomor: a?.kode_aset || '', unit: unitName(school),
+      meta: [
+        ['Kode Aset', a?.kode_aset || '—'], ['Nama Aset', a?.nama || '—'],
+        ['Merk/Tipe', a?.merk_tipe || '—'], ['Satuan', sat],
+        ['Jumlah Diterima', `${Number(a?.jumlah || 0)} ${sat}`],
+        ['Tersalurkan', `${keluarTotal} ${sat}`],
+        ['Sisa di Gudang', `${saldo} ${sat}`],
+        ['Lokasi Saat Ini', a?.ruangan?.nama || 'Ruang Penyimpanan / Gudang'],
+      ],
       tables: [{ columns: ['Tanggal', 'Uraian', 'Masuk', 'Keluar', 'Saldo'], rows }],
-      narasi: ['Masuk = barang diterima ke ruang penyimpanan; Keluar = barang disalurkan. Saldo = sisa stok.'],
+      narasi: ['Masuk = aset diterima ke ruang penyimpanan (perolehan). Keluar = aset disalurkan ke ruangan/unit tujuan (SPPA). Saldo = sisa yang masih berada di gudang.'],
       ttd: [{ peran: 'Petugas Gudang / Tata Usaha', jabatan: '', nama: blank }],
     }
   },
