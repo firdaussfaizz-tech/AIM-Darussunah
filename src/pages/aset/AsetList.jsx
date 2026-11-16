@@ -3391,7 +3391,7 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
       ) : loading ? <FullPageSpinner /> : (
         <>
           <Card className="bg-[var(--color-navy-50)]">
-            <p className="text-[13px] text-[var(--color-ink)]"><b>Alur SOP (BAB IX):</b> <b>DKA Pemeliharaan disahkan</b> → otomatis muncul di <b>Program &amp; Jadwal</b> (direncanakan) → Kepsek/pengelola <b>menjadwalkan</b> (waktu + pelaksana) → <b>laksanakan &amp; catat Logbook</b> (status otomatis jadi &quot;dilaksanakan&quot;). <b>Perbaikan</b>: Laporan Kerusakan → verifikasi → bila perlu sparepart ikuti prosedur Pengadaan → catat Logbook. <b>Otomatis:</b> kondisi &quot;sesudah&quot; memperbarui Inventaris/KIA/KIR; biaya tercatat sebagai Belanja Pemeliharaan di Buku Kas.</p>
+            <p className="text-[13px] text-[var(--color-ink)]"><b>Alur SOP (BAB IX):</b> <b>DKA Pemeliharaan disahkan</b> → otomatis muncul di <b>Program &amp; Jadwal</b> (direncanakan) → Kepsek/pengelola <b>menjadwalkan</b> (waktu + pelaksana). <b>Pelaksanaan baru dapat dicatat setelah item dijadwalkan</b> → catat Logbook (status otomatis jadi &quot;dilaksanakan&quot;). <b>Perbaikan</b>: Laporan Kerusakan → verifikasi → bila perlu sparepart ikuti prosedur Pengadaan → catat Logbook. <b>Otomatis:</b> kondisi &quot;sesudah&quot; memperbarui Inventaris/KIA/KIR; biaya tercatat sebagai Belanja Pemeliharaan di Buku Kas.</p>
           </Card>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatCard label="Program (dari DKA)" value={program.length} />
@@ -3418,9 +3418,10 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
                         <Td><Badge color={PEMELIHARAAN_STATUS_BADGE[p.status]}>{PEMELIHARAAN_STATUS_LABEL[p.status]}</Badge></Td>
                         {canManage && (
                           <Td>
-                            <div className="flex justify-end gap-1.5">
+                            <div className="flex items-center justify-end gap-1.5">
                               <button onClick={() => setJadwalRow(p)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Jadwalkan"><CalendarClock className="h-4 w-4" /></button>
-                              {p.status !== 'dilaksanakan' && it.aset_id && <button onClick={() => catatPelaksanaan(p)} className="rounded-md bg-[var(--color-navy)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90">Catat Pelaksanaan</button>}
+                              {p.status === 'dijadwalkan' && it.aset_id && <button onClick={() => catatPelaksanaan(p)} className="rounded-md bg-[var(--color-navy)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90">Catat Pelaksanaan</button>}
+                              {(p.status === 'direncanakan' || p.status === 'ditunda') && <span className="text-[11px] text-[var(--color-ink-soft)]">Jadwalkan dulu</span>}
                             </div>
                           </Td>
                         )}
@@ -3553,9 +3554,12 @@ function PemeliharaanModal({ open, schoolId, editing, prefillItemId, onClose, on
   }, [open, editing])
   useEffect(() => {
     if (!open || !schoolId) { setRencana([]); return }
+    // Hanya item yang programnya sudah 'dijadwalkan' yang boleh dicatat
+    // pelaksanaannya (selaras dengan gerbang DB).
     supabase.from('dka_pemeliharaan_item')
-      .select('id, nama_aset, aset_id, jenis_pemeliharaan, kondisi, dka_usulan!inner(school_id, status)')
+      .select('id, nama_aset, aset_id, jenis_pemeliharaan, kondisi, dka_usulan!inner(school_id, status), dka_pemeliharaan_proses!inner(status)')
       .eq('dka_usulan.school_id', schoolId).eq('dka_usulan.status', 'disahkan')
+      .eq('dka_pemeliharaan_proses.status', 'dijadwalkan')
       .then(({ data }) => setRencana((data || []).filter((r) => r.aset_id)))
   }, [open, schoolId])
   // Prefill dari Program & Jadwal ("Catat Pelaksanaan").
