@@ -4092,10 +4092,16 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
     setSesi(s || null); setItems(it || []); setTim(tm || [])
     if (s?.school_id) {
       const [{ data: rg }, { data: pg }] = await Promise.all([
-        supabase.from('ruangan').select('id, nama, pic_nama, pic_employee_id').eq('school_id', s.school_id).order('nama'),
+        supabase.from('ruangan').select('id, nama, jenis, pic_nama, pic_employee_id, employees:pic_employee_id(nama), rombel:rombel_id(wali_kelas_employee_id, wali:wali_kelas_employee_id(nama))').eq('school_id', s.school_id).order('nama'),
         supabase.from('employees').select('id, nama').eq('school_id', s.school_id).eq('status', 'aktif').order('nama'),
       ])
-      setRuangan(rg || [])
+      // PIC efektif = sama dengan yang tampil di modul Ruangan: ruang kelas →
+      // Wali Kelas; selain itu → PIC pegawai atau nama manual.
+      setRuangan((rg || []).map((r) => {
+        const namaEff = (r.jenis === 'kelas' && r.rombel?.wali?.nama) ? r.rombel.wali.nama : (r.employees?.nama || r.pic_nama || '')
+        const empEff = r.pic_employee_id || r.rombel?.wali_kelas_employee_id || null
+        return { id: r.id, nama: r.nama, pic_nama: namaEff || null, pic_employee_id: empEff }
+      }))
       setPegawai(pg || [])
     }
     setStep((cur) => cur === 1 && s?.tahap ? Math.min(6, Math.max(1, s.tahap)) : cur)
