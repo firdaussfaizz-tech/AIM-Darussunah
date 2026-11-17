@@ -4092,7 +4092,7 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
     setSesi(s || null); setItems(it || []); setTim(tm || [])
     if (s?.school_id) {
       const [{ data: rg }, { data: pg }] = await Promise.all([
-        supabase.from('ruangan').select('id, nama').eq('school_id', s.school_id).order('nama'),
+        supabase.from('ruangan').select('id, nama, pic_nama, pic_employee_id').eq('school_id', s.school_id).order('nama'),
         supabase.from('employees').select('id, nama').eq('school_id', s.school_id).eq('status', 'aktif').order('nama'),
       ])
       setRuangan(rg || [])
@@ -4123,6 +4123,16 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
   }
   const batalSahTim = async () => { setBusy(true); await simpanMeta({ tim_disahkan: false }); setBusy(false) }
   const tambahTim = async (payload) => { const { error } = await supabase.from('aset_opname_tim').insert({ opname_id: opnameId, ...payload }); if (error) { alert('Gagal: ' + error.message); return } load() }
+  const tarikPjRuangan = async () => {
+    // Tarik PJ Ruangan otomatis dari PIC tiap ruangan (lewati yang sudah ada).
+    const sudah = new Set(tim.filter((m) => m.peran === 'pj_ruangan' && m.ruangan_id).map((m) => m.ruangan_id))
+    const baris = ruangan.filter((r) => (r.pic_nama || r.pic_employee_id) && !sudah.has(r.id))
+      .map((r) => ({ opname_id: opnameId, peran: 'pj_ruangan', ruangan_id: r.id, nama: r.pic_nama || '(PIC ruangan)', employee_id: r.pic_employee_id || null }))
+    if (baris.length === 0) { alert('Tidak ada PIC ruangan baru untuk ditarik (atau semua ruangan ber-PIC sudah terdaftar).'); return }
+    const { error } = await supabase.from('aset_opname_tim').insert(baris)
+    if (error) { alert('Gagal: ' + error.message); return }
+    load()
+  }
   const hapusTim = async (id) => { const { error } = await supabase.from('aset_opname_tim').delete().eq('id', id); if (error) { alert('Gagal: ' + error.message); return } load() }
   const selesaikan = async () => {
     const rusakBerat = items.filter((i) => i.kondisi_aktual === 'rusak_berat').length
@@ -4172,7 +4182,7 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
 
       {step === 1 && (
         <OpnamePersiapan sesi={sesi} tim={tim} ruangan={ruangan} pegawai={pegawai} editable={editable} isYayasan={isAdminYayasan} busy={busy}
-          onTambah={tambahTim} onHapus={hapusTim} onSahkan={sahkanTim} onBatalSah={batalSahTim} onLanjut={() => gotoStep(2)} />
+          onTambah={tambahTim} onHapus={hapusTim} onTarikPj={tarikPjRuangan} onSahkan={sahkanTim} onBatalSah={batalSahTim} onLanjut={() => gotoStep(2)} />
       )}
       {step === 2 && (
         <SectionCard title="Langkah 2 — Pelaksanaan Pendataan" description="Tarik aset dari Buku Inventaris, lalu periksa temuan fisik & kondisi aktual tiap aset. Kondisi aktual otomatis memperbarui kondisi aset di Inventaris/KIA/KIR.">
@@ -4247,20 +4257,31 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
   )
 }
 
-function OpnamePersiapan({ sesi, tim, ruangan, pegawai = [], editable, isYayasan, busy, onTambah, onHapus, onSahkan, onBatalSah, onLanjut }) {
+function OpnamePersiapan({ sesi, tim, ruangan, pegawai = [], editable, isYayasan, busy, onTambah, onHapus, onTarikPj, onSahkan, onBatalSah, onLanjut }) {
   const [pegawaiId, setPegawaiId] = useState('')
   const [nama, setNama] = useState('')
   const [peran, setPeran] = useState('anggota')
   const [ruanganId, setRuanganId] = useState('')
   const manual = pegawaiId === '__manual__'
+  const isPj = peran === 'pj_ruangan'
   const submit = (e) => {
     e.preventDefault()
+    if (isPj) {
+      // PJ Ruangan: nama otomatis dari PIC ruangan terpilih.
+      const rg = ruangan.find((r) => r.id === ruanganId)
+      if (!rg) return
+      const namaPj = rg.pic_nama || (pegawai.find((p) => p.id === pegawaiId)?.nama) || (manual ? nama.trim() : '')
+      if (!namaPj) { alert('Ruangan ini belum punya PIC. Isi PIC ruangan di menu Ruangan, atau pilih pegawai/ketik manual.'); return }
+      onTambah({ nama: namaPj, employee_id: rg.pic_employee_id || (manual ? null : (pegawai.find((p) => p.id === pegawaiId)?.id || null)), peran, ruangan_id: ruanganId })
+      setPegawaiId(''); setNama(''); setRuanganId(''); return
+    }
     const pg = pegawai.find((p) => p.id === pegawaiId)
     const namaFinal = manual ? nama.trim() : (pg?.nama || '')
     if (!namaFinal) return
-    onTambah({ nama: namaFinal, employee_id: manual ? null : (pg?.id || null), peran, ruangan_id: peran === 'pj_ruangan' ? (ruanganId || null) : null })
+    onTambah({ nama: namaFinal, employee_id: manual ? null : (pg?.id || null), peran, ruangan_id: null })
     setPegawaiId(''); setNama(''); setRuanganId('')
   }
+  const pjRgTerpilih = ruangan.find((r) => r.id === ruanganId)
   return (
     <div className="flex flex-col gap-4">
       <SectionCard title="Langkah 1 — Persiapan Inventarisasi" description="Bentuk Tim Inventarisasi & petakan PJ ruangan, lalu minta pengesahan Yayasan. Pendataan baru bisa dimulai setelah Tim disahkan.">
@@ -4285,26 +4306,40 @@ function OpnamePersiapan({ sesi, tim, ruangan, pegawai = [], editable, isYayasan
           </div>
         ) : <p className="mt-3 text-sm text-[var(--color-ink-soft)]">Belum ada anggota tim.</p>}
         {editable && !sesi.tim_disahkan && (
-          <form onSubmit={submit} className="mt-3 flex flex-wrap items-end gap-2 border-t border-[var(--color-border)] pt-3">
-            <div className="min-w-[180px] flex-1">
-              <Select label="Nama (dari daftar pegawai)" value={pegawaiId} onChange={(e) => setPegawaiId(e.target.value)}>
-                <option value="">— pilih pegawai —</option>
-                {pegawai.map((p) => <option key={p.id} value={p.id}>{p.nama}</option>)}
-                <option value="__manual__">Ketik manual (mis. anggota eksternal)…</option>
-              </Select>
+          <>
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-3">
+              <Button variant="outline" onClick={onTarikPj} disabled={busy}><Download className="h-4 w-4" /> Tarik PJ Ruangan dari PIC</Button>
+              <span className="text-xs text-[var(--color-ink-soft)]">Menambahkan PJ untuk tiap ruangan yang sudah punya PIC (dari menu Ruangan).</span>
             </div>
-            {manual && <div className="min-w-[160px] flex-1"><Input label="Nama manual" value={nama} onChange={(e) => setNama(e.target.value)} placeholder="Nama anggota tim" /></div>}
-            <Select label="Peran" value={peran} onChange={(e) => setPeran(e.target.value)}>
-              {Object.entries(OPNAME_PERAN_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </Select>
-            {peran === 'pj_ruangan' && (
-              <Select label="Ruangan" value={ruanganId} onChange={(e) => setRuanganId(e.target.value)}>
-                <option value="">— pilih ruangan —</option>
-                {ruangan.map((r) => <option key={r.id} value={r.id}>{r.nama}</option>)}
+            <form onSubmit={submit} className="mt-2 flex flex-wrap items-end gap-2">
+              <Select label="Peran" value={peran} onChange={(e) => setPeran(e.target.value)}>
+                {Object.entries(OPNAME_PERAN_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </Select>
-            )}
-            <Button type="submit"><Plus className="h-4 w-4" /> Tambah</Button>
-          </form>
+              {isPj ? (
+                <>
+                  <div className="min-w-[180px] flex-1">
+                    <Select label="Ruangan (PJ otomatis dari PIC)" value={ruanganId} onChange={(e) => setRuanganId(e.target.value)}>
+                      <option value="">— pilih ruangan —</option>
+                      {ruangan.map((r) => <option key={r.id} value={r.id}>{r.nama}{r.pic_nama ? ` — ${r.pic_nama}` : ' (belum ada PIC)'}</option>)}
+                    </Select>
+                  </div>
+                  {pjRgTerpilih && <span className="self-center pb-2 text-xs text-[var(--color-ink-soft)]">PJ: <b className="text-[var(--color-ink)]">{pjRgTerpilih.pic_nama || 'belum ada PIC'}</b></span>}
+                </>
+              ) : (
+                <>
+                  <div className="min-w-[180px] flex-1">
+                    <Select label="Nama (dari daftar pegawai)" value={pegawaiId} onChange={(e) => setPegawaiId(e.target.value)}>
+                      <option value="">— pilih pegawai —</option>
+                      {pegawai.map((p) => <option key={p.id} value={p.id}>{p.nama}</option>)}
+                      <option value="__manual__">Ketik manual (mis. anggota eksternal)…</option>
+                    </Select>
+                  </div>
+                  {manual && <div className="min-w-[160px] flex-1"><Input label="Nama manual" value={nama} onChange={(e) => setNama(e.target.value)} placeholder="Nama anggota tim" /></div>}
+                </>
+              )}
+              <Button type="submit"><Plus className="h-4 w-4" /> Tambah</Button>
+            </form>
+          </>
         )}
       </SectionCard>
 
