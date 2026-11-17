@@ -4077,9 +4077,12 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
   const [tim, setTim] = useState([])
   const [ruangan, setRuangan] = useState([])
   const [pegawai, setPegawai] = useState([])
+  const [klasifikasi, setKlasifikasi] = useState([])
+  const [schoolInfo, setSchoolInfo] = useState(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [periksa, setPeriksa] = useState(null)
+  const [tambahAsetOpen, setTambahAsetOpen] = useState(false)
   const [step, setStep] = useState(1)
 
   const load = useCallback(async () => {
@@ -4091,10 +4094,14 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
     ])
     setSesi(s || null); setItems(it || []); setTim(tm || [])
     if (s?.school_id) {
-      const [{ data: rg }, { data: pg }] = await Promise.all([
+      const [{ data: rg }, { data: pg }, { data: sc }, { data: kl }] = await Promise.all([
         supabase.from('ruangan').select('id, nama, jenis, pic_nama, pic_employee_id, employees:pic_employee_id(nama), rombel:rombel_id(wali_kelas_employee_id, wali:wali_kelas_employee_id(nama))').eq('school_id', s.school_id).order('nama'),
         supabase.from('employees').select('id, nama').eq('school_id', s.school_id).eq('status', 'aktif').order('nama'),
+        supabase.from('schools').select('id, nama, jenjang').eq('id', s.school_id).maybeSingle(),
+        supabase.from('aset_klasifikasi').select('id, kode, uraian').order('kode'),
       ])
+      setSchoolInfo(sc || null)
+      setKlasifikasi(kl || [])
       // PIC efektif = sama dengan yang tampil di modul Ruangan: ruang kelas →
       // Wali Kelas; selain itu → PIC pegawai atau nama manual.
       setRuangan((rg || []).map((r) => {
@@ -4120,6 +4127,15 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
   const simpanMeta = async (patch) => {
     const { error } = await supabase.from('aset_opname').update(patch).eq('id', opnameId)
     if (error) { alert('Gagal: ' + error.message); return }
+    load()
+  }
+  // Setelah input manual aset, tambahkan aset aktif unit yang belum ada di
+  // daftar opname (tanpa menghapus progres pemeriksaan yang sudah ada).
+  const appendAsetBaru = async () => {
+    const { data: aset } = await supabase.from('aset').select('id, kode_aset, nama, kondisi').eq('school_id', sesi.school_id).eq('status', 'aktif')
+    const sudah = new Set(items.map((i) => i.aset_id).filter(Boolean))
+    const baru = (aset || []).filter((a) => !sudah.has(a.id)).map((a) => ({ opname_id: opnameId, aset_id: a.id, kode_aset: a.kode_aset, nama_aset: a.nama, kondisi_tercatat: a.kondisi }))
+    if (baru.length) { const { error } = await supabase.from('aset_opname_item').insert(baru); if (error) { alert('Gagal menambah ke daftar: ' + error.message) } }
     load()
   }
   const gotoStep = (n) => { setStep(n); if ((sesi?.tahap || 1) < n && sesi?.status === 'berjalan') simpanMeta({ tahap: n }) }
@@ -4194,8 +4210,10 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
         <SectionCard title="Langkah 2 — Pelaksanaan Pendataan" description="Tarik aset dari Buku Inventaris, lalu periksa temuan fisik & kondisi aktual tiap aset. Kondisi aktual otomatis memperbarui kondisi aset di Inventaris/KIA/KIR.">
           <div className="mb-3 flex flex-wrap gap-2">
             {editable && <Button variant="outline" onClick={generate} disabled={busy}><Download className="h-4 w-4" /> {items.length ? 'Tarik Ulang' : 'Tarik dari Inventaris'}</Button>}
+            {editable && sesi.tim_disahkan && <Button variant="outline" onClick={() => setTambahAsetOpen(true)}><Plus className="h-4 w-4" /> Tambah Aset (temuan)</Button>}
             {!sesi.tim_disahkan && <span className="self-center text-xs text-[var(--color-danger)]">Tim belum disahkan — selesaikan Persiapan dulu.</span>}
           </div>
+          <p className="mb-3 text-xs text-[var(--color-ink-soft)]">Alur pendataan (SOP no.2): hitung jumlah/volume, teliti kondisi, identifikasi merk/jenis/ukuran/tanggal perolehan, tempel label (kode aset), catat di KIA. Semua lewat tombol <b>Periksa</b>. Aset yang ditemukan tapi belum tercatat → <b>Tambah Aset (temuan)</b>.</p>
           {items.length === 0 ? (
             <EmptyState icon={ClipboardList} title="Belum ada item" description={editable ? 'Klik "Tarik dari Inventaris" untuk memuat daftar aset.' : 'Sesi ini belum memuat aset.'} />
           ) : (
@@ -4259,6 +4277,10 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
         </SectionCard>
       )}
       <OpnameItemModal open={!!periksa} item={periksa} onClose={() => setPeriksa(null)} onSaved={() => { setPeriksa(null); load() }} />
+      {schoolInfo && (
+        <AsetFormModal open={tambahAsetOpen} editingRow={null} schools={[schoolInfo]} defaultSchoolId={sesi.school_id} klasifikasiList={klasifikasi}
+          onClose={() => setTambahAsetOpen(false)} onSaved={() => { setTambahAsetOpen(false); appendAsetBaru() }} />
+      )}
     </div>
   )
 }
@@ -4420,34 +4442,60 @@ function OpnameItemModal({ open, item, onClose, onSaved }) {
   useEffect(() => {
     if (!open || !item) return
     setError('')
-    setF({ ditemukan: item.ditemukan === null ? 'true' : String(item.ditemukan), kondisi_aktual: item.kondisi_aktual || '', catatan: item.catatan || '' })
+    // Prefill identifikasi dari data aset (KIA) saat ini.
+    setF({ ditemukan: item.ditemukan === null ? 'true' : String(item.ditemukan), kondisi_aktual: item.kondisi_aktual || '', catatan: item.catatan || '', jumlah: '', satuan: '', merk_tipe: '', tanggal_perolehan: '' })
+    if (item.aset_id) {
+      supabase.from('aset').select('jumlah, satuan, merk_tipe, tanggal_perolehan').eq('id', item.aset_id).maybeSingle()
+        .then(({ data }) => { if (data) setF((s) => ({ ...s, jumlah: String(data.jumlah ?? ''), satuan: data.satuan || 'unit', merk_tipe: data.merk_tipe || '', tanggal_perolehan: data.tanggal_perolehan || '' })) })
+    }
   }, [open, item])
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
+  const ditemukan = f.ditemukan === 'true'
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError(''); setSaving(true)
-    const payload = {
+    const { error: err } = await supabase.from('aset_opname_item').update({
       ditemukan: f.ditemukan === 'true',
       kondisi_aktual: f.kondisi_aktual || null,
       catatan: f.catatan?.trim() || null,
+    }).eq('id', item.id)
+    // Identifikasi (SOP no.2) tercatat di KIA = perbarui data aset bila ditemukan.
+    if (!err && item.aset_id && ditemukan) {
+      const patch = {}
+      if (f.jumlah !== '' && !Number.isNaN(Number(f.jumlah))) patch.jumlah = Number(f.jumlah)
+      if (f.satuan?.trim()) patch.satuan = f.satuan.trim()
+      patch.merk_tipe = f.merk_tipe?.trim() || null
+      if (f.tanggal_perolehan) { patch.tanggal_perolehan = f.tanggal_perolehan; patch.tahun_perolehan = new Date(f.tanggal_perolehan).getFullYear() }
+      if (Object.keys(patch).length) await supabase.from('aset').update(patch).eq('id', item.aset_id)
     }
-    const { error: err } = await supabase.from('aset_opname_item').update(payload).eq('id', item.id)
     setSaving(false)
     if (err) { setError(err.message); return }
     onSaved()
   }
   if (!item) return null
   return (
-    <Modal open={open} onClose={onClose} title={`Periksa — ${item.nama_aset}`} width="max-w-md">
+    <Modal open={open} onClose={onClose} title={`Periksa — ${item.nama_aset}`} width="max-w-lg">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        {item.kode_aset && <div className="rounded-lg bg-[var(--color-navy-50)] px-3 py-2 text-xs text-[var(--color-ink)]">Label (kode aset) untuk ditempel: <span className="font-mono font-semibold">{item.kode_aset}</span></div>}
         <Select label="Temuan Fisik" value={f.ditemukan || 'true'} onChange={(e) => set('ditemukan', e.target.value)}>
           <option value="true">Ada / ditemukan</option>
           <option value="false">Tidak ditemukan (hilang)</option>
         </Select>
-        <Select label="Kondisi Aktual (perbarui aset)" value={f.kondisi_aktual || ''} onChange={(e) => set('kondisi_aktual', e.target.value)}>
-          <option value="">— tidak diubah —</option>
-          {KONDISI_OPTIONS.map((k) => <option key={k} value={k}>{KONDISI_LABEL[k]}</option>)}
-        </Select>
+        {ditemukan && (
+          <>
+            <Select label="Kondisi Aktual (baik / rusak ringan / rusak berat)" value={f.kondisi_aktual || ''} onChange={(e) => set('kondisi_aktual', e.target.value)}>
+              <option value="">— tidak diubah —</option>
+              {KONDISI_OPTIONS.map((k) => <option key={k} value={k}>{KONDISI_LABEL[k]}</option>)}
+            </Select>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Jumlah / Volume" type="number" min="0" value={f.jumlah} onChange={(e) => set('jumlah', e.target.value)} />
+              <Input label="Satuan" value={f.satuan} onChange={(e) => set('satuan', e.target.value)} placeholder="unit / buah / set" />
+            </div>
+            <Input label="Merk / Jenis / Ukuran" value={f.merk_tipe} onChange={(e) => set('merk_tipe', e.target.value)} placeholder="mis. Daikin 1 PK / kayu 40×40" />
+            <Input label="Tanggal Perolehan" type="date" value={f.tanggal_perolehan} onChange={(e) => set('tanggal_perolehan', e.target.value)} />
+            <p className="-mt-1 text-xs text-[var(--color-ink-soft)]">Perubahan identifikasi di atas otomatis tercatat ke data aset (KIA).</p>
+          </>
+        )}
         <Textarea label="Catatan" rows={2} value={f.catatan || ''} onChange={(e) => set('catatan', e.target.value)} />
         {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
         <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Batal</Button><Button type="submit" disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan'}</Button></div>
