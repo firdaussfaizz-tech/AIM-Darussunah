@@ -4060,18 +4060,40 @@ function InventarisasiTab({ hasFullAccess, mySchools }) {
   )
 }
 
+const OPNAME_PERAN_LABEL = { ketua: 'Ketua', sekretaris: 'Sekretaris', anggota: 'Anggota', pj_ruangan: 'PJ Ruangan' }
+const OPNAME_STEPS = [
+  { n: 1, label: 'Persiapan', icon: UserCheck },
+  { n: 2, label: 'Pendataan', icon: ScanLine },
+  { n: 3, label: 'Identifikasi', icon: ClipboardCheck },
+  { n: 4, label: 'Dokumentasi', icon: Printer },
+  { n: 5, label: 'Tindak Lanjut', icon: CheckCircle2 },
+  { n: 6, label: 'Pelaporan Berkala', icon: BookOpen },
+]
+
 function OpnameDetail({ opnameId, canManage, onBack }) {
+  const { isAdminYayasan } = useAuth()
   const [sesi, setSesi] = useState(null)
   const [items, setItems] = useState([])
+  const [tim, setTim] = useState([])
+  const [ruangan, setRuangan] = useState([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [periksa, setPeriksa] = useState(null)
+  const [step, setStep] = useState(1)
 
   const load = useCallback(async () => {
     setLoading(true)
     const { data: s } = await supabase.from('aset_opname').select('*').eq('id', opnameId).maybeSingle()
-    const { data: it } = await supabase.from('aset_opname_item').select('*').eq('opname_id', opnameId).order('kode_aset', { nullsFirst: false })
-    setSesi(s || null); setItems(it || [])
+    const [{ data: it }, { data: tm }] = await Promise.all([
+      supabase.from('aset_opname_item').select('*').eq('opname_id', opnameId).order('kode_aset', { nullsFirst: false }),
+      supabase.from('aset_opname_tim').select('*, ruangan(nama)').eq('opname_id', opnameId).order('created_at'),
+    ])
+    setSesi(s || null); setItems(it || []); setTim(tm || [])
+    if (s?.school_id) {
+      const { data: rg } = await supabase.from('ruangan').select('id, nama').eq('school_id', s.school_id).order('nama')
+      setRuangan(rg || [])
+    }
+    setStep((cur) => cur === 1 && s?.tahap ? Math.min(6, Math.max(1, s.tahap)) : cur)
     setLoading(false)
   }, [opnameId])
   useEffect(() => { load() }, [load])
@@ -4089,18 +4111,25 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
     if (error) { alert('Gagal: ' + error.message); return }
     load()
   }
+  const gotoStep = (n) => { setStep(n); if ((sesi?.tahap || 1) < n && sesi?.status === 'berjalan') simpanMeta({ tahap: n }) }
+  const sahkanTim = async () => {
+    if (!confirm('Sahkan Tim Inventarisasi ini (atas nama Yayasan)? Setelah disahkan, pendataan dapat dimulai.')) return
+    setBusy(true); await simpanMeta({ tim_disahkan: true }); setBusy(false); setStep(2)
+  }
+  const batalSahTim = async () => { setBusy(true); await simpanMeta({ tim_disahkan: false }); setBusy(false) }
+  const tambahTim = async (payload) => { const { error } = await supabase.from('aset_opname_tim').insert({ opname_id: opnameId, ...payload }); if (error) { alert('Gagal: ' + error.message); return } load() }
+  const hapusTim = async (id) => { const { error } = await supabase.from('aset_opname_tim').delete().eq('id', id); if (error) { alert('Gagal: ' + error.message); return } load() }
   const selesaikan = async () => {
     const rusakBerat = items.filter((i) => i.kondisi_aktual === 'rusak_berat').length
     const hilangN = items.filter((i) => i.ditemukan === false).length
     const tl = rusakBerat + hilangN
     if (!confirm(`Selesaikan sesi opname ini?${tl > 0 ? `\n\n${tl} aset (hilang/rusak berat) akan otomatis dibuatkan draft usulan Penghapusan sebagai tindak lanjut.` : ''}`)) return
     setBusy(true)
-    // Auto-nomor Berita Acara Hasil Inventarisasi bila belum ada.
     const nomorBa = sesi.nomor_ba?.trim() || await autoNo(sesi.school_id, 'BAI')
-    const { error } = await supabase.from('aset_opname').update({ status: 'selesai', tanggal_selesai: new Date().toISOString().slice(0, 10), nomor_ba: nomorBa }).eq('id', opnameId)
+    const { error } = await supabase.from('aset_opname').update({ status: 'selesai', tanggal_selesai: new Date().toISOString().slice(0, 10), nomor_ba: nomorBa, tahap: 6 }).eq('id', opnameId)
     setBusy(false)
     if (error) { alert('Gagal: ' + error.message); return }
-    load()
+    setStep(6); load()
   }
 
   if (loading) return <FullPageSpinner />
@@ -4110,56 +4139,220 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
   const hilang = items.filter((i) => i.ditemukan === false).length
   const rusakBerat = items.filter((i) => i.kondisi_aktual === 'rusak_berat').length
   const editable = canManage && sesi.status === 'berjalan'
+  const pendataanMulai = items.length > 0
+  const pendataanSelesai = pendataanMulai && items.every((i) => i.ditemukan !== null)
+  // Gerbang navigasi: langkah 1 selalu; 2-5 setelah tim disahkan; 6 setelah selesai.
+  const stepEnabled = (n) => n === 1 || (n >= 2 && n <= 5 && sesi.tim_disahkan) || (n === 6 && sesi.status === 'selesai')
 
   return (
     <div className="flex flex-col gap-4">
       <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]"><RotateCcw className="h-4 w-4" /> Kembali ke daftar sesi</button>
       <Card>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2"><h3 className="text-base font-semibold text-[var(--color-ink)]">{sesi.judul || 'Opname'} — {sesi.tahun}</h3><Badge color={OPNAME_STATUS_BADGE[sesi.status]}>{OPNAME_STATUS_LABEL[sesi.status]}</Badge></div>
-            <p className="mt-1 text-xs text-[var(--color-ink-soft)]">{items.length} aset · {dicek} dicek · {hilang} tidak ditemukan · {rusakBerat} rusak berat{sesi.nomor_ba ? ` · BA ${sesi.nomor_ba}` : ''}{sesi.tim ? ` · Tim: ${sesi.tim}` : ''}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => openCetak('lhi', opnameId)}><Printer className="h-4 w-4" /> Cetak LHI</Button>
-            <Button variant="outline" onClick={() => openCetak('ba_inventarisasi', opnameId)}><Printer className="h-4 w-4" /> Cetak BA</Button>
-            {editable && <Button variant="outline" onClick={generate} disabled={busy}><Download className="h-4 w-4" /> {items.length ? 'Tarik Ulang' : 'Tarik dari Inventaris'}</Button>}
-            {editable && <Button onClick={selesaikan} disabled={busy}><CheckCircle2 className="h-4 w-4" /> Selesaikan</Button>}
-          </div>
+        <div className="flex items-center gap-2"><h3 className="text-base font-semibold text-[var(--color-ink)]">{sesi.judul || 'Opname'} — {sesi.tahun}</h3><Badge color={OPNAME_STATUS_BADGE[sesi.status]}>{OPNAME_STATUS_LABEL[sesi.status]}</Badge></div>
+        <p className="mt-1 text-xs text-[var(--color-ink-soft)]">{items.length} aset · {dicek} dicek · {hilang} tidak ditemukan · {rusakBerat} rusak berat{sesi.nomor_ba ? ` · BA ${sesi.nomor_ba}` : ''}</p>
+        {/* Stepper 1..6 */}
+        <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--color-border)] pt-4">
+          {OPNAME_STEPS.map((s) => {
+            const on = step === s.n; const ok = stepEnabled(s.n); const Icon = s.icon
+            return (
+              <button key={s.n} disabled={!ok} onClick={() => ok && setStep(s.n)}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition ${on ? 'border-[var(--color-navy)] bg-[var(--color-navy)] text-white' : ok ? 'border-[var(--color-border)] bg-white text-[var(--color-ink)] hover:border-[var(--color-navy)]' : 'cursor-not-allowed border-[var(--color-border)] bg-[var(--color-bg-soft)] text-[var(--color-ink-soft)] opacity-60'}`}>
+                <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${on ? 'bg-white text-[var(--color-navy)]' : 'bg-[var(--color-navy-50)] text-[var(--color-navy)]'}`}>{s.n}</span>
+                <Icon className="h-3.5 w-3.5" /> {s.label}
+              </button>
+            )
+          })}
         </div>
-        {editable && (
-          <div className="mt-3 grid grid-cols-1 gap-3 border-t border-[var(--color-border)] pt-3 sm:grid-cols-2">
-            <Input label="Tim Inventarisasi" defaultValue={sesi.tim || ''} onBlur={(e) => { if ((e.target.value || '') !== (sesi.tim || '')) simpanMeta({ tim: e.target.value.trim() || null }) }} placeholder="mis. Tata Usaha & PKS Sarpras" />
-            <Input label="No. Berita Acara (opsional — otomatis saat selesai)" defaultValue={sesi.nomor_ba || ''} onBlur={(e) => { if ((e.target.value || '') !== (sesi.nomor_ba || '')) simpanMeta({ nomor_ba: e.target.value.trim() || null }) }} />
-          </div>
-        )}
-        {sesi.penghapusan_id && (
-          <p className="mt-3 rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-sm text-[var(--color-gold)]"><b>Tindak lanjut:</b> aset hilang/rusak berat telah dibuatkan <b>draft usulan Penghapusan</b> otomatis. Buka menu <b>Penghapusan</b> untuk mengajukannya ke Yayasan.</p>
-        )}
       </Card>
-      <SectionCard title="Daftar Hasil Inventarisasi (LHI)">
-        {items.length === 0 ? (
-          <EmptyState icon={ClipboardList} title="Belum ada item" description={editable ? 'Klik "Tarik dari Inventaris" untuk memuat daftar aset.' : 'Sesi ini belum memuat aset.'} />
-        ) : (
-          <div className="overflow-x-auto">
-            <Table columns={['Kode', 'Nama', 'Kondisi Tercatat', 'Temuan', 'Kondisi Aktual', editable ? '' : null].filter((c) => c !== null)}>
-              {items.map((it) => (
-                <Tr key={it.id}>
-                  <Td><span className="font-mono text-xs">{it.kode_aset || '—'}</span></Td>
-                  <Td className="font-medium">{it.nama_aset}</Td>
-                  <Td className="text-xs">{it.kondisi_tercatat ? KONDISI_LABEL[it.kondisi_tercatat] || it.kondisi_tercatat : '—'}</Td>
-                  <Td>{it.ditemukan === null ? <span className="text-xs text-[var(--color-ink-soft)]">belum dicek</span> : it.ditemukan ? <Badge color="success">Ada</Badge> : <Badge color="danger">Hilang</Badge>}</Td>
-                  <Td className="text-xs">{it.kondisi_aktual ? KONDISI_LABEL[it.kondisi_aktual] : '—'}</Td>
-                  {editable && <Td className="text-right"><Button size="sm" variant="outline" onClick={() => setPeriksa(it)}><ClipboardCheck className="h-3.5 w-3.5" /> Periksa</Button></Td>}
+
+      {step === 1 && (
+        <OpnamePersiapan sesi={sesi} tim={tim} ruangan={ruangan} editable={editable} isYayasan={isAdminYayasan} busy={busy}
+          onTambah={tambahTim} onHapus={hapusTim} onSahkan={sahkanTim} onBatalSah={batalSahTim} onLanjut={() => gotoStep(2)} />
+      )}
+      {step === 2 && (
+        <SectionCard title="Langkah 2 — Pelaksanaan Pendataan" description="Tarik aset dari Buku Inventaris, lalu periksa temuan fisik & kondisi aktual tiap aset. Kondisi aktual otomatis memperbarui kondisi aset di Inventaris/KIA/KIR.">
+          <div className="mb-3 flex flex-wrap gap-2">
+            {editable && <Button variant="outline" onClick={generate} disabled={busy}><Download className="h-4 w-4" /> {items.length ? 'Tarik Ulang' : 'Tarik dari Inventaris'}</Button>}
+            {!sesi.tim_disahkan && <span className="self-center text-xs text-[var(--color-danger)]">Tim belum disahkan — selesaikan Persiapan dulu.</span>}
+          </div>
+          {items.length === 0 ? (
+            <EmptyState icon={ClipboardList} title="Belum ada item" description={editable ? 'Klik "Tarik dari Inventaris" untuk memuat daftar aset.' : 'Sesi ini belum memuat aset.'} />
+          ) : (
+            <div className="overflow-x-auto">
+              <Table columns={['Kode', 'Nama', 'Kondisi Tercatat', 'Temuan', 'Kondisi Aktual', editable ? '' : null].filter((c) => c !== null)}>
+                {items.map((it) => (
+                  <Tr key={it.id}>
+                    <Td><span className="font-mono text-xs">{it.kode_aset || '—'}</span></Td>
+                    <Td className="font-medium">{it.nama_aset}</Td>
+                    <Td className="text-xs">{it.kondisi_tercatat ? KONDISI_LABEL[it.kondisi_tercatat] || it.kondisi_tercatat : '—'}</Td>
+                    <Td>{it.ditemukan === null ? <span className="text-xs text-[var(--color-ink-soft)]">belum dicek</span> : it.ditemukan ? <Badge color="success">Ada</Badge> : <Badge color="danger">Hilang</Badge>}</Td>
+                    <Td className="text-xs">{it.kondisi_aktual ? KONDISI_LABEL[it.kondisi_aktual] : '—'}</Td>
+                    {editable && <Td className="text-right"><Button size="sm" variant="outline" onClick={() => setPeriksa(it)}><ClipboardCheck className="h-3.5 w-3.5" /> Periksa</Button></Td>}
+                  </Tr>
+                ))}
+              </Table>
+            </div>
+          )}
+          <div className="mt-3 flex items-center justify-between border-t border-[var(--color-border)] pt-3">
+            <span className="text-xs text-[var(--color-ink-soft)]">{dicek}/{items.length} aset diperiksa{pendataanSelesai ? ' · lengkap' : ''}</span>
+            <Button disabled={!pendataanMulai} onClick={() => gotoStep(3)}>Lanjut: Identifikasi →</Button>
+          </div>
+        </SectionCard>
+      )}
+      {step === 3 && <OpnameIdentifikasi items={items} onLanjut={() => gotoStep(4)} />}
+      {step === 4 && (
+        <SectionCard title="Langkah 4 — Dokumentasi & Pelaporan" description="Cetak LHI, Berita Acara Hasil Inventarisasi, Surat Pernyataan Kebenaran, dan Rekapitulasi. Dokumen disahkan Pengelola Aset lalu disampaikan ke Ketua Yayasan.">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => openCetak('lhi', opnameId)}><Printer className="h-4 w-4" /> LHI</Button>
+            <Button variant="outline" onClick={() => openCetak('ba_inventarisasi', opnameId)}><Printer className="h-4 w-4" /> Berita Acara</Button>
+            <Button variant="outline" onClick={() => openCetak('surat_pernyataan_inventaris', opnameId)}><Printer className="h-4 w-4" /> Surat Pernyataan</Button>
+            <Button variant="outline" onClick={() => openCetak('rekap_inventaris', opnameId)}><Printer className="h-4 w-4" /> Rekapitulasi</Button>
+          </div>
+          {editable && (
+            <div className="mt-3 grid grid-cols-1 gap-3 border-t border-[var(--color-border)] pt-3 sm:grid-cols-2">
+              <Input label="No. Berita Acara (opsional — otomatis saat selesai)" defaultValue={sesi.nomor_ba || ''} onBlur={(e) => { if ((e.target.value || '') !== (sesi.nomor_ba || '')) simpanMeta({ nomor_ba: e.target.value.trim() || null }) }} />
+              <div className="flex flex-col justify-center gap-2 text-sm">
+                <label className="flex items-center gap-2"><input type="checkbox" checked={!!sesi.disahkan_pengelola} onChange={(e) => simpanMeta({ disahkan_pengelola: e.target.checked })} /> Disahkan Pengelola Aset</label>
+                <label className="flex items-center gap-2"><input type="checkbox" checked={!!sesi.disahkan_yayasan} onChange={(e) => simpanMeta({ disahkan_yayasan: e.target.checked })} disabled={!isAdminYayasan} /> Disampaikan & diterima Ketua Yayasan {isAdminYayasan ? '' : '(Yayasan)'}</label>
+              </div>
+            </div>
+          )}
+          <div className="mt-3 flex justify-end border-t border-[var(--color-border)] pt-3"><Button onClick={() => gotoStep(5)}>Lanjut: Tindak Lanjut →</Button></div>
+        </SectionCard>
+      )}
+      {step === 5 && (
+        <SectionCard title="Langkah 5 — Tindak Lanjut" description="Selesaikan sesi: hasil dibukukan, kondisi aktual memperbarui Inventaris/KIA/KIR, aset hilang/rusak berat otomatis diusulkan ke Penghapusan, aset rusak ringan masuk Logbook Pemeliharaan.">
+          <div className="flex flex-col gap-3">
+            <p className="text-[13px] text-[var(--color-ink)]">Ringkasan tindak lanjut: <b>{hilang}</b> tidak ditemukan · <b>{rusakBerat}</b> rusak berat → draft Penghapusan; rusak ringan → Logbook Pemeliharaan.</p>
+            {editable ? (
+              <Button onClick={selesaikan} disabled={busy || !pendataanMulai}><CheckCircle2 className="h-4 w-4" /> Selesaikan & Jalankan Tindak Lanjut</Button>
+            ) : <p className="text-sm text-[var(--color-ink-soft)]">Sesi sudah {OPNAME_STATUS_LABEL[sesi.status]?.toLowerCase()}.</p>}
+            {sesi.penghapusan_id && <p className="rounded-md bg-[var(--color-gold-soft)] px-3 py-2 text-sm text-[var(--color-gold)]"><b>Tindak lanjut:</b> aset hilang/rusak berat telah dibuatkan <b>draft usulan Penghapusan</b> otomatis. Buka menu <b>Penghapusan</b> untuk mengajukannya ke Yayasan.</p>}
+            {sesi.status === 'selesai' && <div className="flex justify-end"><Button variant="outline" onClick={() => gotoStep(6)}>Lanjut: Pelaporan Berkala →</Button></div>}
+          </div>
+        </SectionCard>
+      )}
+      {step === 6 && (
+        <SectionCard title="Langkah 6 — Pelaporan Berkala" description="Laporan Aset Semesteran & Tahunan disusun Kepala Unit, dihimpun Kepala Sekolah, lalu disampaikan ke Yayasan sebagai bahan neraca.">
+          <DokumenAreaCard area="Inventarisasi" schoolId={sesi.school_id} />
+        </SectionCard>
+      )}
+      <OpnameItemModal open={!!periksa} item={periksa} onClose={() => setPeriksa(null)} onSaved={() => { setPeriksa(null); load() }} />
+    </div>
+  )
+}
+
+function OpnamePersiapan({ sesi, tim, ruangan, editable, isYayasan, busy, onTambah, onHapus, onSahkan, onBatalSah, onLanjut }) {
+  const [nama, setNama] = useState('')
+  const [peran, setPeran] = useState('anggota')
+  const [ruanganId, setRuanganId] = useState('')
+  const submit = (e) => {
+    e.preventDefault()
+    if (!nama.trim()) return
+    onTambah({ nama: nama.trim(), peran, ruangan_id: peran === 'pj_ruangan' ? (ruanganId || null) : null })
+    setNama(''); setRuanganId('')
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      <SectionCard title="Langkah 1 — Persiapan Inventarisasi" description="Bentuk Tim Inventarisasi & petakan PJ ruangan, lalu minta pengesahan Yayasan. Pendataan baru bisa dimulai setelah Tim disahkan.">
+        <div className="flex flex-wrap items-center gap-2">
+          {sesi.tim_disahkan
+            ? <Badge color="success">Tim disahkan Yayasan</Badge>
+            : <Badge color="gold">Menunggu pengesahan Tim</Badge>}
+          <span className="text-xs text-[var(--color-ink-soft)]">{tim.length} anggota</span>
+        </div>
+        {tim.length > 0 ? (
+          <div className="mt-3 overflow-x-auto">
+            <Table columns={['Nama', 'Peran', 'PJ Ruangan', editable && !sesi.tim_disahkan ? '' : null].filter((c) => c !== null)}>
+              {tim.map((m) => (
+                <Tr key={m.id}>
+                  <Td className="font-medium">{m.nama}</Td>
+                  <Td className="text-xs">{OPNAME_PERAN_LABEL[m.peran] || m.peran}</Td>
+                  <Td className="text-xs">{m.ruangan?.nama || '—'}</Td>
+                  {editable && !sesi.tim_disahkan && <Td className="text-right"><button onClick={() => onHapus(m.id)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button></Td>}
                 </Tr>
               ))}
             </Table>
           </div>
+        ) : <p className="mt-3 text-sm text-[var(--color-ink-soft)]">Belum ada anggota tim.</p>}
+        {editable && !sesi.tim_disahkan && (
+          <form onSubmit={submit} className="mt-3 flex flex-wrap items-end gap-2 border-t border-[var(--color-border)] pt-3">
+            <div className="min-w-[160px] flex-1"><Input label="Nama" value={nama} onChange={(e) => setNama(e.target.value)} placeholder="Nama anggota tim" /></div>
+            <Select label="Peran" value={peran} onChange={(e) => setPeran(e.target.value)}>
+              {Object.entries(OPNAME_PERAN_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </Select>
+            {peran === 'pj_ruangan' && (
+              <Select label="Ruangan" value={ruanganId} onChange={(e) => setRuanganId(e.target.value)}>
+                <option value="">— pilih ruangan —</option>
+                {ruangan.map((r) => <option key={r.id} value={r.id}>{r.nama}</option>)}
+              </Select>
+            )}
+            <Button type="submit"><Plus className="h-4 w-4" /> Tambah</Button>
+          </form>
         )}
       </SectionCard>
-      {sesi.school_id && <DokumenAreaCard area="Inventarisasi" schoolId={sesi.school_id} />}
-      <OpnameItemModal open={!!periksa} item={periksa} onClose={() => setPeriksa(null)} onSaved={() => { setPeriksa(null); load() }} />
+
+      <SectionCard title="Kesiapan Dokumen & Sarana (ceklist)" description="Pastikan prasyarat pelaksanaan tersedia sebelum pendataan.">
+        <ul className="flex flex-col gap-2 text-sm text-[var(--color-ink)]">
+          {['KIA/KIR tiap ruangan tercetak & siap', 'Label sementara & permanen tersedia (kode dibuat otomatis sistem)', 'Format Laporan Hasil Inventarisasi (LHI) siap', 'Pemetaan lokasi/ruangan & penanggung jawab lengkap'].map((t) => (
+            <li key={t} className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--color-navy)]" /> {t}</li>
+          ))}
+        </ul>
+        <div className="mt-3 flex flex-wrap gap-2 border-t border-[var(--color-border)] pt-3">
+          <Button variant="outline" onClick={() => openCetak('sk_tim_inventarisasi', sesi.id)}><Printer className="h-4 w-4" /> SK / BA Tim Inventarisasi</Button>
+        </div>
+      </SectionCard>
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[13px] text-[var(--color-ink)]">{sesi.tim_disahkan ? 'Tim telah disahkan — pendataan dapat dimulai.' : 'Minta Yayasan mengesahkan Tim untuk membuka tahap Pendataan.'}</p>
+          <div className="flex gap-2">
+            {editable && !sesi.tim_disahkan && isYayasan && <Button onClick={onSahkan} disabled={busy || tim.length === 0}><ShieldCheck className="h-4 w-4" /> Sahkan Tim (Yayasan)</Button>}
+            {editable && !sesi.tim_disahkan && !isYayasan && <span className="self-center text-xs text-[var(--color-ink-soft)]">Pengesahan dilakukan oleh Admin Yayasan.</span>}
+            {editable && sesi.tim_disahkan && isYayasan && <Button variant="outline" onClick={onBatalSah} disabled={busy}>Batalkan Pengesahan</Button>}
+            {timSiapLanjut(sesi, tim) && <Button onClick={onLanjut}>Mulai Pendataan →</Button>}
+          </div>
+        </div>
+      </Card>
     </div>
+  )
+}
+function timSiapLanjut(sesi, tim) { return sesi.tim_disahkan && tim.length > 0 }
+
+function OpnameIdentifikasi({ items, onLanjut }) {
+  const golongan = useMemo(() => {
+    const m = new Map()
+    for (const it of items) {
+      const g = (it.kode_aset || '').split('.').slice(0, 2).join('.') || '(tanpa kode)'
+      m.set(g, (m.get(g) || 0) + 1)
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [items])
+  const byKondisi = useMemo(() => {
+    const c = { baik: 0, rusak_ringan: 0, rusak_berat: 0, belum: 0 }
+    for (const it of items) {
+      if (!it.kondisi_aktual) c.belum++
+      else c[it.kondisi_aktual] = (c[it.kondisi_aktual] || 0) + 1
+    }
+    return c
+  }, [items])
+  const berubah = items.filter((i) => i.kondisi_aktual && i.kondisi_tercatat && i.kondisi_aktual !== i.kondisi_tercatat).length
+  return (
+    <SectionCard title="Langkah 3 — Identifikasi & Penilaian" description="Pengelompokan per golongan/kode, pemisahan per kondisi, dan pembandingan dengan data tercatat. Nilai & kode aset mengikuti data Inventaris (otomatis).">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Baik" value={byKondisi.baik} />
+        <StatCard label="Rusak Ringan" value={byKondisi.rusak_ringan} accent={byKondisi.rusak_ringan ? 'gold' : undefined} />
+        <StatCard label="Rusak Berat" value={byKondisi.rusak_berat} accent={byKondisi.rusak_berat ? 'gold' : undefined} />
+        <StatCard label="Kondisi berubah" value={berubah} />
+      </div>
+      <div className="mt-4 overflow-x-auto">
+        <p className="mb-2 text-sm font-medium text-[var(--color-ink)]">Pengelompokan per golongan (kode aset)</p>
+        <Table columns={['Golongan (prefix kode)', 'Jumlah Aset']}>
+          {golongan.map(([g, n]) => (<Tr key={g}><Td className="font-mono text-xs">{g}</Td><Td>{n}</Td></Tr>))}
+        </Table>
+      </div>
+      <div className="mt-3 flex justify-end border-t border-[var(--color-border)] pt-3"><Button onClick={onLanjut}>Lanjut: Dokumentasi →</Button></div>
+    </SectionCard>
   )
 }
 
