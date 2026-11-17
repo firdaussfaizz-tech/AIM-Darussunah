@@ -3387,6 +3387,12 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
     setVerifRow(null); load()
   }
   const catatPerbaikan = (k) => { setEditing(null); setPrefillItemId(''); setPrefillKerusakan(k); setFormOpen(true) }
+  const handleDeleteKerusakan = async (k) => {
+    if (!confirm('Hapus laporan kerusakan ini?')) return
+    const { error } = await supabase.from('aset_kerusakan').delete().eq('id', k.id)
+    if (error) { alert('Gagal: ' + error.message); return }
+    load()
+  }
 
   const handleDelete = async (row) => {
     if (!confirm('Hapus catatan pemeliharaan ini?')) return
@@ -3440,6 +3446,7 @@ function PemeliharaanTab({ hasFullAccess, mySchools }) {
                           <div className="flex items-center justify-end gap-1.5">
                             {k.status === 'dilaporkan' && <button onClick={() => setVerifRow(k)} className="rounded-md bg-[var(--color-navy)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90">Verifikasi</button>}
                             {k.status === 'diverifikasi' && <button onClick={() => catatPerbaikan(k)} className="rounded-md bg-[var(--color-navy)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90">Catat Perbaikan</button>}
+                            {(k.status === 'dilaporkan' || k.status === 'ditolak') && <button onClick={() => handleDeleteKerusakan(k)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus laporan"><Trash2 className="h-4 w-4" /></button>}
                           </div>
                         </Td>
                       )}
