@@ -4078,6 +4078,7 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
   const [ruangan, setRuangan] = useState([])
   const [pegawai, setPegawai] = useState([])
   const [klasifikasi, setKlasifikasi] = useState([])
+  const [asetDetail, setAsetDetail] = useState({})
   const [schoolInfo, setSchoolInfo] = useState(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -4102,6 +4103,9 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
       ])
       setSchoolInfo(sc || null)
       setKlasifikasi(kl || [])
+      // Detail aset (nilai & klasifikasi) untuk Langkah 3 — Identifikasi & Penilaian.
+      const { data: ad } = await supabase.from('aset').select('id, nilai_perolehan, aset_klasifikasi(kode, uraian)').eq('school_id', s.school_id)
+      setAsetDetail(Object.fromEntries((ad || []).map((a) => [a.id, a])))
       // PIC efektif = sama dengan yang tampil di modul Ruangan: ruang kelas →
       // Wali Kelas; selain itu → PIC pegawai atau nama manual.
       setRuangan((rg || []).map((r) => {
@@ -4238,7 +4242,7 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
           </div>
         </SectionCard>
       )}
-      {step === 3 && <OpnameIdentifikasi items={items} onLanjut={() => gotoStep(4)} />}
+      {step === 3 && <OpnameIdentifikasi items={items} asetDetail={asetDetail} onLanjut={() => gotoStep(4)} />}
       {step === 4 && (
         <SectionCard title="Langkah 4 — Dokumentasi & Pelaporan" description="Cetak LHI, Berita Acara Hasil Inventarisasi, Surat Pernyataan Kebenaran, dan Rekapitulasi. Dokumen disahkan Pengelola Aset lalu disampaikan ke Ketua Yayasan.">
           <div className="flex flex-wrap gap-2">
@@ -4398,40 +4402,106 @@ function OpnamePersiapan({ sesi, tim, ruangan, pegawai = [], editable, isYayasan
 }
 function timSiapLanjut(sesi, tim) { return sesi.tim_disahkan && tim.length > 0 }
 
-function OpnameIdentifikasi({ items, onLanjut }) {
-  const golongan = useMemo(() => {
+function OpnameIdentifikasi({ items, asetDetail = {}, onLanjut }) {
+  const nilaiOf = (it) => Number(asetDetail[it.aset_id]?.nilai_perolehan || 0)
+  // A. Penilaian ringkas.
+  const ringkas = useMemo(() => {
+    const ada = items.filter((i) => i.ditemukan === true)
+    const hilang = items.filter((i) => i.ditemukan === false)
+    const totalNilai = items.reduce((s, it) => s + nilaiOf(it), 0)
+    const nilaiHilang = hilang.reduce((s, it) => s + nilaiOf(it), 0)
+    return { total: items.length, ada: ada.length, hilang: hilang.length, totalNilai, nilaiHilang }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, asetDetail])
+  // B. Per kondisi (pisahkan per kondisi) — jumlah + nilai.
+  const perKondisi = useMemo(() => {
+    const base = { baik: { n: 0, v: 0 }, rusak_ringan: { n: 0, v: 0 }, rusak_berat: { n: 0, v: 0 }, belum: { n: 0, v: 0 } }
+    for (const it of items) { const k = it.kondisi_aktual || 'belum'; base[k].n++; base[k].v += nilaiOf(it) }
+    return base
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, asetDetail])
+  // C. Per golongan/kodefikasi — pakai uraian klasifikasi bila ada.
+  const perGolongan = useMemo(() => {
     const m = new Map()
     for (const it of items) {
-      const g = (it.kode_aset || '').split('.').slice(0, 2).join('.') || '(tanpa kode)'
-      m.set(g, (m.get(g) || 0) + 1)
+      const kl = asetDetail[it.aset_id]?.aset_klasifikasi
+      const kode = kl?.kode || (it.kode_aset || '').split('.').slice(0, 2).join('.') || '—'
+      const uraian = kl?.uraian || 'Lainnya / tanpa klasifikasi'
+      const key = `${kode}||${uraian}`
+      const cur = m.get(key) || { kode, uraian, n: 0, v: 0 }
+      cur.n++; cur.v += nilaiOf(it); m.set(key, cur)
     }
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-  }, [items])
-  const byKondisi = useMemo(() => {
-    const c = { baik: 0, rusak_ringan: 0, rusak_berat: 0, belum: 0 }
-    for (const it of items) {
-      if (!it.kondisi_aktual) c.belum++
-      else c[it.kondisi_aktual] = (c[it.kondisi_aktual] || 0) + 1
-    }
-    return c
-  }, [items])
-  const berubah = items.filter((i) => i.kondisi_aktual && i.kondisi_tercatat && i.kondisi_aktual !== i.kondisi_tercatat).length
+    return [...m.values()].sort((a, b) => a.kode.localeCompare(b.kode))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, asetDetail])
+  // D. Perbandingan dengan data tercatat (dokumen sumber).
+  const selisih = useMemo(() => items.filter((i) => i.ditemukan === false || (i.kondisi_aktual && i.kondisi_tercatat && i.kondisi_aktual !== i.kondisi_tercatat)), [items])
+
   return (
-    <SectionCard title="Langkah 3 — Identifikasi & Penilaian" description="Pengelompokan per golongan/kode, pemisahan per kondisi, dan pembandingan dengan data tercatat. Nilai & kode aset mengikuti data Inventaris (otomatis).">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Baik" value={byKondisi.baik} />
-        <StatCard label="Rusak Ringan" value={byKondisi.rusak_ringan} accent={byKondisi.rusak_ringan ? 'gold' : undefined} />
-        <StatCard label="Rusak Berat" value={byKondisi.rusak_berat} accent={byKondisi.rusak_berat ? 'gold' : undefined} />
-        <StatCard label="Kondisi berubah" value={berubah} />
-      </div>
-      <div className="mt-4 overflow-x-auto">
-        <p className="mb-2 text-sm font-medium text-[var(--color-ink)]">Pengelompokan per golongan (kode aset)</p>
-        <Table columns={['Golongan (prefix kode)', 'Jumlah Aset']}>
-          {golongan.map(([g, n]) => (<Tr key={g}><Td className="font-mono text-xs">{g}</Td><Td>{n}</Td></Tr>))}
-        </Table>
-      </div>
-      <div className="mt-3 flex justify-end border-t border-[var(--color-border)] pt-3"><Button onClick={onLanjut}>Lanjut: Dokumentasi →</Button></div>
-    </SectionCard>
+    <div className="flex flex-col gap-4">
+      <SectionCard title="Langkah 3 — Identifikasi & Penilaian" description="Hasil pendataan dikelompokkan & diberi nilai: (A) ringkasan penilaian, (B) pemisahan per kondisi, (C) pengelompokan per golongan/kodefikasi, (D) perbandingan dengan data tercatat. Nilai & kode mengikuti data Inventaris (otomatis).">
+        <p className="mb-2 text-sm font-medium text-[var(--color-ink)]">A. Ringkasan Penilaian</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatCard label="Total Aset" value={ringkas.total} />
+          <StatCard label="Ditemukan" value={ringkas.ada} />
+          <StatCard label="Tidak Ditemukan" value={ringkas.hilang} accent={ringkas.hilang ? 'gold' : undefined} />
+          <StatCard label="Total Nilai Perolehan" value={formatRupiah(ringkas.totalNilai)} accent="gold" />
+        </div>
+      </SectionCard>
+
+      <SectionCard title="B. Pemisahan per Kondisi" description="Jumlah dan nilai aset dipisahkan menurut kondisi fisik hasil pemeriksaan.">
+        <div className="overflow-x-auto">
+          <Table columns={['Kondisi', 'Jumlah', 'Nilai Perolehan']}>
+            {[['baik', 'Baik'], ['rusak_ringan', 'Rusak Ringan'], ['rusak_berat', 'Rusak Berat'], ['belum', 'Belum dinilai']].map(([k, label]) => (
+              <Tr key={k}>
+                <Td>{k === 'belum' ? <span className="text-[var(--color-ink-soft)]">{label}</span> : <Badge color={k === 'baik' ? 'success' : k === 'rusak_ringan' ? 'gold' : 'danger'}>{label}</Badge>}</Td>
+                <Td>{perKondisi[k].n}</Td>
+                <Td>{formatRupiah(perKondisi[k].v)}</Td>
+              </Tr>
+            ))}
+          </Table>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="C. Pengelompokan per Golongan / Kodefikasi" description="Aset dikelompokkan sesuai golongan pada master kodefikasi (kode aset), lengkap dengan jumlah dan nilainya.">
+        <div className="overflow-x-auto">
+          <Table columns={['Kode Golongan', 'Golongan / Klasifikasi', 'Jumlah', 'Nilai Perolehan']}>
+            {perGolongan.map((g) => (
+              <Tr key={g.kode + g.uraian}>
+                <Td className="font-mono text-xs">{g.kode}</Td>
+                <Td>{g.uraian}</Td>
+                <Td>{g.n}</Td>
+                <Td>{formatRupiah(g.v)}</Td>
+              </Tr>
+            ))}
+          </Table>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="D. Perbandingan dengan Data Tercatat (Dokumen Sumber)" description="Selisih antara kondisi/temuan fisik dengan data yang tercatat sebelumnya — menjadi dasar tindak lanjut.">
+        {selisih.length === 0 ? (
+          <div className="flex items-center gap-2 rounded-lg bg-[var(--color-success-soft,#e7f6ec)] px-3 py-2 text-sm text-[var(--color-ink)]"><CheckCircle2 className="h-4 w-4 text-[var(--color-navy)]" /> Semua aset sesuai data tercatat — tidak ada selisih.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table columns={['Aset', 'Kode', 'Tercatat', 'Hasil Pemeriksaan', 'Keterangan']}>
+              {selisih.map((it) => {
+                const hilang = it.ditemukan === false
+                return (
+                  <Tr key={it.id}>
+                    <Td className="font-medium">{it.nama_aset}</Td>
+                    <Td className="font-mono text-xs">{it.kode_aset || '—'}</Td>
+                    <Td className="text-xs">{it.kondisi_tercatat ? (KONDISI_LABEL[it.kondisi_tercatat] || it.kondisi_tercatat) : '—'}</Td>
+                    <Td>{hilang ? <Badge color="danger">Tidak ditemukan</Badge> : <Badge color={it.kondisi_aktual === 'rusak_berat' ? 'danger' : 'gold'}>{KONDISI_LABEL[it.kondisi_aktual]}</Badge>}</Td>
+                    <Td className="text-xs text-[var(--color-ink-soft)]">{hilang ? 'Perlu tindak lanjut (penghapusan/kehilangan)' : 'Kondisi berubah dari data tercatat'}</Td>
+                  </Tr>
+                )
+              })}
+            </Table>
+          </div>
+        )}
+        <div className="mt-3 flex justify-end border-t border-[var(--color-border)] pt-3"><Button onClick={onLanjut}>Lanjut: Dokumentasi →</Button></div>
+      </SectionCard>
+    </div>
   )
 }
 
