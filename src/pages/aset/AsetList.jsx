@@ -4076,6 +4076,7 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
   const [items, setItems] = useState([])
   const [tim, setTim] = useState([])
   const [ruangan, setRuangan] = useState([])
+  const [pegawai, setPegawai] = useState([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [periksa, setPeriksa] = useState(null)
@@ -4090,8 +4091,12 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
     ])
     setSesi(s || null); setItems(it || []); setTim(tm || [])
     if (s?.school_id) {
-      const { data: rg } = await supabase.from('ruangan').select('id, nama').eq('school_id', s.school_id).order('nama')
+      const [{ data: rg }, { data: pg }] = await Promise.all([
+        supabase.from('ruangan').select('id, nama').eq('school_id', s.school_id).order('nama'),
+        supabase.from('employees').select('id, nama').eq('school_id', s.school_id).eq('status', 'aktif').order('nama'),
+      ])
       setRuangan(rg || [])
+      setPegawai(pg || [])
     }
     setStep((cur) => cur === 1 && s?.tahap ? Math.min(6, Math.max(1, s.tahap)) : cur)
     setLoading(false)
@@ -4166,7 +4171,7 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
       </Card>
 
       {step === 1 && (
-        <OpnamePersiapan sesi={sesi} tim={tim} ruangan={ruangan} editable={editable} isYayasan={isAdminYayasan} busy={busy}
+        <OpnamePersiapan sesi={sesi} tim={tim} ruangan={ruangan} pegawai={pegawai} editable={editable} isYayasan={isAdminYayasan} busy={busy}
           onTambah={tambahTim} onHapus={hapusTim} onSahkan={sahkanTim} onBatalSah={batalSahTim} onLanjut={() => gotoStep(2)} />
       )}
       {step === 2 && (
@@ -4242,15 +4247,19 @@ function OpnameDetail({ opnameId, canManage, onBack }) {
   )
 }
 
-function OpnamePersiapan({ sesi, tim, ruangan, editable, isYayasan, busy, onTambah, onHapus, onSahkan, onBatalSah, onLanjut }) {
+function OpnamePersiapan({ sesi, tim, ruangan, pegawai = [], editable, isYayasan, busy, onTambah, onHapus, onSahkan, onBatalSah, onLanjut }) {
+  const [pegawaiId, setPegawaiId] = useState('')
   const [nama, setNama] = useState('')
   const [peran, setPeran] = useState('anggota')
   const [ruanganId, setRuanganId] = useState('')
+  const manual = pegawaiId === '__manual__'
   const submit = (e) => {
     e.preventDefault()
-    if (!nama.trim()) return
-    onTambah({ nama: nama.trim(), peran, ruangan_id: peran === 'pj_ruangan' ? (ruanganId || null) : null })
-    setNama(''); setRuanganId('')
+    const pg = pegawai.find((p) => p.id === pegawaiId)
+    const namaFinal = manual ? nama.trim() : (pg?.nama || '')
+    if (!namaFinal) return
+    onTambah({ nama: namaFinal, employee_id: manual ? null : (pg?.id || null), peran, ruangan_id: peran === 'pj_ruangan' ? (ruanganId || null) : null })
+    setPegawaiId(''); setNama(''); setRuanganId('')
   }
   return (
     <div className="flex flex-col gap-4">
@@ -4277,7 +4286,14 @@ function OpnamePersiapan({ sesi, tim, ruangan, editable, isYayasan, busy, onTamb
         ) : <p className="mt-3 text-sm text-[var(--color-ink-soft)]">Belum ada anggota tim.</p>}
         {editable && !sesi.tim_disahkan && (
           <form onSubmit={submit} className="mt-3 flex flex-wrap items-end gap-2 border-t border-[var(--color-border)] pt-3">
-            <div className="min-w-[160px] flex-1"><Input label="Nama" value={nama} onChange={(e) => setNama(e.target.value)} placeholder="Nama anggota tim" /></div>
+            <div className="min-w-[180px] flex-1">
+              <Select label="Nama (dari daftar pegawai)" value={pegawaiId} onChange={(e) => setPegawaiId(e.target.value)}>
+                <option value="">— pilih pegawai —</option>
+                {pegawai.map((p) => <option key={p.id} value={p.id}>{p.nama}</option>)}
+                <option value="__manual__">Ketik manual (mis. anggota eksternal)…</option>
+              </Select>
+            </div>
+            {manual && <div className="min-w-[160px] flex-1"><Input label="Nama manual" value={nama} onChange={(e) => setNama(e.target.value)} placeholder="Nama anggota tim" /></div>}
             <Select label="Peran" value={peran} onChange={(e) => setPeran(e.target.value)}>
               {Object.entries(OPNAME_PERAN_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </Select>
