@@ -209,11 +209,21 @@ export async function loadDokumen(jenis, id) {
         .order('tanggal_penyaluran', { nullsFirst: false }).order('tanggal_permintaan')
       return { _meta: meta, a, penyaluran: penyaluran || [], school: a?.schools }
     }
+    // Gerbang KIA: hanya aset yang sudah DISAHKAN Yayasan yang boleh dicetak.
+    if (jenis === 'kia' && a && a.verif_status !== 'disahkan') {
+      throw new Error('KIA belum dapat dicetak: aset belum disahkan Yayasan (selesaikan Identifikasi & Verifikasi).')
+    }
     return { _meta: meta, a, school: a?.schools }
   }
   if (g === 'ruangan') {
     const { data: rg } = await supabase.from('ruangan').select('*, schools!school_id(nama, jenjang, kepala:kepala_sekolah_id(nama, nip))').eq('id', id).maybeSingle()
     const { data: aset } = await supabase.from('aset').select('*, aset_klasifikasi(kode)').eq('ruangan_id', id).eq('status', 'aktif').order('nama')
+    // Gerbang KIR: semua aset ruangan harus sudah disahkan Yayasan.
+    if (jenis === 'kir') {
+      const belum = (aset || []).filter((x) => x.verif_status !== 'disahkan').length
+      if ((aset || []).length === 0) throw new Error('KIR belum dapat dicetak: ruangan belum memiliki aset.')
+      if (belum > 0) throw new Error(`KIR belum dapat dicetak: ${belum} aset di ruangan ini belum disahkan Yayasan.`)
+    }
     return { _meta: meta, rg, aset: aset || [], school: rg?.schools }
   }
   if (g === 'bhp') {
