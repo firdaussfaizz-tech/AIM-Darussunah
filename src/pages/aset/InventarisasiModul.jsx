@@ -49,10 +49,10 @@ export default function InventarisasiModul({ hasFullAccess, mySchools }) {
     if (!schoolId) { setAset([]); setRuangan([]); setPersiapan(null); setTim([]); setPegawai([]); setLoading(false); return }
     const [{ data: a }, { data: rg }, { data: p }, { data: tm }, { data: pg }] = await Promise.all([
       supabase.from('aset').select('*, aset_klasifikasi(kode, uraian), ruangan(nama, kode_ruangan)').eq('school_id', schoolId).eq('status', 'aktif').order('kode_aset', { nullsFirst: false }),
-      supabase.from('ruangan').select('id, nama, jenis, pic_nama, pic_employee_id, employees:pic_employee_id(nama, jabatan), rombel:rombel_id(wali_kelas_employee_id, wali:wali_kelas_employee_id(nama, jabatan))').eq('school_id', schoolId).order('nama'),
+      supabase.from('ruangan').select('id, nama, jenis, pic_nama, pic_employee_id, employees:pic_employee_id(nama, positions(nama)), rombel:rombel_id(wali_kelas_employee_id, wali:wali_kelas_employee_id(nama, positions(nama)))').eq('school_id', schoolId).order('nama'),
       supabase.from('inventarisasi_persiapan').select('*').eq('school_id', schoolId).maybeSingle(),
       supabase.from('inventarisasi_tim').select('*').eq('school_id', schoolId).order('created_at'),
-      supabase.from('employees').select('id, nama, jabatan').eq('school_id', schoolId).eq('status', 'aktif').order('nama'),
+      supabase.from('employees').select('id, nama, positions(nama)').eq('school_id', schoolId).eq('status', 'aktif').order('nama'),
     ])
     setAset(a || [])
     setRuangan(rg || [])
@@ -122,8 +122,8 @@ const JOBDESK_TIM = {
 // PJ/PIC ruangan — integrasi langsung dari modul Ruangan: kelas → Wali Kelas,
 // lainnya → PIC pegawai, atau PIC manual. Mengembalikan { nama, employee_id, sumber }.
 function pjOf(r) {
-  if (r?.jenis === 'kelas' && r?.rombel?.wali?.nama) return { nama: r.rombel.wali.nama, employee_id: r.rombel.wali_kelas_employee_id || null, jabatan: r.rombel.wali.jabatan || 'Wali Kelas', sumber: 'Wali Kelas' }
-  if (r?.employees?.nama) return { nama: r.employees.nama, employee_id: r.pic_employee_id || null, jabatan: r.employees.jabatan || null, sumber: 'PIC Pegawai' }
+  if (r?.jenis === 'kelas' && r?.rombel?.wali?.nama) return { nama: r.rombel.wali.nama, employee_id: r.rombel.wali_kelas_employee_id || null, jabatan: r.rombel.wali.positions?.nama || 'Wali Kelas', sumber: 'Wali Kelas' }
+  if (r?.employees?.nama) return { nama: r.employees.nama, employee_id: r.pic_employee_id || null, jabatan: r.employees.positions?.nama || null, sumber: 'PIC Pegawai' }
   if (r?.pic_nama) return { nama: r.pic_nama, employee_id: null, jabatan: null, sumber: 'PIC Manual' }
   return null
 }
@@ -169,7 +169,7 @@ function InvPersiapan({ schoolId, persiapan, tim, pegawai, ruangan, klasifikasiC
     const pg = pegawai.find((x) => x.id === pegawaiId)
     const nama = manual ? namaManual.trim() : (pg?.nama || '')
     if (!nama) return
-    const { error } = await supabase.from('inventarisasi_tim').insert({ school_id: schoolId, nama, employee_id: manual ? null : (pg?.id || null), peran, jabatan_asal: asal.trim() || (manual ? null : pg?.jabatan || null), penugasan: null })
+    const { error } = await supabase.from('inventarisasi_tim').insert({ school_id: schoolId, nama, employee_id: manual ? null : (pg?.id || null), peran, jabatan_asal: asal.trim() || (manual ? null : pg?.positions?.nama || null), penugasan: null })
     if (error) { alert('Gagal: ' + error.message); return }
     setPegawaiId(''); setNamaManual(''); setAsal(''); onChanged()
   }
