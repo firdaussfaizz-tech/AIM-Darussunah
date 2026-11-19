@@ -49,7 +49,7 @@ export default function InventarisasiModul({ hasFullAccess, mySchools }) {
     if (!schoolId) { setAset([]); setRuangan([]); setPersiapan(null); setTim([]); setPegawai([]); setLoading(false); return }
     const [{ data: a }, { data: rg }, { data: p }, { data: tm }, { data: pg }] = await Promise.all([
       supabase.from('aset').select('*, aset_klasifikasi(kode, uraian), ruangan(nama, kode_ruangan)').eq('school_id', schoolId).eq('status', 'aktif').order('kode_aset', { nullsFirst: false }),
-      supabase.from('ruangan').select('id, nama').eq('school_id', schoolId).order('nama'),
+      supabase.from('ruangan').select('id, nama, jenis, pic_nama, pic_employee_id, employees:pic_employee_id(nama), rombel:rombel_id(wali_kelas_employee_id, wali:wali_kelas_employee_id(nama))').eq('school_id', schoolId).order('nama'),
       supabase.from('inventarisasi_persiapan').select('*').eq('school_id', schoolId).maybeSingle(),
       supabase.from('inventarisasi_tim').select('*').eq('school_id', schoolId).order('created_at'),
       supabase.from('employees').select('id, nama').eq('school_id', schoolId).eq('status', 'aktif').order('nama'),
@@ -110,6 +110,15 @@ export default function InventarisasiModul({ hasFullAccess, mySchools }) {
 
 const PERAN_TIM = { penanggung_jawab: 'Penanggung Jawab', ketua: 'Ketua', sekretaris: 'Sekretaris', anggota: 'Anggota', pengelola_aset: 'Pengelola Aset', petugas: 'Petugas Pendata' }
 
+// PJ/PIC ruangan — integrasi langsung dari modul Ruangan: kelas → Wali Kelas,
+// lainnya → PIC pegawai, atau PIC manual. Mengembalikan { nama, employee_id, sumber }.
+function pjOf(r) {
+  if (r?.jenis === 'kelas' && r?.rombel?.wali?.nama) return { nama: r.rombel.wali.nama, employee_id: r.rombel.wali_kelas_employee_id || null, sumber: 'Wali Kelas' }
+  if (r?.employees?.nama) return { nama: r.employees.nama, employee_id: r.pic_employee_id || null, sumber: 'PIC Pegawai' }
+  if (r?.pic_nama) return { nama: r.pic_nama, employee_id: null, sumber: 'PIC Manual' }
+  return null
+}
+
 function GateCard({ onGo }) {
   return (
     <Card>
@@ -156,6 +165,27 @@ function InvPersiapan({ schoolId, persiapan, tim, pegawai, ruangan, klasifikasiC
     setPegawaiId(''); setNamaManual(''); setAsal(''); onChanged()
   }
   const hapusTim = async (id) => { const { error } = await supabase.from('inventarisasi_tim').delete().eq('id', id); if (error) { alert('Gagal: ' + error.message); return } onChanged() }
+  // Tarik PJ/PIC ruangan (unik) ke dalam tim dengan peran yang sedang dipilih.
+  const tarikPjRuangan = async () => {
+    const existEmp = new Set(tim.filter((m) => m.employee_id).map((m) => m.employee_id))
+    const existNama = new Set(tim.map((m) => (m.nama || '').trim().toLowerCase()))
+    const seen = new Set(); const rows = []
+    for (const r of ruangan) {
+      const pj = pjOf(r); if (!pj) continue
+      const nk = pj.nama.trim().toLowerCase()
+      const key = pj.employee_id ? `e:${pj.employee_id}` : `n:${nk}`
+      if (seen.has(key)) continue; seen.add(key)
+      if ((pj.employee_id && existEmp.has(pj.employee_id)) || existNama.has(nk)) continue
+      rows.push({ school_id: schoolId, nama: pj.nama, employee_id: pj.employee_id, peran, jabatan_asal: 'PJ Ruangan' })
+    }
+    if (rows.length === 0) { alert('Tidak ada PJ/PIC ruangan baru untuk ditambahkan (sudah ada di tim atau belum ditetapkan di modul Ruangan).'); return }
+    if (!confirm(`Tambahkan ${rows.length} PJ/PIC ruangan ke tim sebagai "${PERAN_TIM[peran]}"?`)) return
+    const { error } = await supabase.from('inventarisasi_tim').insert(rows)
+    if (error) { alert('Gagal: ' + error.message); return } onChanged()
+  }
+  // Daftar ruangan + PJ (ringkas) untuk ditampilkan & dihitung.
+  const daftarRuangan = ruangan.map((r) => ({ id: r.id, nama: r.nama, pj: pjOf(r) }))
+  const tanpaPj = daftarRuangan.filter((r) => !r.pj).length
   const sahkan = async () => {
     if (tim.length === 0) { alert('Tambahkan anggota Tim dulu.'); return }
     if (!p.periode_nama?.trim()) { alert('Isi & simpan Periode dulu.'); return }
@@ -169,7 +199,8 @@ function InvPersiapan({ schoolId, persiapan, tim, pegawai, ruangan, klasifikasiC
     { ok: !!p.periode_nama, t: 'Periode inventarisasi ditetapkan' },
     { ok: tim.length > 0, t: `Tim Inventarisasi disusun (${tim.length} anggota)` },
     { ok: tim.some((m) => m.peran === 'ketua'), t: 'Ada Ketua Tim' },
-    { ok: ruangan.length > 0, t: `Ruangan & PJ terdaftar (${ruangan.length} ruangan)` },
+    { ok: ruangan.length > 0, t: `Ruangan terdaftar (${ruangan.length} ruangan)` },
+    { ok: ruangan.length > 0 && tanpaPj === 0, t: tanpaPj === 0 ? 'Semua ruangan punya Penanggung Jawab' : `${tanpaPj} ruangan belum punya PJ` },
     { ok: klasifikasiCount > 0, t: `Golongan/kodefikasi siap (${klasifikasiCount} golongan)` },
   ]
 
@@ -211,7 +242,24 @@ function InvPersiapan({ schoolId, persiapan, tim, pegawai, ruangan, klasifikasiC
             <Select label="Peran" value={peran} onChange={(e) => setPeran(e.target.value)}>{Object.entries(PERAN_TIM).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
             <Input label="Jabatan/Asal" value={asal} onChange={(e) => setAsal(e.target.value)} containerClassName="min-w-[120px]" />
             <Button type="submit"><Plus className="h-4 w-4" /> Tambah</Button>
+            <Button type="button" variant="outline" onClick={tarikPjRuangan} title="Tambahkan semua PJ/PIC ruangan ke tim dengan peran yang dipilih"><DoorOpen className="h-4 w-4" /> Tarik PJ Ruangan</Button>
           </form>
+        )}
+        {!disahkan && canManage && <p className="mt-2 text-xs text-[var(--color-ink-soft)]">Tip: pilih peran dulu (mis. <b>Petugas Pendata</b>), lalu <b>Tarik PJ Ruangan</b> untuk memasukkan seluruh penanggung jawab ruangan sekaligus. Duplikat otomatis dilewati.</p>}
+      </SectionCard>
+
+      <SectionCard title="Ruangan & Penanggung Jawab" description={`Terintegrasi langsung dari modul Ruangan (${daftarRuangan.length} ruangan${tanpaPj ? ` · ${tanpaPj} belum punya PJ` : ''}). Kelas → Wali Kelas; lainnya → PIC Ruangan.`}>
+        {daftarRuangan.length === 0 ? <p className="text-sm text-[var(--color-ink-soft)]">Belum ada ruangan. Tambahkan di menu Sarana & Prasarana → Ruangan.</p> : (
+          <div className="max-h-80 overflow-auto">
+            <Table columns={['Ruangan', 'Penanggung Jawab', 'Sumber']}>
+              {daftarRuangan.map((r) => (
+                <Tr key={r.id}><Td className="font-medium">{r.nama}</Td>
+                  <Td className="text-xs">{r.pj ? r.pj.nama : <span className="text-[var(--color-gold)]">Belum ditetapkan</span>}</Td>
+                  <Td className="text-[11px] text-[var(--color-ink-soft)]">{r.pj?.sumber || '—'}</Td>
+                </Tr>
+              ))}
+            </Table>
+          </div>
         )}
       </SectionCard>
 
