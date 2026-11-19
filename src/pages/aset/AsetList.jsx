@@ -18,11 +18,12 @@ import {
 import { useParams, Navigate } from 'react-router-dom'
 import { SOP_SARPRAS, PIC_SARPRAS } from '../../lib/sopSarpras'
 import { SARPRAS_AREAS, SARPRAS_DEFAULT } from '../../lib/sarpras'
+import InventarisasiModul from './InventarisasiModul'
 import { DOKUMEN_LIST, listRecords, loadDokumen, buildDokumen } from '../../lib/dokumenSarpras'
 import { exportExcel } from '../../lib/reportExport'
 
 // Buka halaman cetak dokumen di tab baru (siap print/PDF).
-function openCetak(jenis, id) {
+export function openCetak(jenis, id) {
   window.open(id ? `/aset/cetak/${jenis}/${id}` : `/aset/cetak/${jenis}`, '_blank', 'noopener')
 }
 
@@ -148,7 +149,7 @@ export default function AsetList() {
       {active.kind === 'live-penggunaan' && <PenggunaanTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-pemeliharaan' && <PemeliharaanTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-penyaluran' && <PenyaluranTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
-      {active.kind === 'live-inventarisasi' && <InventarisasiTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
+      {active.kind === 'live-inventarisasi' && <InventarisasiModul hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-penghapusan' && <PenghapusanTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-inventaris' && <InventarisTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
       {active.kind === 'live-ruangan' && <RuanganTab hasFullAccess={hasFullAccess} mySchools={mySchools} />}
@@ -260,7 +261,7 @@ function KebijakanTab() {
   )
 }
 
-function useUnitFilter(hasFullAccess, mySchools) {
+export function useUnitFilter(hasFullAccess, mySchools) {
   const [schools, setSchools] = useState([])
   const [schoolId, setSchoolId] = useState(hasFullAccess ? '' : (mySchools[0]?.id || ''))
   // Kunci daftar unit manajer agar efek bisa bereaksi saat data peran tiba
@@ -491,7 +492,7 @@ function InventarisTab({ hasFullAccess, mySchools }) {
   )
 }
 
-function AsetFormModal({ open, editingRow, schools, defaultSchoolId, klasifikasiList, onClose, onSaved }) {
+export function AsetFormModal({ open, editingRow, schools, defaultSchoolId, klasifikasiList, onClose, onSaved }) {
   const [f, setF] = useState({})
   const [ruanganList, setRuanganList] = useState([])
   const [saving, setSaving] = useState(false)
@@ -2909,7 +2910,7 @@ function AsetPicker({ schoolId, value, onChange, onlyAktif = true }) {
 }
 
 // Pemilih unit sederhana untuk area operasional (wajib pilih unit dulu).
-function UnitBar({ hasFullAccess, schools, schoolId, setSchoolId, right }) {
+export function UnitBar({ hasFullAccess, schools, schoolId, setSchoolId, right }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -3994,7 +3995,7 @@ function PenyaluranModal({ open, schoolId, onClose, onSaved }) {
 // =========================================================================
 // TAB: INVENTARISASI & PELAPORAN — BAB VII (opname; kondisi aktual → sync aset)
 // =========================================================================
-function InventarisasiTab({ hasFullAccess, mySchools }) {
+export function InventarisasiTab({ hasFullAccess, mySchools }) {
   const { schools, schoolId, setSchoolId } = useUnitFilter(hasFullAccess, mySchools)
   const managesUnit = useMemo(() => !!mySchools.find((s) => s.id === schoolId)?.kelola, [mySchools, schoolId])
   const canManage = hasFullAccess || managesUnit

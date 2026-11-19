@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { Printer, ArrowLeft } from 'lucide-react'
 import { KOP, loadDokumen, buildDokumen, DOKUMEN_BY_JENIS } from '../../lib/dokumenSarpras'
 import { loadDokumenAkd, buildDokumenAkd, DOKUMEN_AKD_BY_JENIS } from '../../lib/dokumenAkademik'
+import { supabase } from '../../lib/supabaseClient'
 
 // Halaman cetak dokumen kerja Sarpras & Akademik — standalone (tanpa sidebar), siap
 // di-print / disimpan sebagai PDF lewat dialog print browser.
@@ -13,6 +14,14 @@ export default function DokumenCetak() {
   const [def, setDef] = useState(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
+  // Identitas yayasan (kop) — dinamis dari Pengaturan, fallback ke KOP bawaan.
+  const [kop, setKop] = useState({ yayasan: KOP.yayasan, alamat: KOP.alamat, logo: '/logo-yayasan.png' })
+  useEffect(() => {
+    let alive = true
+    supabase.from('yayasan_identitas').select('nama, alamat, logo_url').eq('id', 1).maybeSingle()
+      .then(({ data }) => { if (alive && data) setKop({ yayasan: data.nama || KOP.yayasan, alamat: data.alamat || KOP.alamat, logo: data.logo_url || '/logo-yayasan.png' }) })
+    return () => { alive = false }
+  }, [])
   const isAkd = !!DOKUMEN_AKD_BY_JENIS[jenis]
   const meta = DOKUMEN_AKD_BY_JENIS[jenis] || DOKUMEN_BY_JENIS[jenis]
   const qsKey = sp.toString()
@@ -94,10 +103,10 @@ export default function DokumenCetak() {
 
       <div className={`doc-page${landscape ? ' land' : ''}`}>
         <div className="doc-kop">
-          <img className="doc-logo" src="/logo-yayasan.png" alt="" onError={(e) => { e.currentTarget.style.display = 'none' }} />
-          <div className="y">{KOP.yayasan}</div>
+          <img className="doc-logo" src={kop.logo} alt="" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+          <div className="y">{kop.yayasan}</div>
           {def.unit && <div className="u">{def.unit}</div>}
-          <div className="a">{KOP.alamat}</div>
+          <div className="a">{kop.alamat}</div>
         </div>
 
         <div className="doc-title">
