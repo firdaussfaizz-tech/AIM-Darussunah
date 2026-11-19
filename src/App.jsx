@@ -42,6 +42,7 @@ const NilaiRapor = lazy(() => import('./pages/nilai/NilaiRapor'))
 const KesiswaanDashboard = lazy(() => import('./pages/kesiswaan/KesiswaanDashboard'))
 const AsetList = lazy(() => import('./pages/aset/AsetList'))
 const DokumenCetak = lazy(() => import('./pages/aset/DokumenCetak'))
+const AsetInfo = lazy(() => import('./pages/aset/AsetInfo'))
 const AcademicManagement = lazy(() => import('./pages/academic/AcademicManagement'))
 const RombelDetail = lazy(() => import('./pages/academic/RombelDetail'))
 const ProgresCapaianPage = lazy(() => import('./pages/academic/ProgresCapaianPage'))
@@ -55,6 +56,8 @@ export default function App() {
         <Suspense fallback={<FullPageSpinner />}>
         <Routes>
           <Route path="/login" element={<Login />} />
+          {/* Info aset PUBLIK (dibuka saat QR label dipindai) — tanpa login. */}
+          <Route path="/aset/info/:kode" element={<AsetInfo />} />
           {/* Halaman cetak dokumen — di luar Layout (tanpa sidebar) agar siap print/PDF. */}
           <Route path="/aset/cetak/:jenis" element={<RequireAuth><DokumenCetak /></RequireAuth>} />
           <Route path="/aset/cetak/:jenis/:id" element={<RequireAuth><DokumenCetak /></RequireAuth>} />

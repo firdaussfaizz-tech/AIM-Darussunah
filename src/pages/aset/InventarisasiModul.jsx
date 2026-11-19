@@ -342,7 +342,11 @@ function InvScan({ aset, instrumen, canManage, onChanged }) {
   const supported = typeof window !== 'undefined' && 'BarcodeDetector' in window
 
   const lookup = (raw) => {
-    const q = String(raw || '').trim().toUpperCase()
+    // Terima kode mentah atau URL info (dari QR): .../aset/info/<kode>
+    let v = String(raw || '').trim()
+    const m = v.match(/\/aset\/info\/([^/?#]+)/i)
+    if (m) { try { v = decodeURIComponent(m[1]) } catch { v = m[1] } }
+    const q = v.toUpperCase()
     if (!q) return
     const hit = asetRef.current.find((a) => (a.kode_aset || '').toUpperCase() === q)
     setCode(q); setFound(hit || 'notfound')
@@ -585,9 +589,11 @@ function InvLabel({ aset, ruangan, schoolName }) {
   const [jenis, setJenis] = useState('Permanen')
   const [format, setFormat] = useState('qr') // qr | barcode | keduanya
   const rows = useMemo(() => fRuangan ? aset.filter((a) => a.ruangan_id === fRuangan) : aset, [aset, fRuangan])
+  // QR berisi URL info aset agar kamera HP langsung membuka info lengkap.
+  const infoUrl = (kode) => `${window.location.origin}/aset/info/${encodeURIComponent(kode)}`
   const kodeFmt = (a) => {
     const kode = a.kode_aset || a.id
-    const qr = `<div class="qr">${qrSvg(kode)}</div>`
+    const qr = `<div class="qr">${qrSvg(infoUrl(kode))}</div>`
     const bc = barcode39(kode)
     return format === 'qr' ? qr : format === 'barcode' ? bc : `<div class="dual">${qr}${bc}</div>`
   }
@@ -632,9 +638,9 @@ function InvLabel({ aset, ruangan, schoolName }) {
             <div key={a.id} className="rounded-lg border border-[var(--color-border)] p-2">
               <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-1 text-[9px] font-semibold"><span className="truncate">{schoolName}</span><span className="rounded border border-current px-1">{jenis}</span></div>
               <div className="min-h-[26px] py-1 text-[11px] font-bold leading-tight">{a.nama}</div>
-              {format === 'qr' ? <div className="mx-auto h-16 w-16" dangerouslySetInnerHTML={{ __html: qrSvg(a.kode_aset || a.id) }} />
+              {format === 'qr' ? <div className="mx-auto h-16 w-16" dangerouslySetInnerHTML={{ __html: qrSvg(infoUrl(a.kode_aset || a.id)) }} />
                 : format === 'barcode' ? <div dangerouslySetInnerHTML={{ __html: barcode39(a.kode_aset || a.id, { height: 30 }) }} />
-                : <div className="flex items-center gap-1.5"><div className="h-12 w-12 flex-shrink-0" dangerouslySetInnerHTML={{ __html: qrSvg(a.kode_aset || a.id) }} /><div className="flex-1" dangerouslySetInnerHTML={{ __html: barcode39(a.kode_aset || a.id, { height: 28 }) }} /></div>}
+                : <div className="flex items-center gap-1.5"><div className="h-12 w-12 flex-shrink-0" dangerouslySetInnerHTML={{ __html: qrSvg(infoUrl(a.kode_aset || a.id)) }} /><div className="flex-1" dangerouslySetInnerHTML={{ __html: barcode39(a.kode_aset || a.id, { height: 28 }) }} /></div>}
               <div className="text-center text-[9px] font-bold tracking-wider">{a.kode_aset || '—'}</div>
             </div>
           ))}
