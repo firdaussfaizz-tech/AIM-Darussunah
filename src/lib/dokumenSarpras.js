@@ -66,11 +66,11 @@ export const DOKUMEN_LIST = [
   { jenis: 'label_aset', area: 'Inventaris', label: 'Label Kode Aset & Kode Lokasi', pick: 'aset' },
   // Inventarisasi
   { jenis: 'rencana_inventarisasi', area: 'Inventarisasi', label: 'Rencana Kerja Inventarisasi (formulir)', pick: null },
-  { jenis: 'sk_tim_inventarisasi', area: 'Inventarisasi', label: 'SK / BA Tim Inventarisasi', pick: 'opname' },
-  { jenis: 'lhi', area: 'Inventarisasi', label: 'Laporan Hasil Inventarisasi (LHI)', pick: 'opname' },
-  { jenis: 'ba_inventarisasi', area: 'Inventarisasi', label: 'Berita Acara Hasil Inventarisasi', pick: 'opname' },
-  { jenis: 'surat_pernyataan_inventaris', area: 'Inventarisasi', label: 'Surat Pernyataan Kebenaran Inventaris', pick: 'opname' },
-  { jenis: 'rekap_inventaris', area: 'Inventarisasi', label: 'Rekapitulasi Hasil Inventarisasi', pick: 'opname' },
+  { jenis: 'sk_tim_inventarisasi', area: 'Inventarisasi', label: 'SK / BA Tim Inventarisasi', pick: 'school' },
+  { jenis: 'lhi', area: 'Inventarisasi', label: 'Laporan Hasil Inventarisasi (LHI)', pick: 'school' },
+  { jenis: 'ba_inventarisasi', area: 'Inventarisasi', label: 'Berita Acara Hasil Inventarisasi', pick: 'school' },
+  { jenis: 'surat_pernyataan_inventaris', area: 'Inventarisasi', label: 'Surat Pernyataan Kebenaran Inventaris', pick: 'school' },
+  { jenis: 'rekap_inventaris', area: 'Inventarisasi', label: 'Rekapitulasi Hasil Inventarisasi', pick: 'school' },
   { jenis: 'laporan_aset', area: 'Inventarisasi', label: 'Laporan Aset (Semester/Tahunan)', pick: 'school' },
   // Pemeliharaan
   { jenis: 'jadwal_pemeliharaan', area: 'Pemeliharaan', label: 'Program & Jadwal Pemeliharaan (dari DKA)', pick: 'school' },
@@ -259,6 +259,17 @@ export async function loadDokumen(jenis, id) {
         .select('*, aset!inner(nama, kode_aset, satuan, school_id), ruangan:ruangan_tujuan_id(nama)')
         .eq('aset.school_id', id).order('tanggal_permintaan', { ascending: false })
       return { _meta: meta, school, penyaluran: penyaluran || [] }
+    }
+    // Dokumen Inventarisasi (LHI/BA/Rekap/SK Tim/Surat Pernyataan) — sumber data
+    // TERBARU: aset aktif + Persiapan + Tim Inventarisasi (lepas dari opname).
+    if (['sk_tim_inventarisasi', 'lhi', 'ba_inventarisasi', 'surat_pernyataan_inventaris', 'rekap_inventaris'].includes(jenis)) {
+      const [{ data: sc2 }, { data: aset }, { data: persiapan }, { data: tim }] = await Promise.all([
+        supabase.from('schools').select('id, nama, jenjang, kepala:kepala_sekolah_id(nama, nip)').eq('id', id).maybeSingle(),
+        supabase.from('aset').select('id, nama, kode_aset, kondisi, verif_status, nilai_perolehan, jumlah, satuan, aset_klasifikasi(kode, uraian), ruangan(nama)').eq('school_id', id).eq('status', 'aktif').order('kode_aset', { nullsFirst: false }),
+        supabase.from('inventarisasi_persiapan').select('*').eq('school_id', id).maybeSingle(),
+        supabase.from('inventarisasi_tim').select('*').eq('school_id', id).order('created_at'),
+      ])
+      return { _meta: meta, school: sc2, aset: aset || [], persiapan: persiapan || null, tim: tim || [] }
     }
     // Buku Inventaris & Buku Induk: hanya aset AKTIF (aset 'dihapus' lewat
     // SK Penghapusan sudah keluar dari inventaris).
@@ -483,22 +494,22 @@ const BUILDERS = {
   }),
 
   // ---------------- Inventarisasi ----------------
-  sk_tim_inventarisasi: ({ o, tim = [], school } = {}) => {
-    const PL = { ketua: 'Ketua', sekretaris: 'Sekretaris', anggota: 'Anggota', pj_ruangan: 'PJ Ruangan' }
+  sk_tim_inventarisasi: ({ tim = [], persiapan, school } = {}) => {
+    const PL = { penanggung_jawab: 'Penanggung Jawab', ketua: 'Ketua', sekretaris: 'Sekretaris', anggota: 'Anggota', pengelola_aset: 'Pengelola Aset', petugas: 'Petugas Pendata' }
     return {
-      judul: 'KEPUTUSAN / BERITA ACARA PEMBENTUKAN TIM INVENTARISASI', nomor: blank, unit: unitName(school),
-      meta: [['Unit', unitName(school)], ['Kegiatan', o?.judul || 'Inventarisasi'], ['Periode', String(o?.tahun ?? '—')], ['Status Tim', o?.tim_disahkan ? 'Disahkan Yayasan' : 'Belum disahkan']],
+      judul: 'KEPUTUSAN / BERITA ACARA PEMBENTUKAN TIM INVENTARISASI', nomor: persiapan?.no_sk || blank, unit: unitName(school),
+      meta: [['Unit', unitName(school)], ['Periode', persiapan?.periode_nama || '—'], ['Status Persiapan', persiapan?.tim_disahkan ? 'Disahkan Yayasan' : 'Belum disahkan']],
       intro: 'Dalam rangka pelaksanaan inventarisasi aset satuan pendidikan, dengan ini dibentuk Tim Inventarisasi dengan susunan sebagai berikut:',
-      tables: [{ columns: ['No', 'Nama', 'Peran', 'PJ Ruangan'], rows: tim.length ? tim.map((m, i) => [i + 1, m.nama || '—', PL[m.peran] || m.peran || '—', m.ruangan?.nama || '—']) : [['', '', '', '']] }],
+      tables: [{ columns: ['No', 'Nama', 'Peran', 'Jabatan/Unit Asal'], rows: tim.length ? tim.map((m, i) => [i + 1, m.nama || '—', PL[m.peran] || m.peran || '—', m.jabatan_asal || '—']) : [['', '', '', '']] }],
       narasi: ['Tim bertugas melaksanakan pendataan, identifikasi, dokumentasi, dan pelaporan hasil inventarisasi sesuai SOP (BAB VII).'],
       ttd: ttdDua({ peran: 'Mengesahkan,\nPengurus Yayasan Bidang Sarpras', jabatan: '', nama: blank }, { peran: 'Kepala Satuan Pendidikan', jabatan: school?.kepala?.nip ? `NIP. ${school.kepala.nip}` : '', nama: school?.kepala?.nama || blank }),
     }
   },
-  surat_pernyataan_inventaris: ({ o, tim = [], school } = {}) => {
+  surat_pernyataan_inventaris: ({ tim = [], persiapan, school } = {}) => {
     const ketua = tim.find((m) => m.peran === 'ketua')
     return {
       judul: 'SURAT PERNYATAAN KEBENARAN DATA INVENTARIS', nomor: blank, unit: unitName(school),
-      meta: [['Unit', unitName(school)], ['Kegiatan', o?.judul || 'Inventarisasi'], ['Periode', String(o?.tahun ?? '—')]],
+      meta: [['Unit', unitName(school)], ['Periode', persiapan?.periode_nama || '—']],
       intro: 'Yang bertanda tangan di bawah ini menyatakan dengan sebenar-benarnya bahwa:',
       narasi: [
         'Data hasil inventarisasi aset sebagaimana tercantum dalam Laporan Hasil Inventarisasi (LHI) dan Berita Acara telah diperiksa dan dinyatakan benar sesuai keadaan fisik aset.',
@@ -507,43 +518,47 @@ const BUILDERS = {
       ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: school?.kepala?.nip ? `NIP. ${school.kepala.nip}` : '', nama: school?.kepala?.nama || blank }, { peran: 'Ketua Tim Inventarisasi', jabatan: '', nama: ketua?.nama || blank }),
     }
   },
-  rekap_inventaris: ({ o, items = [], school } = {}) => {
-    const n = items.length
-    const ada = items.filter((i) => i.ditemukan === true).length
-    const hilang = items.filter((i) => i.ditemukan === false).length
-    const baik = items.filter((i) => i.kondisi_aktual === 'baik').length
-    const rr = items.filter((i) => i.kondisi_aktual === 'rusak_ringan').length
-    const rb = items.filter((i) => i.kondisi_aktual === 'rusak_berat').length
-    // Rekap per golongan (2 segmen awal kode aset).
+  rekap_inventaris: ({ aset = [], persiapan, school } = {}) => {
+    const n = aset.length
+    const disahkan = aset.filter((a) => a.verif_status === 'disahkan').length
+    const baik = aset.filter((a) => a.kondisi === 'baik').length
+    const rr = aset.filter((a) => a.kondisi === 'rusak_ringan').length
+    const rb = aset.filter((a) => a.kondisi === 'rusak_berat').length
+    const nilai = aset.reduce((s, a) => s + Number(a.nilai_perolehan || 0), 0)
     const gmap = new Map()
-    for (const it of items) { const g = (it.kode_aset || '').split('.').slice(0, 2).join('.') || '(tanpa kode)'; gmap.set(g, (gmap.get(g) || 0) + 1) }
-    const golRows = [...gmap.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([g, c], i) => [i + 1, g, String(c)])
+    for (const a of aset) { const k = a.aset_klasifikasi?.uraian || 'Lainnya'; const cur = gmap.get(k) || { n: 0, v: 0 }; cur.n++; cur.v += Number(a.nilai_perolehan || 0); gmap.set(k, cur) }
+    const golRows = [...gmap.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([g, c], i) => [i + 1, g, String(c.n), rp(c.v)])
     return {
-      judul: 'REKAPITULASI HASIL INVENTARISASI', nomor: `${o?.judul || 'Opname'} — ${o?.tahun ?? ''}`, unit: unitName(school),
-      meta: [['Total Aset', String(n)], ['Ditemukan', String(ada)], ['Tidak Ditemukan', String(hilang)], ['Baik', String(baik)], ['Rusak Ringan', String(rr)], ['Rusak Berat', String(rb)]],
-      tables: [{ columns: ['No', 'Golongan (prefix kode)', 'Jumlah'], rows: golRows.length ? golRows : [['', '', '']] }],
+      judul: 'REKAPITULASI HASIL INVENTARISASI', nomor: persiapan?.periode_nama || unitName(school), unit: unitName(school),
+      meta: [['Total Aset', String(n)], ['Disahkan Yayasan', String(disahkan)], ['Baik', String(baik)], ['Rusak Ringan', String(rr)], ['Rusak Berat', String(rb)], ['Total Nilai Perolehan', rp(nilai)]],
+      tables: [{ columns: ['No', 'Golongan / Klasifikasi', 'Jumlah', 'Nilai Perolehan'], rows: golRows.length ? golRows : [['', '', '', '']] }],
       narasi: ['Rekapitulasi menjadi lampiran Laporan Hasil Inventarisasi dan bahan Laporan Aset Semester/Tahunan.'],
       ttd: ttdDua({ peran: 'Mengesahkan,\nPengelola Aset', jabatan: '', nama: blank }, { peran: 'Ketua Tim Inventarisasi', jabatan: '', nama: blank }),
     }
   },
-  lhi: ({ o, items = [], school }) => ({
-    judul: 'LAPORAN HASIL INVENTARISASI (LHI)',
-    nomor: `${o?.judul || 'Opname'} — ${o?.tahun ?? ''}`,
-    unit: unitName(school),
-    meta: [['Unit', unitName(school)], ['Periode', String(o?.tahun ?? '—')], ['Mulai', tgl(o?.tanggal_mulai)], ['Selesai', tgl(o?.tanggal_selesai)], ['Status', o?.status || '—']],
-    tables: [{ columns: ['No', 'Kode', 'Nama Aset', 'Kondisi Tercatat', 'Temuan', 'Kondisi Aktual', 'Catatan'],
-      rows: items.map((r, i) => [i + 1, r.kode_aset || '—', r.nama_aset || '—', kon(r.kondisi_tercatat), r.ditemukan === null ? 'belum dicek' : (r.ditemukan ? 'Ada' : 'Hilang'), r.kondisi_aktual ? kon(r.kondisi_aktual) : '—', r.catatan || '—']) }],
-    ttd: ttdDua({ peran: 'Mengesahkan,\nPengurus Yayasan Bidang Sarpras', jabatan: '', nama: blank }, { peran: 'Ketua Tim Inventarisasi', jabatan: '', nama: blank }),
-  }),
-  ba_inventarisasi: ({ o, items = [], school }) => ({
+  lhi: ({ aset = [], persiapan, school }) => {
+    const VL = { belum: 'Belum', diajukan: 'Diajukan', diverifikasi: 'Diverifikasi', disahkan: 'Disahkan', ditolak: 'Ditolak' }
+    return {
+      judul: 'LAPORAN HASIL INVENTARISASI (LHI)',
+      nomor: persiapan?.periode_nama || unitName(school),
+      unit: unitName(school),
+      meta: [['Unit', unitName(school)], ['Periode', persiapan?.periode_nama || '—'], ['Mulai', tgl(persiapan?.periode_mulai)], ['Selesai', tgl(persiapan?.periode_selesai)], ['Status Persiapan', persiapan?.tim_disahkan ? 'Disahkan Yayasan' : 'Belum disahkan']],
+      tables: [{ columns: ['No', 'Kode', 'Nama Aset', 'Golongan', 'Ruangan', 'Jml', 'Kondisi', 'Verifikasi'],
+        rows: aset.map((r, i) => [i + 1, r.kode_aset || '—', r.nama || '—', r.aset_klasifikasi?.uraian || '—', r.ruangan?.nama || '—', `${Number(r.jumlah) || 1} ${r.satuan || ''}`, kon(r.kondisi), VL[r.verif_status] || r.verif_status || '—']) }],
+      narasi: ['Nilai & kodefikasi mengikuti data Inventaris. Aset yang sudah "Disahkan" telah melalui verifikasi berinstrumen 2 tingkat.'],
+      ttd: ttdDua({ peran: 'Mengesahkan,\nPengurus Yayasan Bidang Sarpras', jabatan: '', nama: blank }, { peran: 'Ketua Tim Inventarisasi', jabatan: '', nama: blank }),
+      orientasi: 'landscape',
+    }
+  },
+  ba_inventarisasi: ({ aset = [], persiapan, school }) => ({
     judul: 'BERITA ACARA HASIL INVENTARISASI',
     nomor: blank,
     unit: unitName(school),
-    tanggalTempat: `${school?.nama || blank}, ${tgl(o?.tanggal_selesai)}`,
-    intro: `Pada hari ini telah dilaksanakan inventarisasi (opname) aset pada ${unitName(school)} periode ${o?.tahun ?? ''} dengan hasil sebagai berikut:`,
+    tanggalTempat: `${school?.nama || blank}, ${tgl(persiapan?.periode_selesai)}`,
+    intro: `Pada hari ini telah dilaksanakan inventarisasi aset pada ${unitName(school)}${persiapan?.periode_nama ? ` (${persiapan.periode_nama})` : ''} dengan hasil sebagai berikut:`,
     tables: [{ columns: ['Keterangan', 'Jumlah'],
-      rows: [['Total aset diperiksa', String(items.length)], ['Ditemukan (ada)', String(items.filter((i) => i.ditemukan === true).length)], ['Tidak ditemukan (hilang)', String(items.filter((i) => i.ditemukan === false).length)], ['Belum diperiksa', String(items.filter((i) => i.ditemukan === null).length)]] }],
-    narasi: [o?.catatan ? `Catatan: ${o.catatan}` : 'Hasil inventarisasi menjadi dasar pemutakhiran KIA/KIR dan tindak lanjut aset rusak berat/hilang.'],
+      rows: [['Total aset (baris)', String(aset.length)], ['Disahkan Yayasan', String(aset.filter((a) => a.verif_status === 'disahkan').length)], ['Kondisi Baik', String(aset.filter((a) => a.kondisi === 'baik').length)], ['Rusak Ringan', String(aset.filter((a) => a.kondisi === 'rusak_ringan').length)], ['Rusak Berat', String(aset.filter((a) => a.kondisi === 'rusak_berat').length)]] }],
+    narasi: [persiapan?.catatan ? `Catatan: ${persiapan.catatan}` : 'Hasil inventarisasi menjadi dasar pemutakhiran KIA/KIR dan tindak lanjut aset rusak berat/hilang.'],
     ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'Ketua Tim Inventarisasi', jabatan: '', nama: blank }),
   }),
   laporan_aset: ({ school, aset = [] }) => {

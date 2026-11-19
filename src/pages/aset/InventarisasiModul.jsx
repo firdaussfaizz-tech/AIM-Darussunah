@@ -1,18 +1,19 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { LayoutDashboard, ClipboardList, Search, Tag, Boxes, Plus, Pencil, Trash2, CheckCircle2, Download, Printer, ListChecks, DoorOpen, Settings, ClipboardCheck, ScanLine, Camera, X } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, Search, Tag, Boxes, Plus, Pencil, Trash2, CheckCircle2, Download, Printer, ListChecks, DoorOpen, Settings, ClipboardCheck, ScanLine, Camera, X, ShieldCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Input, Select, EmptyState, FullPageSpinner, StatCard } from '../../components/ui'
 import { formatRupiah } from '../../lib/format'
 import { KONDISI_LABEL } from '../../lib/aset'
 import { barcode39, qrSvg, exportExcelWorkbook } from '../../lib/inventarisasiExport'
-import { useUnitFilter, UnitBar, AsetFormModal, InventarisasiTab, openCetak } from './AsetList'
+import { useUnitFilter, UnitBar, AsetFormModal, DokumenAreaCard, openCetak } from './AsetList'
 
 const KONDISI_CHIP = { baik: 'success', rusak_ringan: 'gold', rusak_berat: 'danger' }
 export const VERIF_LABEL = { belum: 'Belum diverifikasi', diajukan: 'Diajukan', diverifikasi: 'Diverifikasi Sekolah', disahkan: 'Disahkan Yayasan', ditolak: 'Ditolak' }
 const VERIF_BADGE = { belum: 'neutral', diajukan: 'gold', diverifikasi: 'navy', disahkan: 'success', ditolak: 'danger' }
 const SUBNAV = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'persiapan', label: 'Persiapan', icon: ListChecks },
   { id: 'pendataan', label: 'Pendataan', icon: ClipboardList },
   { id: 'identifikasi', label: 'Identifikasi', icon: Search },
   { id: 'scan', label: 'Scan Aset', icon: ScanLine },
@@ -20,7 +21,6 @@ const SUBNAV = [
   { id: 'label', label: 'Cetak Label', icon: Tag },
   { id: 'golongan', label: 'Master Golongan', icon: Boxes },
   { id: 'instrumen', label: 'Instrumen Verifikasi', icon: ClipboardCheck },
-  { id: 'periode', label: 'Periode & Alur', icon: ListChecks },
   { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
 ]
 
@@ -33,6 +33,9 @@ export default function InventarisasiModul({ hasFullAccess, mySchools }) {
   const [ruangan, setRuangan] = useState([])
   const [klasifikasi, setKlasifikasi] = useState([])
   const [instrumen, setInstrumen] = useState([])
+  const [persiapan, setPersiapan] = useState(null)
+  const [tim, setTim] = useState([])
+  const [pegawai, setPegawai] = useState([])
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
@@ -43,22 +46,29 @@ export default function InventarisasiModul({ hasFullAccess, mySchools }) {
     ])
     setKlasifikasi(kl || [])
     setInstrumen(ins || [])
-    if (!schoolId) { setAset([]); setRuangan([]); setLoading(false); return }
-    const [{ data: a }, { data: rg }] = await Promise.all([
+    if (!schoolId) { setAset([]); setRuangan([]); setPersiapan(null); setTim([]); setPegawai([]); setLoading(false); return }
+    const [{ data: a }, { data: rg }, { data: p }, { data: tm }, { data: pg }] = await Promise.all([
       supabase.from('aset').select('*, aset_klasifikasi(kode, uraian), ruangan(nama, kode_ruangan)').eq('school_id', schoolId).eq('status', 'aktif').order('kode_aset', { nullsFirst: false }),
       supabase.from('ruangan').select('id, nama').eq('school_id', schoolId).order('nama'),
+      supabase.from('inventarisasi_persiapan').select('*').eq('school_id', schoolId).maybeSingle(),
+      supabase.from('inventarisasi_tim').select('*').eq('school_id', schoolId).order('created_at'),
+      supabase.from('employees').select('id, nama').eq('school_id', schoolId).eq('status', 'aktif').order('nama'),
     ])
     setAset(a || [])
     setRuangan(rg || [])
+    setPersiapan(p || null)
+    setTim(tm || [])
+    setPegawai(pg || [])
     setLoading(false)
   }, [schoolId])
   useEffect(() => { load() }, [load])
+  const siapPendataan = !!persiapan?.tim_disahkan
 
   return (
     <div className="flex flex-col gap-5">
       <UnitBar hasFullAccess={hasFullAccess} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId} />
       <Card className="bg-[var(--color-navy-50)]">
-        <p className="text-[13px] text-[var(--color-ink)]"><b>SIMAS Inventarisasi (BAB VII).</b> Satu modul terintegrasi: ringkasan aset (Dashboard), pencatatan & kondisi (Pendataan), verifikasi & kodefikasi (Identifikasi), cetak label barcode, master golongan, dan alur berperiode (Opname) yang otomatis terhubung ke Penghapusan, Pemeliharaan, KIA/KIR, dan Buku Kas.</p>
+        <p className="text-[13px] text-[var(--color-ink)]"><b>SIMAS Inventarisasi (BAB VII).</b> Alur: <b>Persiapan</b> (Tim + pengesahan Yayasan) → <b>Pendataan</b> → <b>Identifikasi &amp; Verifikasi</b> (instrumen, 2 tingkat) → <b>KIA/KIR</b>, <b>Label QR</b>, <b>Dokumen &amp; Formulir</b>. Terintegrasi ke Penghapusan, Pemeliharaan, dan Buku Kas.</p>
       </Card>
       {/* Sub-navigation */}
       <div className="flex flex-wrap gap-2">
@@ -77,22 +87,151 @@ export default function InventarisasiModul({ hasFullAccess, mySchools }) {
         <MasterGolongan klasifikasi={klasifikasi} canManage={hasFullAccess} onChanged={load} />
       ) : sub === 'instrumen' ? (
         <MasterInstrumen klasifikasi={klasifikasi} instrumen={instrumen} canManage={hasFullAccess} onChanged={load} />
-      ) : sub === 'periode' ? (
-        <InventarisasiTab hasFullAccess={hasFullAccess} mySchools={mySchools} />
       ) : sub === 'pengaturan' ? (
         <InvPengaturan />
       ) : !schoolId ? (
         <p className="text-sm text-[var(--color-ink-soft)]">Pilih unit lebih dulu.</p>
       ) : loading ? <FullPageSpinner /> : (
         <>
-          {sub === 'dashboard' && <InvDashboard aset={aset} ruangan={ruangan} />}
-          {sub === 'pendataan' && <InvPendataan aset={aset} ruangan={ruangan} klasifikasi={klasifikasi} schools={schools} schoolId={schoolId} canManage={canManage} onChanged={load} />}
+          {sub === 'dashboard' && <><InvDashboard aset={aset} ruangan={ruangan} /><DokumenAreaCard area="Inventarisasi" schoolId={schoolId} /></>}
+          {sub === 'persiapan' && <InvPersiapan schoolId={schoolId} persiapan={persiapan} tim={tim} pegawai={pegawai} ruangan={ruangan} klasifikasiCount={klasifikasi.length} canManage={canManage} onChanged={load} onMulai={() => setSub('pendataan')} />}
+          {sub === 'pendataan' && (siapPendataan
+            ? <InvPendataan aset={aset} ruangan={ruangan} klasifikasi={klasifikasi} schools={schools} schoolId={schoolId} canManage={canManage} onChanged={load} />
+            : <GateCard onGo={() => setSub('persiapan')} />)}
           {sub === 'identifikasi' && <InvIdentifikasi aset={aset} instrumen={instrumen} canManage={canManage} onChanged={load} />}
           {sub === 'scan' && <InvScan aset={aset} instrumen={instrumen} canManage={canManage} onChanged={load} />}
           {sub === 'kiakir' && <InvKiaKir aset={aset} ruangan={ruangan} />}
           {sub === 'label' && <InvLabel aset={aset} ruangan={ruangan} schoolName={schools.find((s) => s.id === schoolId)?.nama} />}
         </>
       )}
+    </div>
+  )
+}
+
+const PERAN_TIM = { penanggung_jawab: 'Penanggung Jawab', ketua: 'Ketua', sekretaris: 'Sekretaris', anggota: 'Anggota', pengelola_aset: 'Pengelola Aset', petugas: 'Petugas Pendata' }
+
+function GateCard({ onGo }) {
+  return (
+    <Card>
+      <div className="flex flex-col items-center gap-3 py-8 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-gold-soft,#fdf3dc)]"><ListChecks className="h-6 w-6 text-[var(--color-gold,#b7791f)]" /></div>
+        <h3 className="text-base font-semibold text-[var(--color-ink)]">Pendataan terkunci</h3>
+        <p className="max-w-md text-sm text-[var(--color-ink-soft)]">Persiapan Inventarisasi harus matang dan <b>disahkan Yayasan</b> terlebih dahulu sebelum pendataan dapat dimulai.</p>
+        <Button onClick={onGo}><ListChecks className="h-4 w-4" /> Buka Persiapan</Button>
+      </div>
+    </Card>
+  )
+}
+
+/* ---------------- Persiapan Inventarisasi (gerbang Pendataan) ---------------- */
+function InvPersiapan({ schoolId, persiapan, tim, pegawai, ruangan, klasifikasiCount, canManage, onChanged, onMulai }) {
+  const { isAdminYayasan } = useAuth()
+  const disahkan = !!persiapan?.tim_disahkan
+  const [p, setP] = useState({})
+  const [savingP, setSavingP] = useState(false)
+  const [busy, setBusy] = useState(false)
+  // Tim add form
+  const [pegawaiId, setPegawaiId] = useState('')
+  const [namaManual, setNamaManual] = useState('')
+  const [peran, setPeran] = useState('anggota')
+  const [asal, setAsal] = useState('')
+  useEffect(() => { setP({ periode_nama: persiapan?.periode_nama || '', periode_jenis: persiapan?.periode_jenis || 'Semester Ganjil', periode_mulai: persiapan?.periode_mulai || '', periode_selesai: persiapan?.periode_selesai || '', no_sk: persiapan?.no_sk || '', catatan: persiapan?.catatan || '' }) }, [persiapan])
+  const setField = (k, v) => setP((s) => ({ ...s, [k]: v }))
+
+  const simpanPeriode = async () => {
+    setSavingP(true)
+    const { error } = await supabase.from('inventarisasi_persiapan').upsert({ school_id: schoolId, periode_nama: p.periode_nama?.trim() || null, periode_jenis: p.periode_jenis || null, periode_mulai: p.periode_mulai || null, periode_selesai: p.periode_selesai || null, no_sk: p.no_sk?.trim() || null, catatan: p.catatan?.trim() || null })
+    setSavingP(false)
+    if (error) { alert('Gagal: ' + error.message); return }
+    onChanged()
+  }
+  const manual = pegawaiId === '__manual__'
+  const tambahTim = async (e) => {
+    e.preventDefault()
+    const pg = pegawai.find((x) => x.id === pegawaiId)
+    const nama = manual ? namaManual.trim() : (pg?.nama || '')
+    if (!nama) return
+    const { error } = await supabase.from('inventarisasi_tim').insert({ school_id: schoolId, nama, employee_id: manual ? null : (pg?.id || null), peran, jabatan_asal: asal.trim() || null })
+    if (error) { alert('Gagal: ' + error.message); return }
+    setPegawaiId(''); setNamaManual(''); setAsal(''); onChanged()
+  }
+  const hapusTim = async (id) => { const { error } = await supabase.from('inventarisasi_tim').delete().eq('id', id); if (error) { alert('Gagal: ' + error.message); return } onChanged() }
+  const sahkan = async () => {
+    if (tim.length === 0) { alert('Tambahkan anggota Tim dulu.'); return }
+    if (!p.periode_nama?.trim()) { alert('Isi & simpan Periode dulu.'); return }
+    if (!confirm('Sahkan Persiapan Inventarisasi (atas nama Yayasan)? Setelah disahkan, Pendataan dapat dimulai.')) return
+    setBusy(true); const { error } = await supabase.from('inventarisasi_persiapan').update({ tim_disahkan: true }).eq('school_id', schoolId); setBusy(false)
+    if (error) { alert('Gagal: ' + error.message); return } onChanged()
+  }
+  const batal = async () => { setBusy(true); const { error } = await supabase.from('inventarisasi_persiapan').update({ tim_disahkan: false }).eq('school_id', schoolId); setBusy(false); if (error) { alert('Gagal: ' + error.message); return } onChanged() }
+
+  const ceklist = [
+    { ok: !!p.periode_nama, t: 'Periode inventarisasi ditetapkan' },
+    { ok: tim.length > 0, t: `Tim Inventarisasi disusun (${tim.length} anggota)` },
+    { ok: tim.some((m) => m.peran === 'ketua'), t: 'Ada Ketua Tim' },
+    { ok: ruangan.length > 0, t: `Ruangan & PJ terdaftar (${ruangan.length} ruangan)` },
+    { ok: klasifikasiCount > 0, t: `Golongan/kodefikasi siap (${klasifikasiCount} golongan)` },
+  ]
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {disahkan ? <Badge color="success">Persiapan disahkan Yayasan</Badge> : <Badge color="gold">Persiapan belum disahkan</Badge>}
+        {disahkan && <Button size="sm" onClick={onMulai}>Mulai Pendataan →</Button>}
+      </div>
+
+      <SectionCard title="1. Periode Inventarisasi" description="Tetapkan periode & dasar pelaksanaan. Menjadi header dokumen (LHI, BA, SK Tim).">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input label="Nama Periode" value={p.periode_nama || ''} onChange={(e) => setField('periode_nama', e.target.value)} placeholder="Inventarisasi Semester Ganjil 2026/2027" disabled={disahkan || !canManage} />
+          <Select label="Jenis" value={p.periode_jenis || 'Semester Ganjil'} onChange={(e) => setField('periode_jenis', e.target.value)} disabled={disahkan || !canManage}>{['Semester Ganjil', 'Semester Genap', 'Tahunan', 'Khusus'].map((j) => <option key={j}>{j}</option>)}</Select>
+          <Input label="Tanggal Mulai" type="date" value={p.periode_mulai || ''} onChange={(e) => setField('periode_mulai', e.target.value)} disabled={disahkan || !canManage} />
+          <Input label="Tanggal Selesai" type="date" value={p.periode_selesai || ''} onChange={(e) => setField('periode_selesai', e.target.value)} disabled={disahkan || !canManage} />
+          <Input label="No. SK / Dasar Pelaksanaan" value={p.no_sk || ''} onChange={(e) => setField('no_sk', e.target.value)} placeholder="SK Ketua Yayasan No. ..." disabled={disahkan || !canManage} />
+          <Input label="Catatan" value={p.catatan || ''} onChange={(e) => setField('catatan', e.target.value)} disabled={disahkan || !canManage} />
+        </div>
+        {!disahkan && canManage && <div className="mt-3"><Button onClick={simpanPeriode} disabled={savingP}>{savingP ? 'Menyimpan…' : 'Simpan Periode'}</Button></div>}
+      </SectionCard>
+
+      <SectionCard title="2. Tim Inventarisasi" description="Susun tim (Ketua, Sekretaris, Anggota, dll). Nama diambil dari daftar pegawai unit.">
+        {tim.length > 0 ? (
+          <div className="overflow-x-auto">
+            <Table columns={['Nama', 'Peran', 'Jabatan/Unit Asal', disahkan || !canManage ? null : ''].filter((c) => c !== null)}>
+              {tim.map((m) => (
+                <Tr key={m.id}><Td className="font-medium">{m.nama}</Td><Td className="text-xs">{PERAN_TIM[m.peran] || m.peran}</Td><Td className="text-xs">{m.jabatan_asal || '—'}</Td>
+                  {!disahkan && canManage && <Td><div className="flex justify-end"><button onClick={() => hapusTim(m.id)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]"><Trash2 className="h-4 w-4" /></button></div></Td>}
+                </Tr>
+              ))}
+            </Table>
+          </div>
+        ) : <p className="text-sm text-[var(--color-ink-soft)]">Belum ada anggota tim.</p>}
+        {!disahkan && canManage && (
+          <form onSubmit={tambahTim} className="mt-3 flex flex-wrap items-end gap-2 border-t border-[var(--color-border)] pt-3">
+            <div className="min-w-[180px] flex-1"><Select label="Nama (dari pegawai)" value={pegawaiId} onChange={(e) => setPegawaiId(e.target.value)}><option value="">— pilih pegawai —</option>{pegawai.map((x) => <option key={x.id} value={x.id}>{x.nama}</option>)}<option value="__manual__">Ketik manual…</option></Select></div>
+            {manual && <Input label="Nama manual" value={namaManual} onChange={(e) => setNamaManual(e.target.value)} containerClassName="min-w-[150px] flex-1" />}
+            <Select label="Peran" value={peran} onChange={(e) => setPeran(e.target.value)}>{Object.entries(PERAN_TIM).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
+            <Input label="Jabatan/Asal" value={asal} onChange={(e) => setAsal(e.target.value)} containerClassName="min-w-[120px]" />
+            <Button type="submit"><Plus className="h-4 w-4" /> Tambah</Button>
+          </form>
+        )}
+      </SectionCard>
+
+      <SectionCard title="3. Kesiapan" description="Pastikan prasyarat lengkap sebelum pengesahan. Ruangan/PJ dikelola di menu Ruangan; Golongan di Master Golongan.">
+        <ul className="flex flex-col gap-2 text-sm">
+          {ceklist.map((c) => (<li key={c.t} className="flex items-center gap-2"><CheckCircle2 className={`h-4 w-4 ${c.ok ? 'text-[var(--color-success,#17814c)]' : 'text-[var(--color-border)]'}`} /> <span className={c.ok ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-soft)]'}>{c.t}</span></li>))}
+        </ul>
+      </SectionCard>
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[13px] text-[var(--color-ink)]">{disahkan ? 'Persiapan telah disahkan — Pendataan terbuka.' : 'Minta Yayasan mengesahkan Persiapan untuk membuka Pendataan.'}</p>
+          <div className="flex gap-2">
+            {!disahkan && isAdminYayasan && <Button onClick={sahkan} disabled={busy}><ShieldCheck className="h-4 w-4" /> Sahkan Persiapan (Yayasan)</Button>}
+            {!disahkan && !isAdminYayasan && <span className="self-center text-xs text-[var(--color-ink-soft)]">Pengesahan oleh Admin Yayasan.</span>}
+            {disahkan && isAdminYayasan && <Button variant="outline" onClick={batal} disabled={busy}>Batalkan Pengesahan</Button>}
+            {disahkan && <Button onClick={onMulai}>Mulai Pendataan →</Button>}
+          </div>
+        </div>
+      </Card>
     </div>
   )
 }

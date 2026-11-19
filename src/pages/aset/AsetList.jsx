@@ -3152,7 +3152,7 @@ function DokumenRow({ doc, schoolId }) {
 // Kartu Dokumen & Formulir khusus satu area/alur — ditempel di tab alurnya
 // (selain menu "Dokumen & Formulir"). Dokumen kerja SOP area tsb, terisi
 // otomatis dari data; pilih data lalu Cetak/Simpan PDF.
-function DokumenAreaCard({ area, schoolId }) {
+export function DokumenAreaCard({ area, schoolId }) {
   const docs = DOKUMEN_LIST.filter((d) => d.area === area)
   if (docs.length === 0) return null
   return (
