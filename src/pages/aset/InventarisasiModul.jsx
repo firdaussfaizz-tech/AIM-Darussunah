@@ -1,11 +1,11 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
-import { LayoutDashboard, ClipboardList, Search, Tag, Boxes, Plus, Pencil, Trash2, CheckCircle2, Download, Printer, ListChecks, DoorOpen, Settings, ClipboardCheck } from 'lucide-react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { LayoutDashboard, ClipboardList, Search, Tag, Boxes, Plus, Pencil, Trash2, CheckCircle2, Download, Printer, ListChecks, DoorOpen, Settings, ClipboardCheck, ScanLine, Camera, X } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { SectionCard, Card, Button, Badge, Table, Tr, Td, Modal, Input, Select, EmptyState, FullPageSpinner, StatCard } from '../../components/ui'
 import { formatRupiah } from '../../lib/format'
 import { KONDISI_LABEL } from '../../lib/aset'
-import { barcode39, exportExcelWorkbook } from '../../lib/inventarisasiExport'
+import { barcode39, qrSvg, exportExcelWorkbook } from '../../lib/inventarisasiExport'
 import { useUnitFilter, UnitBar, AsetFormModal, InventarisasiTab, openCetak } from './AsetList'
 
 const KONDISI_CHIP = { baik: 'success', rusak_ringan: 'gold', rusak_berat: 'danger' }
@@ -15,6 +15,7 @@ const SUBNAV = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'pendataan', label: 'Pendataan', icon: ClipboardList },
   { id: 'identifikasi', label: 'Identifikasi', icon: Search },
+  { id: 'scan', label: 'Scan Aset', icon: ScanLine },
   { id: 'kiakir', label: 'KIA / KIR', icon: DoorOpen },
   { id: 'label', label: 'Cetak Label', icon: Tag },
   { id: 'golongan', label: 'Master Golongan', icon: Boxes },
@@ -87,6 +88,7 @@ export default function InventarisasiModul({ hasFullAccess, mySchools }) {
           {sub === 'dashboard' && <InvDashboard aset={aset} ruangan={ruangan} />}
           {sub === 'pendataan' && <InvPendataan aset={aset} ruangan={ruangan} klasifikasi={klasifikasi} schools={schools} schoolId={schoolId} canManage={canManage} onChanged={load} />}
           {sub === 'identifikasi' && <InvIdentifikasi aset={aset} instrumen={instrumen} canManage={canManage} onChanged={load} />}
+          {sub === 'scan' && <InvScan aset={aset} instrumen={instrumen} canManage={canManage} onChanged={load} />}
           {sub === 'kiakir' && <InvKiaKir aset={aset} ruangan={ruangan} />}
           {sub === 'label' && <InvLabel aset={aset} ruangan={ruangan} schoolName={schools.find((s) => s.id === schoolId)?.nama} />}
         </>
@@ -326,6 +328,106 @@ function InvIdentifikasi({ aset, instrumen, canManage, onChanged }) {
   )
 }
 
+/* ---------------- Scan Aset (QR/Barcode: kamera + scanner fisik) ---------------- */
+function InvScan({ aset, instrumen, canManage, onChanged }) {
+  const { isAdminYayasan } = useAuth()
+  const [code, setCode] = useState('')
+  const [found, setFound] = useState(null) // asset row | 'notfound' | null
+  const [modal, setModal] = useState(null)
+  const [camOn, setCamOn] = useState(false)
+  const [camErr, setCamErr] = useState('')
+  const videoRef = useRef(null)
+  const asetRef = useRef(aset)
+  asetRef.current = aset
+  const supported = typeof window !== 'undefined' && 'BarcodeDetector' in window
+
+  const lookup = (raw) => {
+    const q = String(raw || '').trim().toUpperCase()
+    if (!q) return
+    const hit = asetRef.current.find((a) => (a.kode_aset || '').toUpperCase() === q)
+    setCode(q); setFound(hit || 'notfound')
+  }
+  const submit = (e) => { e.preventDefault(); lookup(code) }
+
+  useEffect(() => {
+    if (!camOn) return
+    let stream, raf, stopped = false, detector
+    setCamErr('')
+    ;(async () => {
+      try {
+        detector = new window.BarcodeDetector({ formats: ['qr_code', 'code_39'] })
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play() }
+        const tick = async () => {
+          if (stopped) return
+          try { const codes = await detector.detect(videoRef.current); if (codes && codes[0]) { lookup(codes[0].rawValue); setCamOn(false); return } } catch { /* frame not ready */ }
+          raf = requestAnimationFrame(tick)
+        }
+        raf = requestAnimationFrame(tick)
+      } catch (e) { setCamErr('Tidak bisa mengakses kamera: ' + (e?.message || e)); setCamOn(false) }
+    })()
+    return () => { stopped = true; if (raf) cancelAnimationFrame(raf); if (stream) stream.getTracks().forEach((t) => t.stop()) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [camOn])
+
+  const ubahStatus = async (a, status, extra = {}) => {
+    const { error } = await supabase.from('aset').update({ verif_status: status, ...extra }).eq('id', a.id)
+    if (error) { alert('Gagal: ' + error.message); return }
+    setFound((f) => (f && f !== 'notfound' ? { ...f, verif_status: status } : f))
+    onChanged()
+  }
+
+  const a = found && found !== 'notfound' ? found : null
+  const st = a?.verif_status || 'belum'
+  return (
+    <SectionCard title="Scan Aset" description="Pindai QR/barcode label aset untuk langsung menemukan & memverifikasi. Mendukung kamera HP (QR/Code 39) dan scanner fisik (USB/Bluetooth).">
+      <div className="flex flex-col gap-3">
+        <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
+          <Input autoFocus placeholder="Scan di sini (scanner fisik) atau ketik kode aset…" value={code} onChange={(e) => setCode(e.target.value)} containerClassName="min-w-[260px] flex-1" />
+          <Button type="submit"><Search className="h-4 w-4" /> Cari</Button>
+          {supported && !camOn && <Button type="button" variant="outline" onClick={() => { setCamErr(''); setCamOn(true) }}><Camera className="h-4 w-4" /> Scan via Kamera</Button>}
+          {camOn && <Button type="button" variant="outline" onClick={() => setCamOn(false)}><X className="h-4 w-4" /> Tutup Kamera</Button>}
+        </form>
+        {!supported && <p className="text-xs text-[var(--color-ink-soft)]">Scan kamera tidak didukung browser ini — gunakan scanner fisik (otomatis mengetik ke kotak di atas) atau ketik manual. Untuk kamera, pakai Chrome/Edge di Android.</p>}
+        {camErr && <p className="text-sm text-[var(--color-danger)]">{camErr}</p>}
+        {camOn && (
+          <div className="relative mx-auto w-full max-w-sm overflow-hidden rounded-lg border-2 border-[var(--color-navy)] bg-black">
+            <video ref={videoRef} className="w-full" muted playsInline />
+            <div className="pointer-events-none absolute inset-6 rounded-lg border-2 border-white/70" />
+          </div>
+        )}
+
+        {found === 'notfound' && (
+          <div className="rounded-lg border border-[var(--color-danger)] bg-[var(--color-danger-soft,#fdecea)] p-3 text-sm">Aset dengan kode <b className="font-mono">{code}</b> tidak ditemukan di unit ini. Pastikan unit yang dipilih benar.</div>
+        )}
+        {a && (
+          <div className="rounded-lg border border-[var(--color-border)] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h4 className="text-base font-semibold text-[var(--color-ink)]">{a.nama}</h4>
+                <p className="font-mono text-xs text-[var(--color-ink-soft)]">{a.kode_aset}</p>
+                <p className="mt-1 text-xs text-[var(--color-ink-soft)]">{a.aset_klasifikasi?.uraian || '—'} · {a.ruangan?.nama || 'tanpa ruangan'} · {Number(a.jumlah) || 1} {a.satuan || ''}</p>
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                <Badge color={KONDISI_CHIP[a.kondisi]}>{KONDISI_LABEL[a.kondisi]}</Badge>
+                <Badge color={VERIF_BADGE[st]}>{VERIF_LABEL[st]}</Badge>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-[var(--color-border)] pt-3">
+              {a.verif_jawaban && <Button size="sm" variant="ghost" onClick={() => setModal({ aset: a, mode: 'reviu' })}>Lihat Instrumen</Button>}
+              {canManage && (st === 'belum' || st === 'ditolak') && <Button size="sm" onClick={() => setModal({ aset: a, mode: 'isi' })}>Isi Instrumen & Ajukan</Button>}
+              {canManage && st === 'diajukan' && <Button size="sm" onClick={() => ubahStatus(a, 'diverifikasi')}>Verifikasi (Sekolah)</Button>}
+              {isAdminYayasan && st === 'diverifikasi' && <><Button size="sm" onClick={() => ubahStatus(a, 'disahkan')}>Sahkan</Button><Button size="sm" variant="outline" onClick={() => { const c = prompt('Alasan penolakan (opsional):') || null; ubahStatus(a, 'ditolak', { verif_catatan: c }) }}>Tolak</Button></>}
+              {st === 'disahkan' && <span className="self-center text-xs text-[var(--color-ink-soft)]">Aset sudah disahkan Yayasan.</span>}
+            </div>
+          </div>
+        )}
+      </div>
+      <InstrumenModal data={modal} instrumen={instrumen} onClose={() => setModal(null)} onSaved={() => { setModal(null); onChanged() }} />
+    </SectionCard>
+  )
+}
+
 function poinUntukAset(instrumen, asetRow) {
   return instrumen
     .filter((i) => i.klasifikasi_id == null || i.klasifikasi_id === asetRow?.klasifikasi_id)
@@ -481,7 +583,14 @@ function InstrumenItemModal({ open, editing, klasifikasiId, onClose, onSaved }) 
 function InvLabel({ aset, ruangan, schoolName }) {
   const [fRuangan, setFRuangan] = useState('')
   const [jenis, setJenis] = useState('Permanen')
+  const [format, setFormat] = useState('qr') // qr | barcode | keduanya
   const rows = useMemo(() => fRuangan ? aset.filter((a) => a.ruangan_id === fRuangan) : aset, [aset, fRuangan])
+  const kodeFmt = (a) => {
+    const kode = a.kode_aset || a.id
+    const qr = `<div class="qr">${qrSvg(kode)}</div>`
+    const bc = barcode39(kode)
+    return format === 'qr' ? qr : format === 'barcode' ? bc : `<div class="dual">${qr}${bc}</div>`
+  }
   const cetak = () => {
     const win = window.open('', '_blank')
     if (!win) { alert('Popup diblokir. Izinkan popup untuk mencetak label.'); return }
@@ -490,7 +599,7 @@ function InvLabel({ aset, ruangan, schoolName }) {
         <div class="lh"><b>${esc(schoolName || '')}</b><span class="perm">${esc(jenis)}</span></div>
         <div class="nm">${esc(a.nama || '')}</div>
         <div class="meta"><span>${esc(a.aset_klasifikasi?.uraian || '')}</span><span>${esc(KONDISI_LABEL[a.kondisi] || '')}</span></div>
-        ${barcode39(a.kode_aset || a.id)}
+        ${kodeFmt(a)}
         <div class="code">${esc(a.kode_aset || '-')}</div>
       </div>`).join('')
     win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Label Aset</title><style>
@@ -501,16 +610,19 @@ function InvLabel({ aset, ruangan, schoolName }) {
       .lh b{font-size:9px} .lh .perm{font-size:7.5px;border:1px solid #111;border-radius:3px;padding:0 4px}
       .nm{font-size:11px;font-weight:700;line-height:1.15;min-height:26px}
       .meta{font-size:8.5px;color:#333;display:flex;justify-content:space-between;margin:2px 0}
+      .qr{width:70px;height:70px;margin:2px auto} .qr svg{width:100%;height:100%}
+      .dual{display:flex;gap:6px;align-items:center}.dual .qr{width:54px;height:54px;margin:0;flex:0 0 auto}.dual svg.bc{flex:1}
       .code{text-align:center;font-size:9px;letter-spacing:1px;font-weight:700;margin-top:2px}
       </style></head><body><div class="sheet">${labels}</div>
       <scr${''}ipt>window.onload=function(){setTimeout(function(){window.print()},250)}</scr${''}ipt></body></html>`)
     win.document.close()
   }
   return (
-    <SectionCard title="Cetak Label Aset (Barcode)" description="Label aset ber-barcode (Code 39) dari kode aset. Pilih ruangan & jenis label, lalu cetak.">
+    <SectionCard title="Cetak Label Aset (QR / Barcode)" description="Label aset dari kode aset. QR Code andal dipindai kamera HP; Code 39 cocok untuk scanner laser. Pilih ruangan, jenis, & format lalu cetak.">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Select value={fRuangan} onChange={(e) => setFRuangan(e.target.value)}><option value="">Semua Ruangan</option>{ruangan.map((r) => <option key={r.id} value={r.id}>{r.nama}</option>)}</Select>
         <Select value={jenis} onChange={(e) => setJenis(e.target.value)}><option>Permanen</option><option>Sementara</option></Select>
+        <Select value={format} onChange={(e) => setFormat(e.target.value)}><option value="qr">QR Code</option><option value="barcode">Barcode (Code 39)</option><option value="keduanya">Keduanya</option></Select>
         <div className="flex-1" />
         <Button onClick={cetak} disabled={rows.length === 0}><Printer className="h-4 w-4" /> Cetak {rows.length} Label</Button>
       </div>
@@ -520,7 +632,9 @@ function InvLabel({ aset, ruangan, schoolName }) {
             <div key={a.id} className="rounded-lg border border-[var(--color-border)] p-2">
               <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-1 text-[9px] font-semibold"><span className="truncate">{schoolName}</span><span className="rounded border border-current px-1">{jenis}</span></div>
               <div className="min-h-[26px] py-1 text-[11px] font-bold leading-tight">{a.nama}</div>
-              <div className="barcode" dangerouslySetInnerHTML={{ __html: barcode39(a.kode_aset || a.id, { height: 30 }) }} />
+              {format === 'qr' ? <div className="mx-auto h-16 w-16" dangerouslySetInnerHTML={{ __html: qrSvg(a.kode_aset || a.id) }} />
+                : format === 'barcode' ? <div dangerouslySetInnerHTML={{ __html: barcode39(a.kode_aset || a.id, { height: 30 }) }} />
+                : <div className="flex items-center gap-1.5"><div className="h-12 w-12 flex-shrink-0" dangerouslySetInnerHTML={{ __html: qrSvg(a.kode_aset || a.id) }} /><div className="flex-1" dangerouslySetInnerHTML={{ __html: barcode39(a.kode_aset || a.id, { height: 28 }) }} /></div>}
               <div className="text-center text-[9px] font-bold tracking-wider">{a.kode_aset || '—'}</div>
             </div>
           ))}

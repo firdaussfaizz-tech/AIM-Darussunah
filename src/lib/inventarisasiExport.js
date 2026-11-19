@@ -1,5 +1,18 @@
-// Utilitas Inventarisasi: barcode Code 39 (SVG) & ekspor Excel workbook
-// (SpreadsheetML 2003) — tanpa dependensi, agar build Netlify bersih.
+// Utilitas Inventarisasi: barcode Code 39 (SVG), QR Code (SVG), & ekspor Excel
+// workbook (SpreadsheetML 2003).
+import qrcode from 'qrcode-generator'
+
+// QR Code SVG dari teks (mis. kode aset). Andal dipindai kamera HP.
+export function qrSvg(text, { margin = 2 } = {}) {
+  const qr = qrcode(0, 'M')
+  qr.addData(String(text || '-'))
+  qr.make()
+  const n = qr.getModuleCount()
+  const size = n + margin * 2
+  let rects = ''
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) rects += `<rect x="${c + margin}" y="${r + margin}" width="1" height="1"/>`
+  return `<svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="display:block;width:100%;height:100%"><rect width="${size}" height="${size}" fill="#fff"/><g fill="#000">${rects}</g></svg>`
+}
 
 const C39 = {
   '0': 'nnnwwnwnn', '1': 'wnnwnnnnw', '2': 'nnwwnnnnw', '3': 'wnwwnnnnn', '4': 'nnnwwnnnw',
