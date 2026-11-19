@@ -507,8 +507,8 @@ const BUILDERS = {
     return {
       judul: 'KEPUTUSAN / BERITA ACARA PEMBENTUKAN TIM INVENTARISASI', nomor: persiapan?.no_sk || blank, unit: unitName(school), orientasi: 'landscape',
       meta: [['Unit', unitName(school)], ['Periode', persiapan?.periode_nama || '—'], ['Status Persiapan', persiapan?.tim_disahkan ? 'Disahkan Yayasan' : 'Belum disahkan']],
-      intro: 'Dalam rangka pelaksanaan inventarisasi aset satuan pendidikan, dengan ini dibentuk Tim Inventarisasi dengan susunan dan uraian tugas sebagai berikut:',
-      tables: [{ columns: ['No', 'Nama', 'Peran', 'Jabatan/Unit Asal', 'Uraian Tugas'], rows: tim.length ? tim.map((m, i) => [i + 1, m.nama || '—', PL[m.peran] || m.peran || '—', m.jabatan_asal || '—', JD[m.peran] || '—']) : [['', '', '', '', '']] }],
+      intro: 'Dalam rangka pelaksanaan inventarisasi aset satuan pendidikan, dengan ini dibentuk Tim Inventarisasi dengan susunan, penugasan, dan uraian tugas sebagai berikut:',
+      tables: [{ columns: ['No', 'Nama', 'Peran', 'Jabatan/Unit Asal', 'Penugasan', 'Uraian Tugas'], rows: tim.length ? tim.map((m, i) => [i + 1, m.nama || '—', PL[m.peran] || m.peran || '—', m.jabatan_asal || '—', m.penugasan || '—', JD[m.peran] || '—']) : [['', '', '', '', '', '']] }],
       narasi: ['Setiap anggota melaksanakan uraian tugas sesuai perannya. Secara umum Tim bertugas melaksanakan pendataan, identifikasi, dokumentasi, dan pelaporan hasil inventarisasi sesuai SOP (BAB VII).'],
       ttd: ttdDua({ peran: 'Mengesahkan,\nPengurus Yayasan Bidang Sarpras', jabatan: '', nama: blank }, { peran: 'Kepala Satuan Pendidikan', jabatan: school?.kepala?.nip ? `NIP. ${school.kepala.nip}` : '', nama: school?.kepala?.nama || blank }),
     }

@@ -49,10 +49,10 @@ export default function InventarisasiModul({ hasFullAccess, mySchools }) {
     if (!schoolId) { setAset([]); setRuangan([]); setPersiapan(null); setTim([]); setPegawai([]); setLoading(false); return }
     const [{ data: a }, { data: rg }, { data: p }, { data: tm }, { data: pg }] = await Promise.all([
       supabase.from('aset').select('*, aset_klasifikasi(kode, uraian), ruangan(nama, kode_ruangan)').eq('school_id', schoolId).eq('status', 'aktif').order('kode_aset', { nullsFirst: false }),
-      supabase.from('ruangan').select('id, nama, jenis, pic_nama, pic_employee_id, employees:pic_employee_id(nama), rombel:rombel_id(wali_kelas_employee_id, wali:wali_kelas_employee_id(nama))').eq('school_id', schoolId).order('nama'),
+      supabase.from('ruangan').select('id, nama, jenis, pic_nama, pic_employee_id, employees:pic_employee_id(nama, jabatan), rombel:rombel_id(wali_kelas_employee_id, wali:wali_kelas_employee_id(nama, jabatan))').eq('school_id', schoolId).order('nama'),
       supabase.from('inventarisasi_persiapan').select('*').eq('school_id', schoolId).maybeSingle(),
       supabase.from('inventarisasi_tim').select('*').eq('school_id', schoolId).order('created_at'),
-      supabase.from('employees').select('id, nama').eq('school_id', schoolId).eq('status', 'aktif').order('nama'),
+      supabase.from('employees').select('id, nama, jabatan').eq('school_id', schoolId).eq('status', 'aktif').order('nama'),
     ])
     setAset(a || [])
     setRuangan(rg || [])
@@ -122,9 +122,9 @@ const JOBDESK_TIM = {
 // PJ/PIC ruangan — integrasi langsung dari modul Ruangan: kelas → Wali Kelas,
 // lainnya → PIC pegawai, atau PIC manual. Mengembalikan { nama, employee_id, sumber }.
 function pjOf(r) {
-  if (r?.jenis === 'kelas' && r?.rombel?.wali?.nama) return { nama: r.rombel.wali.nama, employee_id: r.rombel.wali_kelas_employee_id || null, sumber: 'Wali Kelas' }
-  if (r?.employees?.nama) return { nama: r.employees.nama, employee_id: r.pic_employee_id || null, sumber: 'PIC Pegawai' }
-  if (r?.pic_nama) return { nama: r.pic_nama, employee_id: null, sumber: 'PIC Manual' }
+  if (r?.jenis === 'kelas' && r?.rombel?.wali?.nama) return { nama: r.rombel.wali.nama, employee_id: r.rombel.wali_kelas_employee_id || null, jabatan: r.rombel.wali.jabatan || 'Wali Kelas', sumber: 'Wali Kelas' }
+  if (r?.employees?.nama) return { nama: r.employees.nama, employee_id: r.pic_employee_id || null, jabatan: r.employees.jabatan || null, sumber: 'PIC Pegawai' }
+  if (r?.pic_nama) return { nama: r.pic_nama, employee_id: null, jabatan: null, sumber: 'PIC Manual' }
   return null
 }
 
@@ -169,7 +169,7 @@ function InvPersiapan({ schoolId, persiapan, tim, pegawai, ruangan, klasifikasiC
     const pg = pegawai.find((x) => x.id === pegawaiId)
     const nama = manual ? namaManual.trim() : (pg?.nama || '')
     if (!nama) return
-    const { error } = await supabase.from('inventarisasi_tim').insert({ school_id: schoolId, nama, employee_id: manual ? null : (pg?.id || null), peran, jabatan_asal: asal.trim() || null })
+    const { error } = await supabase.from('inventarisasi_tim').insert({ school_id: schoolId, nama, employee_id: manual ? null : (pg?.id || null), peran, jabatan_asal: asal.trim() || (manual ? null : pg?.jabatan || null), penugasan: null })
     if (error) { alert('Gagal: ' + error.message); return }
     setPegawaiId(''); setNamaManual(''); setAsal(''); onChanged()
   }
@@ -178,15 +178,17 @@ function InvPersiapan({ schoolId, persiapan, tim, pegawai, ruangan, klasifikasiC
   const tarikPjRuangan = async () => {
     const existEmp = new Set(tim.filter((m) => m.employee_id).map((m) => m.employee_id))
     const existNama = new Set(tim.map((m) => (m.nama || '').trim().toLowerCase()))
-    const seen = new Set(); const rows = []
+    // Kelompokkan per orang; satu PJ beberapa ruangan → satu baris, ruangan dirinci.
+    const byKey = new Map()
     for (const r of ruangan) {
       const pj = pjOf(r); if (!pj) continue
       const nk = pj.nama.trim().toLowerCase()
-      const key = pj.employee_id ? `e:${pj.employee_id}` : `n:${nk}`
-      if (seen.has(key)) continue; seen.add(key)
       if ((pj.employee_id && existEmp.has(pj.employee_id)) || existNama.has(nk)) continue
-      rows.push({ school_id: schoolId, nama: pj.nama, employee_id: pj.employee_id, peran, jabatan_asal: 'PJ Ruangan' })
+      const key = pj.employee_id ? `e:${pj.employee_id}` : `n:${nk}`
+      const cur = byKey.get(key) || { nama: pj.nama, employee_id: pj.employee_id, jabatan: pj.jabatan, rooms: [] }
+      cur.rooms.push(r.nama); byKey.set(key, cur)
     }
+    const rows = [...byKey.values()].map((v) => ({ school_id: schoolId, nama: v.nama, employee_id: v.employee_id, peran, jabatan_asal: v.jabatan || null, penugasan: `PJ Ruangan: ${v.rooms.join(', ')}` }))
     if (rows.length === 0) { alert('Tidak ada PJ/PIC ruangan baru untuk ditambahkan (sudah ada di tim atau belum ditetapkan di modul Ruangan).'); return }
     if (!confirm(`Tambahkan ${rows.length} PJ/PIC ruangan ke tim sebagai "${PERAN_TIM[peran]}"?`)) return
     const { error } = await supabase.from('inventarisasi_tim').insert(rows)
@@ -235,9 +237,9 @@ function InvPersiapan({ schoolId, persiapan, tim, pegawai, ruangan, klasifikasiC
       <SectionCard title="2. Tim Inventarisasi" description="Susun tim (Ketua, Sekretaris, Anggota, dll). Nama diambil dari daftar pegawai unit.">
         {tim.length > 0 ? (
           <div className="overflow-x-auto">
-            <Table columns={['Nama & Uraian Tugas', 'Peran', 'Jabatan/Unit Asal', disahkan || !canManage ? null : ''].filter((c) => c !== null)}>
+            <Table columns={['Nama & Uraian Tugas', 'Peran', 'Jabatan/Unit Asal', 'Penugasan', disahkan || !canManage ? null : ''].filter((c) => c !== null)}>
               {tim.map((m) => (
-                <Tr key={m.id}><Td className="font-medium">{m.nama}<span className="block text-[11px] font-normal text-[var(--color-ink-soft)]">{JOBDESK_TIM[m.peran]}</span></Td><Td className="text-xs align-top"><Badge color="navy">{PERAN_TIM[m.peran] || m.peran}</Badge></Td><Td className="text-xs align-top">{m.jabatan_asal || '—'}</Td>
+                <Tr key={m.id}><Td className="font-medium">{m.nama}<span className="block text-[11px] font-normal text-[var(--color-ink-soft)]">{JOBDESK_TIM[m.peran]}</span></Td><Td className="text-xs align-top"><Badge color="navy">{PERAN_TIM[m.peran] || m.peran}</Badge></Td><Td className="text-xs align-top">{m.jabatan_asal || '—'}</Td><Td className="text-xs align-top">{m.penugasan || <span className="text-[var(--color-ink-soft)]">—</span>}</Td>
                   {!disahkan && canManage && <Td><div className="flex justify-end"><button onClick={() => hapusTim(m.id)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]"><Trash2 className="h-4 w-4" /></button></div></Td>}
                 </Tr>
               ))}
