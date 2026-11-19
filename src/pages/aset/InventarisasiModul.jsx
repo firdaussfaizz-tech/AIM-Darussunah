@@ -586,9 +586,10 @@ function InstrumenItemModal({ open, editing, klasifikasiId, onClose, onSaved }) 
 /* ---------------- Cetak Label (barcode) ---------------- */
 function InvLabel({ aset, ruangan, schoolName }) {
   const [fRuangan, setFRuangan] = useState('')
-  const [jenis, setJenis] = useState('Permanen')
   const [format, setFormat] = useState('qr') // qr | barcode | keduanya
   const rows = useMemo(() => fRuangan ? aset.filter((a) => a.ruangan_id === fRuangan) : aset, [aset, fRuangan])
+  // Jenis label otomatis: Permanen bila sudah disahkan Yayasan, selain itu Sementara.
+  const labelJenis = (a) => (a.verif_status === 'disahkan' ? 'Permanen' : 'Sementara')
   // QR berisi URL info aset agar kamera HP langsung membuka info lengkap.
   const infoUrl = (kode) => `${window.location.origin}/aset/info/${encodeURIComponent(kode)}`
   const kodeFmt = (a) => {
@@ -602,7 +603,7 @@ function InvLabel({ aset, ruangan, schoolName }) {
     if (!win) { alert('Popup diblokir. Izinkan popup untuk mencetak label.'); return }
     const labels = rows.map((a) => `
       <div class="label">
-        <div class="lh"><b>${esc(schoolName || '')}</b><span class="perm">${esc(jenis)}</span></div>
+        <div class="lh"><b>${esc(schoolName || '')}</b><span class="perm">${esc(labelJenis(a))}</span></div>
         <div class="nm">${esc(a.nama || '')}</div>
         <div class="meta"><span>${esc(a.aset_klasifikasi?.uraian || '')}</span><span>${esc(KONDISI_LABEL[a.kondisi] || '')}</span></div>
         ${kodeFmt(a)}
@@ -624,10 +625,9 @@ function InvLabel({ aset, ruangan, schoolName }) {
     win.document.close()
   }
   return (
-    <SectionCard title="Cetak Label Aset (QR / Barcode)" description="Label aset dari kode aset. QR Code andal dipindai kamera HP; Code 39 cocok untuk scanner laser. Pilih ruangan, jenis, & format lalu cetak.">
+    <SectionCard title="Cetak Label Aset (QR / Barcode)" description="Jenis label otomatis: Sementara bila belum disahkan Yayasan, Permanen bila sudah. QR Code andal dipindai kamera HP; Code 39 cocok untuk scanner laser.">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Select value={fRuangan} onChange={(e) => setFRuangan(e.target.value)}><option value="">Semua Ruangan</option>{ruangan.map((r) => <option key={r.id} value={r.id}>{r.nama}</option>)}</Select>
-        <Select value={jenis} onChange={(e) => setJenis(e.target.value)}><option>Permanen</option><option>Sementara</option></Select>
         <Select value={format} onChange={(e) => setFormat(e.target.value)}><option value="qr">QR Code</option><option value="barcode">Barcode (Code 39)</option><option value="keduanya">Keduanya</option></Select>
         <div className="flex-1" />
         <Button onClick={cetak} disabled={rows.length === 0}><Printer className="h-4 w-4" /> Cetak {rows.length} Label</Button>
@@ -636,7 +636,7 @@ function InvLabel({ aset, ruangan, schoolName }) {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {rows.slice(0, 12).map((a) => (
             <div key={a.id} className="rounded-lg border border-[var(--color-border)] p-2">
-              <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-1 text-[9px] font-semibold"><span className="truncate">{schoolName}</span><span className="rounded border border-current px-1">{jenis}</span></div>
+              <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-1 text-[9px] font-semibold"><span className="truncate">{schoolName}</span><span className={`rounded border px-1 ${a.verif_status === 'disahkan' ? 'border-[var(--color-success,#17814c)] text-[var(--color-success,#17814c)]' : 'border-[var(--color-gold,#b7791f)] text-[var(--color-gold,#b7791f)]'}`}>{labelJenis(a)}</span></div>
               <div className="min-h-[26px] py-1 text-[11px] font-bold leading-tight">{a.nama}</div>
               {format === 'qr' ? <div className="mx-auto h-16 w-16" dangerouslySetInnerHTML={{ __html: qrSvg(infoUrl(a.kode_aset || a.id)) }} />
                 : format === 'barcode' ? <div dangerouslySetInnerHTML={{ __html: barcode39(a.kode_aset || a.id, { height: 30 }) }} />
