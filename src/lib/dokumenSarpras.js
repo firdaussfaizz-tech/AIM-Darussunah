@@ -496,12 +496,20 @@ const BUILDERS = {
   // ---------------- Inventarisasi ----------------
   sk_tim_inventarisasi: ({ tim = [], persiapan, school } = {}) => {
     const PL = { penanggung_jawab: 'Penanggung Jawab', ketua: 'Ketua', sekretaris: 'Sekretaris', anggota: 'Anggota', pengelola_aset: 'Pengelola Aset', petugas: 'Petugas Pendata' }
+    const JD = {
+      penanggung_jawab: 'Bertanggung jawab atas keseluruhan kegiatan inventarisasi; menetapkan kebijakan & mengesahkan hasil.',
+      ketua: 'Memimpin & mengoordinasikan tim; menyusun jadwal; memastikan pendataan tuntas; menandatangani LHI & Berita Acara.',
+      sekretaris: 'Menyiapkan administrasi & formulir; menghimpun dan merekap hasil pendataan; menyusun laporan & Berita Acara.',
+      anggota: 'Melaksanakan pendataan dan pemeriksaan fisik aset sesuai penugasan ruangan.',
+      pengelola_aset: 'Menyediakan data aset/KIB-KIR; mencocokkan hasil lapangan dengan catatan inventaris; memperbarui data aset.',
+      petugas: 'Mendata & memeriksa kondisi aset per ruangan; menempel label; mengisi instrumen verifikasi.',
+    }
     return {
-      judul: 'KEPUTUSAN / BERITA ACARA PEMBENTUKAN TIM INVENTARISASI', nomor: persiapan?.no_sk || blank, unit: unitName(school),
+      judul: 'KEPUTUSAN / BERITA ACARA PEMBENTUKAN TIM INVENTARISASI', nomor: persiapan?.no_sk || blank, unit: unitName(school), orientasi: 'landscape',
       meta: [['Unit', unitName(school)], ['Periode', persiapan?.periode_nama || '—'], ['Status Persiapan', persiapan?.tim_disahkan ? 'Disahkan Yayasan' : 'Belum disahkan']],
-      intro: 'Dalam rangka pelaksanaan inventarisasi aset satuan pendidikan, dengan ini dibentuk Tim Inventarisasi dengan susunan sebagai berikut:',
-      tables: [{ columns: ['No', 'Nama', 'Peran', 'Jabatan/Unit Asal'], rows: tim.length ? tim.map((m, i) => [i + 1, m.nama || '—', PL[m.peran] || m.peran || '—', m.jabatan_asal || '—']) : [['', '', '', '']] }],
-      narasi: ['Tim bertugas melaksanakan pendataan, identifikasi, dokumentasi, dan pelaporan hasil inventarisasi sesuai SOP (BAB VII).'],
+      intro: 'Dalam rangka pelaksanaan inventarisasi aset satuan pendidikan, dengan ini dibentuk Tim Inventarisasi dengan susunan dan uraian tugas sebagai berikut:',
+      tables: [{ columns: ['No', 'Nama', 'Peran', 'Jabatan/Unit Asal', 'Uraian Tugas'], rows: tim.length ? tim.map((m, i) => [i + 1, m.nama || '—', PL[m.peran] || m.peran || '—', m.jabatan_asal || '—', JD[m.peran] || '—']) : [['', '', '', '', '']] }],
+      narasi: ['Setiap anggota melaksanakan uraian tugas sesuai perannya. Secara umum Tim bertugas melaksanakan pendataan, identifikasi, dokumentasi, dan pelaporan hasil inventarisasi sesuai SOP (BAB VII).'],
       ttd: ttdDua({ peran: 'Mengesahkan,\nPengurus Yayasan Bidang Sarpras', jabatan: '', nama: blank }, { peran: 'Kepala Satuan Pendidikan', jabatan: school?.kepala?.nip ? `NIP. ${school.kepala.nip}` : '', nama: school?.kepala?.nama || blank }),
     }
   },

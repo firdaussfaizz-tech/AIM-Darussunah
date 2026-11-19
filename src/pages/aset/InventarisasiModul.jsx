@@ -109,6 +109,15 @@ export default function InventarisasiModul({ hasFullAccess, mySchools }) {
 }
 
 const PERAN_TIM = { penanggung_jawab: 'Penanggung Jawab', ketua: 'Ketua', sekretaris: 'Sekretaris', anggota: 'Anggota', pengelola_aset: 'Pengelola Aset', petugas: 'Petugas Pendata' }
+// Uraian tugas (tupoksi) otomatis per peran — melekat begitu peran ditetapkan.
+const JOBDESK_TIM = {
+  penanggung_jawab: 'Bertanggung jawab atas keseluruhan kegiatan inventarisasi; menetapkan kebijakan & mengesahkan hasil.',
+  ketua: 'Memimpin & mengoordinasikan tim; menyusun jadwal kerja; memastikan pendataan tuntas; menandatangani LHI & Berita Acara.',
+  sekretaris: 'Menyiapkan administrasi & formulir; menghimpun dan merekap hasil pendataan; menyusun laporan & Berita Acara.',
+  anggota: 'Melaksanakan pendataan dan pemeriksaan fisik aset sesuai penugasan ruangan.',
+  pengelola_aset: 'Menyediakan data aset/KIB-KIR; mencocokkan hasil lapangan dengan catatan inventaris; memperbarui data aset.',
+  petugas: 'Mendata & memeriksa kondisi aset per ruangan; menempel label; mengisi instrumen verifikasi.',
+}
 
 // PJ/PIC ruangan — integrasi langsung dari modul Ruangan: kelas → Wali Kelas,
 // lainnya → PIC pegawai, atau PIC manual. Mengembalikan { nama, employee_id, sumber }.
@@ -226,9 +235,9 @@ function InvPersiapan({ schoolId, persiapan, tim, pegawai, ruangan, klasifikasiC
       <SectionCard title="2. Tim Inventarisasi" description="Susun tim (Ketua, Sekretaris, Anggota, dll). Nama diambil dari daftar pegawai unit.">
         {tim.length > 0 ? (
           <div className="overflow-x-auto">
-            <Table columns={['Nama', 'Peran', 'Jabatan/Unit Asal', disahkan || !canManage ? null : ''].filter((c) => c !== null)}>
+            <Table columns={['Nama & Uraian Tugas', 'Peran', 'Jabatan/Unit Asal', disahkan || !canManage ? null : ''].filter((c) => c !== null)}>
               {tim.map((m) => (
-                <Tr key={m.id}><Td className="font-medium">{m.nama}</Td><Td className="text-xs">{PERAN_TIM[m.peran] || m.peran}</Td><Td className="text-xs">{m.jabatan_asal || '—'}</Td>
+                <Tr key={m.id}><Td className="font-medium">{m.nama}<span className="block text-[11px] font-normal text-[var(--color-ink-soft)]">{JOBDESK_TIM[m.peran]}</span></Td><Td className="text-xs align-top"><Badge color="navy">{PERAN_TIM[m.peran] || m.peran}</Badge></Td><Td className="text-xs align-top">{m.jabatan_asal || '—'}</Td>
                   {!disahkan && canManage && <Td><div className="flex justify-end"><button onClick={() => hapusTim(m.id)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]"><Trash2 className="h-4 w-4" /></button></div></Td>}
                 </Tr>
               ))}
@@ -246,6 +255,12 @@ function InvPersiapan({ schoolId, persiapan, tim, pegawai, ruangan, klasifikasiC
           </form>
         )}
         {!disahkan && canManage && <p className="mt-2 text-xs text-[var(--color-ink-soft)]">Tip: pilih peran dulu (mis. <b>Petugas Pendata</b>), lalu <b>Tarik PJ Ruangan</b> untuk memasukkan seluruh penanggung jawab ruangan sekaligus. Duplikat otomatis dilewati.</p>}
+        <details className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-soft,#f7faf8)] p-3">
+          <summary className="cursor-pointer text-xs font-semibold text-[var(--color-ink)]">Uraian Tugas (Tupoksi) per Peran — otomatis saat peran ditetapkan</summary>
+          <ul className="mt-2 flex flex-col gap-1.5 text-[12px] text-[var(--color-ink-soft)]">
+            {Object.entries(PERAN_TIM).map(([k, v]) => (<li key={k}><b className="text-[var(--color-ink)]">{v}:</b> {JOBDESK_TIM[k]}</li>))}
+          </ul>
+        </details>
       </SectionCard>
 
       <SectionCard title="Ruangan & Penanggung Jawab" description={`Terintegrasi langsung dari modul Ruangan (${daftarRuangan.length} ruangan${tanpaPj ? ` · ${tanpaPj} belum punya PJ` : ''}). Kelas → Wali Kelas; lainnya → PIC Ruangan.`}>
