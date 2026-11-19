@@ -101,7 +101,7 @@ export default function InventarisasiModul({ hasFullAccess, mySchools }) {
           {sub === 'identifikasi' && <InvIdentifikasi aset={aset} instrumen={instrumen} canManage={canManage} onChanged={load} />}
           {sub === 'scan' && <InvScan aset={aset} instrumen={instrumen} canManage={canManage} onChanged={load} />}
           {sub === 'kiakir' && <InvKiaKir aset={aset} ruangan={ruangan} />}
-          {sub === 'label' && <InvLabel aset={aset} ruangan={ruangan} schoolName={schools.find((s) => s.id === schoolId)?.nama} />}
+          {sub === 'label' && <InvLabel aset={aset} ruangan={ruangan} schoolName={(() => { const s = schools.find((x) => x.id === schoolId); return s ? `${s.jenjang ? `${s.jenjang} — ` : ''}${s.nama}` : '' })()} />}
         </>
       )}
     </div>

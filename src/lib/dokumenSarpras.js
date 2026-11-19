@@ -216,7 +216,7 @@ export async function loadDokumen(jenis, id) {
     return { _meta: meta, a, school: a?.schools }
   }
   if (g === 'ruangan') {
-    const { data: rg } = await supabase.from('ruangan').select('*, schools!school_id(nama, jenjang, kepala:kepala_sekolah_id(nama, nip))').eq('id', id).maybeSingle()
+    const { data: rg } = await supabase.from('ruangan').select('*, employees:pic_employee_id(nama), rombel:rombel_id(wali:wali_kelas_employee_id(nama)), schools!school_id(nama, jenjang, kepala:kepala_sekolah_id(nama, nip))').eq('id', id).maybeSingle()
     const { data: aset } = await supabase.from('aset').select('*, aset_klasifikasi(kode)').eq('ruangan_id', id).eq('status', 'aktif').order('nama')
     // Gerbang KIR: semua aset ruangan harus sudah disahkan Yayasan.
     if (jenis === 'kir') {
@@ -455,18 +455,24 @@ const BUILDERS = {
       ['Jumlah', `${Number(a?.jumlah ?? 1)} ${a?.satuan || 'unit'}`], ['Kondisi', kon(a?.kondisi)], ['Sumber Dana', a?.sumber_dana || '—']],
     ttd: ttdDua({ peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: '', nama: blank }, { peran: 'Penatausaha Aset', jabatan: '', nama: blank }),
   }),
-  kir: ({ rg, aset = [], school }) => ({
-    judul: 'KARTU INVENTARIS RUANGAN (KIR)',
-    nomor: `Ruangan: ${rg?.nama || '—'}`,
-    unit: unitName(school),
-    meta: [['Ruangan', rg?.nama || '—'], ['Kode Ruangan', rg?.kode_ruangan || rg?.kode || '—'], ['Penanggung Jawab', rg?.pic_nama || school?.kepala?.nama || '—']],
-    tables: [{ columns: ['No', 'Kode Aset', 'Nama Aset', 'Merk', 'Jml', 'Kondisi'],
-      rows: aset.map((r, i) => [i + 1, r.kode_aset || '—', r.nama, r.merk_tipe || '—', Number(r.jumlah ?? 1), kon(r.kondisi)]) }],
-    ttd: ttdDua(
-      { peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: school?.kepala?.nip ? `NIP. ${school.kepala.nip}` : '', nama: school?.kepala?.nama || blank },
-      { peran: 'Penanggung Jawab Ruangan', jabatan: '', nama: rg?.pic_nama || blank },
-    ),
-  }),
+  kir: ({ rg, aset = [], school }) => {
+    // Kode ruangan lengkap: Kode Unit Kerja . Kode Ruang (mis. 06.01).
+    const kodeRuang = [rg?.kode_unit_kerja, rg?.kode_ruangan || rg?.kode].filter(Boolean).join('.') || '—'
+    // PJ ruangan otomatis: kelas → Wali Kelas; lainnya → PIC pegawai; atau PIC manual.
+    const pjNama = (rg?.jenis === 'kelas' && rg?.rombel?.wali?.nama) ? rg.rombel.wali.nama : (rg?.employees?.nama || rg?.pic_nama || '')
+    return {
+      judul: 'KARTU INVENTARIS RUANGAN (KIR)',
+      nomor: `Ruangan: ${rg?.nama || '—'}`,
+      unit: unitName(school),
+      meta: [['Ruangan', rg?.nama || '—'], ['Kode Unit Kerja', rg?.kode_unit_kerja || '—'], ['Kode Ruangan', kodeRuang], ['Penanggung Jawab', pjNama || '—']],
+      tables: [{ columns: ['No', 'Kode Aset', 'Nama Aset', 'Merk', 'Jml', 'Kondisi'],
+        rows: aset.map((r, i) => [i + 1, r.kode_aset || '—', r.nama, r.merk_tipe || '—', Number(r.jumlah ?? 1), kon(r.kondisi)]) }],
+      ttd: ttdDua(
+        { peran: 'Mengetahui,\nKepala Satuan Pendidikan', jabatan: school?.kepala?.nip ? `NIP. ${school.kepala.nip}` : '', nama: school?.kepala?.nama || blank },
+        { peran: 'Penanggung Jawab Ruangan', jabatan: '', nama: pjNama || blank },
+      ),
+    }
+  },
   buku_inventaris: ({ school, aset = [] }) => ({
     judul: 'BUKU INVENTARIS ASET SATUAN PENDIDIKAN',
     nomor: unitName(school),
