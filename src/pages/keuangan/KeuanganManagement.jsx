@@ -42,7 +42,12 @@ export default function KeuanganManagement() {
   const mySchools = useMemo(() => {
     const seen = new Map()
     for (const r of roles) {
-      if (['admin_sekolah', 'kepala_sekolah'].includes(r.role) && r.school_id && !seen.has(r.school_id)) {
+      // Termasuk peran DINAMIS tingkat 'manajer_unit' (bukan hanya enum lama),
+      // agar Kepala/Admin Sekolah berbasis peran dinamis tetap memperoleh
+      // daftar unit-nya — konsisten dengan modul Aset/Akademik. Tanpa ini,
+      // Manajemen Keuangan buntu ("Pilih unit" tanpa opsi) bagi mereka.
+      const manajerUnit = ['admin_sekolah', 'kepala_sekolah'].includes(r.role) || r.roles?.tingkat_akses === 'manajer_unit'
+      if (manajerUnit && r.school_id && !seen.has(r.school_id)) {
         seen.set(r.school_id, { id: r.school_id, nama: r.schools?.nama, jenjang: r.schools?.jenjang })
       }
     }
