@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { setErrorLogContext } from '../lib/errorLog'
 
 const AuthContext = createContext(null)
 
@@ -131,6 +132,19 @@ export function AuthProvider({ children }) {
   const isBendahara = enumRoles.includes('bendahara') || levels.includes('bendahara')
   const managedSchoolIds = roles.filter((r) => r.school_id).map((r) => r.school_id)
   const isWaliKelas = waliKelasRombel.length > 0
+
+  // Perbarui konteks perekam error tiap kali identitas/peran pengguna berubah,
+  // agar tiap error tercatat dengan user_id, peran, dan unit yang tepat.
+  const peranStr = roleNames.join(', ')
+  const logSchoolId = managedSchoolIds[0] || employee?.school_id || null
+  useEffect(() => {
+    setErrorLogContext({
+      user_id: session?.user?.id || null,
+      nama: profile?.nama || employee?.nama || session?.user?.email || null,
+      peran: peranStr || null,
+      school_id: logSchoolId,
+    })
+  }, [session?.user?.id, profile?.nama, employee?.nama, peranStr, logSchoolId])
 
   // can(modul, aksi) — izin per-modul × per-aksi (Fase 2). Super admin &
   // jembatan enum/waka sudah diperhitungkan server-side (my_permissions).
