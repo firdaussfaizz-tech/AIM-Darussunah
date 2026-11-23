@@ -274,6 +274,17 @@ const AKSI_LIST = [
   { kode: 'hapus', label: 'Hapus' },
 ]
 
+// Cermin dari roles_tingkat_default() di migrasi 0055 — matriks izin default
+// per Tingkat Akses. Dipakai tombol "Terapkan Default" sebagai titik awal yang
+// masuk akal (lalu bisa diubah per modul/aksi), terutama untuk peran yang baru
+// dibuat dari Jabatan (yang matriksnya masih kosong).
+function modulDefaultDiizinkan(tingkat, modul) {
+  if (tingkat === 'yayasan_penuh') return true
+  if (tingkat === 'manajer_unit') return !['penggajian', 'pengguna', 'log', 'notifikasi', 'struktur'].includes(modul)
+  if (tingkat === 'bendahara') return ['spp', 'keuangan'].includes(modul)
+  return false // pegawai: tak ada izin kelola (akses pribadi lewat menu sendiri)
+}
+
 function PermMatrixModal({ role, modules, onClose, onSaved }) {
   const [grant, setGrant] = useState({}) // "modul:aksi" -> boolean
   const [initial, setInitial] = useState({})
@@ -299,6 +310,24 @@ function PermMatrixModal({ role, modules, onClose, onSaved }) {
     for (const a of AKSI_LIST) next[`${modul}:${a.kode}`] = val
     return next
   })
+  // Isi matriks dari default Tingkat Akses peran (belum disimpan sampai klik Simpan).
+  const terapkanDefault = () => {
+    const next = {}
+    for (const m of modules) {
+      const on = modulDefaultDiizinkan(role.tingkat_akses, m.kode)
+      for (const a of AKSI_LIST) next[`${m.kode}:${a.kode}`] = on
+    }
+    setGrant(next)
+  }
+  const kosongkanSemua = () => {
+    const next = {}
+    for (const m of modules) for (const a of AKSI_LIST) next[`${m.kode}:${a.kode}`] = false
+    setGrant(next)
+  }
+  const dirty = (() => {
+    for (const m of modules) for (const a of AKSI_LIST) { const k = `${m.kode}:${a.kode}`; if (!!grant[k] !== !!initial[k]) return true }
+    return false
+  })()
 
   const handleSave = async () => {
     setSaving(true); setError('')
@@ -337,6 +366,13 @@ function PermMatrixModal({ role, modules, onClose, onSaved }) {
             Centang aksi yang diizinkan untuk peran ini per modul. Izin ini ditegakkan di aplikasi dan (bertahap) di database.
             Lingkup data (unit sendiri vs seluruh yayasan) tetap mengikuti Tingkat Akses peran.
           </p>
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-soft,#f7faf8)] px-3 py-2">
+            <span className="text-xs text-[var(--color-ink-soft)]">Tingkat Akses: <b className="text-[var(--color-ink)]">{TINGKAT_AKSES_LABEL[role.tingkat_akses] || role.tingkat_akses}</b></span>
+            <span className="flex-1" />
+            <Button size="sm" variant="outline" type="button" onClick={terapkanDefault}>Terapkan Default</Button>
+            <Button size="sm" variant="outline" type="button" onClick={kosongkanSemua}>Kosongkan Semua</Button>
+          </div>
+          <p className="text-xs text-[var(--color-ink-soft)]">Catatan: matriks ini mengatur <b>peran dinamis</b>. Akun yang masih memakai penetapan peran lama tetap mengikuti izin default Tingkat Akses-nya — untuk membatasinya di bawah default, pindahkan akun ke peran dinamis ini.</p>
           <div className="max-h-[55vh] overflow-y-auto">
             {Object.entries(byArea).map(([area, mods]) => (
               <div key={area} className="mb-4">
@@ -375,7 +411,7 @@ function PermMatrixModal({ role, modules, onClose, onSaved }) {
           {error && <p className="rounded-md bg-[var(--color-danger-soft)] px-3 py-2 text-sm text-[var(--color-danger)]">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>Batal</Button>
-            <Button type="button" onClick={handleSave} disabled={saving}>{saving ? 'Menyimpan…' : 'Simpan Izin'}</Button>
+            <Button type="button" onClick={handleSave} disabled={saving || !dirty}>{saving ? 'Menyimpan…' : 'Simpan Izin'}</Button>
           </div>
         </div>
       )}
