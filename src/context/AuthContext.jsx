@@ -133,9 +133,15 @@ export function AuthProvider({ children }) {
   const managedSchoolIds = roles.filter((r) => r.school_id).map((r) => r.school_id)
   const isWaliKelas = waliKelasRombel.length > 0
 
+  // Wakasek = guru yang jabatannya diberi akses manajer (beri_akses_manajer),
+  // disuntik sebagai peran kepala_sekolah via jabatan (_via_jabatan).
+  const isWaka = roles.some((r) => r._via_jabatan)
+
   // Perbarui konteks perekam error tiap kali identitas/peran pengguna berubah,
   // agar tiap error tercatat dengan user_id, peran, dan unit yang tepat.
-  const peranStr = roleNames.join(', ')
+  // Sertakan "topi" tambahan (Wali Kelas / Wakasek) supaya error bisa ditautkan
+  // ke KOMBINASI peran yang tepat, bukan sekadar peran dasar.
+  const peranStr = [roleNames.join(', ') || null, isWaliKelas ? 'Wali Kelas' : null, isWaka ? 'Wakasek' : null].filter(Boolean).join(' + ')
   const logSchoolId = managedSchoolIds[0] || employee?.school_id || null
   useEffect(() => {
     setErrorLogContext({

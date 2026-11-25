@@ -40,7 +40,7 @@ const KEUANGAN_ICONS = {
 // di masa depan tanpa membuat Sidebar penuh sesak. Item "lintas modul"
 // (Pengguna & Peran, Log Aktivitas, Notifikasi Email) sengaja TIDAK ikut
 // masuk grup ini karena berlaku untuk seluruh aplikasi, bukan cuma SDM.
-function navGroupsFor({ isManager, hasFullAccess, employeeId, can, permsReady }) {
+function navGroupsFor({ isManager, hasFullAccess, isBendahara, isWaliKelas, employeeId, can, permsReady }) {
   // Mode "kelola" per modul: hormati MATRIKS IZIN per-modul (Pengguna & Peran,
   // Fase 2) lebih dulu. Bila RPC izin (my_permissions) belum siap — mis. DB
   // lama tanpa migrasi 0055 — jatuh ke gerbang peran lama agar tidak ada
@@ -74,44 +74,56 @@ function navGroupsFor({ isManager, hasFullAccess, employeeId, can, permsReady })
   // Siswa JUGA dibuka untuk Wali Kelas biasa (guru) — akses ke rombel
   // yang diampunya sendiri, sesuai keputusan "Wali Kelas login sendiri".
   // Siswa sendiri tidak login ke sistem ini (notifikasi lewat email saja).
-  // Keputusan 2026-09-24: SEMUA pegawai melihat seluruh grup modul di
-  // Sidebar (transparansi fitur yang tersedia), namun AKSES tetap dibatasi
-  // di tiap halaman — setiap halaman modul ini sudah menampilkan pesan
-  // "Akses terbatas" bila pengguna tak berwenang, dan data tetap dijaga
-  // RLS. Karena itu penyusunan menu di bawah tidak lagi digate isManager.
-  // Label yang adaptif (mode "saya") tetap ditangani di grup Kepegawaian.
-  const kesiswaan = [
-    { to: '/kesiswaan', label: 'Dashboard Kesiswaan', icon: LayoutDashboard },
-    { to: '/siswa', label: 'Data Siswa', icon: Contact },
-    { to: '/akademik', label: 'Kelas & Tahun Ajaran', icon: CalendarRange },
-    { to: '/presensi-siswa', label: 'Presensi Siswa', icon: ClipboardCheck },
-    { to: '/spp', label: 'SPP', icon: ReceiptText },
-    { to: '/uang-pangkal', label: 'Uang Pangkal', icon: Wallet },
-    { to: '/kesiswaan/keringanan', label: 'Keringanan Biaya', icon: Percent },
-    { to: '/kesiswaan/prestasi', label: 'Prestasi Siswa', icon: Star },
-    { to: '/nilai-rapor', label: 'Nilai & Rapor', icon: NotebookText },
-  ]
+  // Revisi 2026-11-25 (menu sadar-izin): sebelumnya SEMUA pegawai melihat
+  // seluruh grup modul (transparansi), yang membuat guru/pegawai sering
+  // mendarat di "Akses terbatas". Kini tiap item digating MENGIKUTI guard
+  // halamannya (mgrOf(modul) atau jalur Wali Kelas/Bendahara), sehingga menu
+  // hanya menampilkan yang benar-benar bisa dibuka. Penegakan tetap di RLS +
+  // guard tiap halaman; label adaptif (mode "saya") tetap di grup Kepegawaian.
+  // Tiap item digating PERSIS seperti guard halamannya (mirror), supaya tak ada
+  // menu yang pasti berujung "Akses terbatas", namun jalur sah (mis. Wali Kelas
+  // ke Presensi Siswa / Nilai & Rapor) tetap muncul.
+  const kesiswaan = []
+  if (mgrOf('siswa')) kesiswaan.push({ to: '/kesiswaan', label: 'Dashboard Kesiswaan', icon: LayoutDashboard })
+  if (mgrOf('siswa')) kesiswaan.push({ to: '/siswa', label: 'Data Siswa', icon: Contact })
+  if (mgrOf('kelas_ta')) kesiswaan.push({ to: '/akademik', label: 'Kelas & Tahun Ajaran', icon: CalendarRange })
+  if (mgrOf('presensi_siswa') || isWaliKelas) kesiswaan.push({ to: '/presensi-siswa', label: 'Presensi Siswa', icon: ClipboardCheck })
+  if (mgrOf('spp') || isBendahara) kesiswaan.push({ to: '/spp', label: 'SPP', icon: ReceiptText })
+  if (mgrOf('spp') || isBendahara) kesiswaan.push({ to: '/uang-pangkal', label: 'Uang Pangkal', icon: Wallet })
+  if (isManager || isBendahara) kesiswaan.push({ to: '/kesiswaan/keringanan', label: 'Keringanan Biaya', icon: Percent })
+  if (mgrOf('siswa') || isWaliKelas) kesiswaan.push({ to: '/kesiswaan/prestasi', label: 'Prestasi Siswa', icon: Star })
+  if (mgrOf('nilai_rapor') || isWaliKelas) kesiswaan.push({ to: '/nilai-rapor', label: 'Nilai & Rapor', icon: NotebookText })
 
   // Modul Academic Management (Pembelajaran) — semua area ditampilkan;
   // halaman AcademicManagement membatasi akses (manajemen = semua area,
   // guru pengampu = area miliknya, selain itu "Akses terbatas").
-  const akademik = ACADEMIC_AREAS.map((a) => ({
-    to: `/pembelajaran/${a.slug}`,
-    label: (!isManager && employeeId && a.labelGuru) ? a.labelGuru : a.label,
-    icon: ACAD_ICONS[a.slug] || CalendarRange,
-  }))
+  // Akademik: hanya manajemen & guru pengampu (butuh tertaut pegawai). Area
+  // ber-scope 'manager' disembunyikan dari non-manajer (mirror guard halaman).
+  const akademik = (isManager || employeeId)
+    ? ACADEMIC_AREAS
+      .filter((a) => isManager || a.scope !== 'manager')
+      .map((a) => ({
+        to: `/pembelajaran/${a.slug}`,
+        label: (!isManager && employeeId && a.labelGuru) ? a.labelGuru : a.label,
+        icon: ACAD_ICONS[a.slug] || CalendarRange,
+      }))
+    : []
 
   // Modul Sarana & Prasarana (Manajemen Aset) — semua area ditampilkan;
   // AsetList membatasi akses (isManager). Area khusus Yayasan (kodefikasi)
   // tetap hanya untuk hasFullAccess supaya tidak memancing klik yang
   // pasti tertolak untuk area yang bahkan tak relevan bagi manajer sekolah.
-  const sarpras = SARPRAS_AREAS
-    .filter((a) => !a.fullAccessOnly || hasFullAccess)
-    .map((a) => ({ to: `/aset/${a.slug}`, label: a.label, icon: SARPRAS_ICONS[a.slug] || Boxes }))
+  const sarpras = mgrOf('sarpras')
+    ? SARPRAS_AREAS
+      .filter((a) => !a.fullAccessOnly || hasFullAccess)
+      .map((a) => ({ to: `/aset/${a.slug}`, label: a.label, icon: SARPRAS_ICONS[a.slug] || Boxes }))
+    : []
 
   // Modul Manajemen Keuangan (RKAS, Buku Kas, Laporan) — semua area
   // ditampilkan; KeuanganManagement membatasi akses (isManager || Bendahara).
-  const keuangan = KEUANGAN_AREAS.map((a) => ({ to: `/keuangan/${a.slug}`, label: a.label, icon: KEUANGAN_ICONS[a.slug] || Wallet }))
+  const keuangan = (mgrOf('keuangan') || isBendahara)
+    ? KEUANGAN_AREAS.map((a) => ({ to: `/keuangan/${a.slug}`, label: a.label, icon: KEUANGAN_ICONS[a.slug] || Wallet }))
+    : []
 
   // MENU PRIBADI: manajer tingkat SEKOLAH (Admin/Kepala Sekolah & Waka) juga
   // seorang PEGAWAI — mereka butuh akses data pribadinya sendiri (profil,
@@ -240,8 +252,8 @@ function ModuleGroup({ groupKey, label, icon: Icon, items, isDesktop, openKey, s
 }
 
 function Sidebar({ open, onClose }) {
-  const { isManager, hasFullAccess, employee, can, permsReady } = useAuth()
-  const { kepegawaian, kesiswaan, akademik, sarpras, keuangan, pribadi, lainnya } = navGroupsFor({ isManager, hasFullAccess, employeeId: employee?.id, can, permsReady })
+  const { isManager, hasFullAccess, isBendahara, isWaliKelas, employee, can, permsReady } = useAuth()
+  const { kepegawaian, kesiswaan, akademik, sarpras, keuangan, pribadi, lainnya } = navGroupsFor({ isManager, hasFullAccess, isBendahara, isWaliKelas, employeeId: employee?.id, can, permsReady })
   const isDesktop = useIsDesktop()
   const [openKey, setOpenKey] = useState(null)
   const { pathname } = useLocation()
