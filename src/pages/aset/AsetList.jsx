@@ -119,15 +119,17 @@ export default function AsetList() {
   }, [roles, employee])
 
   if (authLoading) return <FullPageSpinner />
-  const bolehLihat = permsReady ? can('sarpras', 'lihat') : isManager
-  if (!bolehLihat) {
-    return <EmptyState icon={ShieldAlert} title="Akses terbatas" description="Peran Anda tidak memiliki izin melihat Sarana & Prasarana." />
-  }
 
   const active = SARPRAS_AREAS.find((a) => a.slug === area)
   // Slug tak dikenal, atau area khusus Yayasan diakses non-Yayasan → alihkan.
   if (!active || (active.fullAccessOnly && !hasFullAccess)) {
     return <Navigate to={`/aset/${SARPRAS_DEFAULT}`} replace />
+  }
+  // Izin per SUB-AREA (matriks per-modul). Fallback ke isManager bila izin
+  // belum siap (DB lama tanpa migrasi RBAC).
+  const bolehLihat = permsReady ? can(active.modul, 'lihat') : isManager
+  if (!bolehLihat) {
+    return <EmptyState icon={ShieldAlert} title="Akses terbatas" description={`Peran Anda tidak memiliki izin melihat ${active.label} (Sarana & Prasarana).`} />
   }
   const sop = active.sop ? SOP_SARPRAS[active.sop] : null
 

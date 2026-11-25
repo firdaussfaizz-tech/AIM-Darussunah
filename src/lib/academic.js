@@ -3,19 +3,19 @@
 // Area = sub-menu /pembelajaran/<slug>. scope: 'manager' (khusus manajemen)
 // atau 'all' (manajemen + guru; guru lihat data miliknya sendiri).
 export const ACADEMIC_AREAS = [
-  { slug: 'dashboard', label: 'Dashboard', scope: 'manager' },
-  { slug: 'kalender', label: 'Kalender Akademik', scope: 'all' },
-  { slug: 'mapel', label: 'Mata Pelajaran', scope: 'manager' },
-  { slug: 'penugasan', label: 'Penugasan Mengajar', scope: 'manager' },
-  { slug: 'jadwal', label: 'Jadwal Pelajaran', labelGuru: 'Jadwal Saya', scope: 'all' },
-  { slug: 'jurnal', label: 'Jurnal KBM', scope: 'all' },
-  { slug: 'rekap-kbm', label: 'Rekap Kehadiran Mengajar', labelGuru: 'Kehadiran Mengajar Saya', scope: 'all' },
-  { slug: 'kurikulum', label: 'Kurikulum & KKTP', scope: 'manager' },
-  { slug: 'kurikulum-islam-plus', label: 'Kurikulum Islam Plus', scope: 'manager' },
-  { slug: 'kurikulum-satuan', label: 'Kurikulum Satuan Pendidikan', scope: 'manager' },
-  { slug: 'ekstrakurikuler', label: 'Ekstrakurikuler', scope: 'manager' },
-  { slug: 'perangkat', label: 'Perangkat Ajar & Monev', labelGuru: 'Perangkat Ajar Saya', scope: 'all' },
-  { slug: 'ppdb', label: 'PPDB', scope: 'manager' },
+  { slug: 'dashboard', label: 'Dashboard', scope: 'manager', modul: 'akad_dashboard' },
+  { slug: 'kalender', label: 'Kalender Akademik', scope: 'all', modul: 'akad_kalender' },
+  { slug: 'mapel', label: 'Mata Pelajaran', scope: 'manager', modul: 'akad_mapel' },
+  { slug: 'penugasan', label: 'Penugasan Mengajar', scope: 'manager', modul: 'akad_penugasan' },
+  { slug: 'jadwal', label: 'Jadwal Pelajaran', labelGuru: 'Jadwal Saya', scope: 'all', modul: 'akad_jadwal' },
+  { slug: 'jurnal', label: 'Jurnal KBM', scope: 'all', modul: 'akad_jurnal' },
+  { slug: 'rekap-kbm', label: 'Rekap Kehadiran Mengajar', labelGuru: 'Kehadiran Mengajar Saya', scope: 'all', modul: 'akad_rekap_kbm' },
+  { slug: 'kurikulum', label: 'Kurikulum & KKTP', scope: 'manager', modul: 'akad_kurikulum' },
+  { slug: 'kurikulum-islam-plus', label: 'Kurikulum Islam Plus', scope: 'manager', modul: 'akad_kurikulum_islam' },
+  { slug: 'kurikulum-satuan', label: 'Kurikulum Satuan Pendidikan', scope: 'manager', modul: 'akad_kurikulum_satuan' },
+  { slug: 'ekstrakurikuler', label: 'Ekstrakurikuler', scope: 'manager', modul: 'akad_ekskul' },
+  { slug: 'perangkat', label: 'Perangkat Ajar & Monev', labelGuru: 'Perangkat Ajar Saya', scope: 'all', modul: 'akad_perangkat' },
+  { slug: 'ppdb', label: 'PPDB', scope: 'manager', modul: 'akad_ppdb' },
 ]
 
 // Kalender Akademik

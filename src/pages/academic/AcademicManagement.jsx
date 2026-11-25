@@ -20,7 +20,7 @@ const BUCKET = 'employee-files'
 const fmtTgl = (d) => (d ? new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
 
 export default function AcademicManagement() {
-  const { isManager, hasFullAccess, roles, employee, loading } = useAuth()
+  const { isManager, hasFullAccess, roles, employee, loading, can, permsReady } = useAuth()
   const { area } = useParams()
 
   const mySchools = useMemo(() => {
@@ -65,6 +65,11 @@ export default function AcademicManagement() {
   const active = ACADEMIC_AREAS.find((a) => a.slug === area)
   if (!active || (active.scope === 'manager' && !isManager)) {
     return <Navigate to={`/pembelajaran/${isManager ? ACADEMIC_DEFAULT_MANAGER : ACADEMIC_DEFAULT_GURU}`} replace />
+  }
+  // Izin per SUB-AREA akademik (matriks per-modul). Manajer selalu lolos; guru
+  // pengampu dibatasi izin modulnya. Fallback lolos bila izin belum siap.
+  if (!isManager && permsReady && !can(active.modul, 'lihat')) {
+    return <EmptyState icon={ShieldAlert} title="Akses terbatas" description={`Peran Anda tidak memiliki izin melihat ${active.labelGuru || active.label} (Akademik).`} />
   }
 
   const effSchoolId = isManager ? schoolId : (employee?.school_id || '')

@@ -272,16 +272,18 @@ const AKSI_LIST = [
   { kode: 'tambah', label: 'Tambah' },
   { kode: 'ubah', label: 'Ubah' },
   { kode: 'hapus', label: 'Hapus' },
+  { kode: 'sahkan', label: 'Sahkan' },
 ]
 
-// Cermin dari roles_tingkat_default() di migrasi 0055 — matriks izin default
+// Cermin dari roles_tingkat_default() di migrasi 0120 — matriks izin default
 // per Tingkat Akses. Dipakai tombol "Terapkan Default" sebagai titik awal yang
 // masuk akal (lalu bisa diubah per modul/aksi), terutama untuk peran yang baru
 // dibuat dari Jabatan (yang matriksnya masih kosong).
-function modulDefaultDiizinkan(tingkat, modul) {
+function modulDefaultDiizinkan(tingkat, modul, aksi) {
+  if (aksi === 'sahkan') return tingkat === 'yayasan_penuh' // pengesahan: hanya Yayasan penuh
   if (tingkat === 'yayasan_penuh') return true
   if (tingkat === 'manajer_unit') return !['penggajian', 'pengguna', 'log', 'notifikasi', 'struktur'].includes(modul)
-  if (tingkat === 'bendahara') return ['spp', 'keuangan'].includes(modul)
+  if (tingkat === 'bendahara') return ['spp', 'keuangan', 'keu_dashboard', 'keu_rkas', 'keu_bukukas', 'keu_laporan'].includes(modul)
   return false // pegawai: tak ada izin kelola (akses pribadi lewat menu sendiri)
 }
 
@@ -314,8 +316,7 @@ function PermMatrixModal({ role, modules, onClose, onSaved }) {
   const terapkanDefault = () => {
     const next = {}
     for (const m of modules) {
-      const on = modulDefaultDiizinkan(role.tingkat_akses, m.kode)
-      for (const a of AKSI_LIST) next[`${m.kode}:${a.kode}`] = on
+      for (const a of AKSI_LIST) next[`${m.kode}:${a.kode}`] = modulDefaultDiizinkan(role.tingkat_akses, m.kode, a.kode)
     }
     setGrant(next)
   }

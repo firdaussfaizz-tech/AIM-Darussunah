@@ -92,10 +92,10 @@ export function totalKas(transaksi, jenis) {
 // Definisi area modul Keuangan — dipakai bersama oleh Sidebar (Layout) &
 // halaman /keuangan/:area (KeuanganManagement), sama pola dgn lib/sarpras.js.
 export const KEUANGAN_AREAS = [
-  { slug: 'dashboard', label: 'Dashboard', kind: 'live-dashboard' },
-  { slug: 'rkas', label: 'RKAS / Anggaran', kind: 'live-rkas' },
-  { slug: 'buku-kas', label: 'Buku Kas', kind: 'live-buku-kas' },
-  { slug: 'laporan', label: 'Laporan', kind: 'live-laporan' },
+  { slug: 'dashboard', label: 'Dashboard', kind: 'live-dashboard', modul: 'keu_dashboard' },
+  { slug: 'rkas', label: 'RKAS / Anggaran', kind: 'live-rkas', modul: 'keu_rkas' },
+  { slug: 'buku-kas', label: 'Buku Kas', kind: 'live-buku-kas', modul: 'keu_bukukas' },
+  { slug: 'laporan', label: 'Laporan', kind: 'live-laporan', modul: 'keu_laporan' },
 ]
 
 export const KEUANGAN_DEFAULT = 'dashboard'

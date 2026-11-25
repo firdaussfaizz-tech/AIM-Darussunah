@@ -55,16 +55,21 @@ export default function KeuanganManagement() {
   }, [roles])
 
   if (authLoading) return <FullPageSpinner />
-  const bolehLihat = permsReady ? can('keuangan', 'lihat') : (isManager || isBendahara)
-  if (!bolehLihat) {
-    return <EmptyState icon={ShieldAlert} title="Akses terbatas" description="Peran Anda tidak memiliki izin melihat Manajemen Keuangan. Hubungi Admin Yayasan bila ini keliru." />
-  }
-
-  const canSeeAllUnits = hasFullAccess || isBendahara
-  const canDecide = hasFullAccess || isBendahara
 
   const active = KEUANGAN_AREAS.find((a) => a.slug === area)
   if (!active) return <Navigate to={`/keuangan/${KEUANGAN_DEFAULT}`} replace />
+
+  // Izin per SUB-AREA keuangan (matriks per-modul). Fallback ke manajer/bendahara
+  // bila izin belum siap (DB lama tanpa migrasi RBAC).
+  const bolehLihat = permsReady ? can(active.modul, 'lihat') : (isManager || isBendahara)
+  if (!bolehLihat) {
+    return <EmptyState icon={ShieldAlert} title="Akses terbatas" description={`Peran Anda tidak memiliki izin melihat ${active.label} (Manajemen Keuangan). Hubungi Admin Yayasan bila ini keliru.`} />
+  }
+
+  const canSeeAllUnits = hasFullAccess || isBendahara
+  // Pengesahan (RKAS dll.): Yayasan/Bendahara, ATAU peran yang diberi izin 'sahkan'
+  // pada sub-modul keuangan ini lewat matriks.
+  const canDecide = hasFullAccess || isBendahara || (permsReady && can(active.modul, 'sahkan'))
 
   return (
     <div>
