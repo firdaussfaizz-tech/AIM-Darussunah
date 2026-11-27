@@ -11,10 +11,13 @@ const KOMPONEN_SUGGEST = UP_KOMPONEN_PRESET.boarding
 const TABS = ['Kebijakan Keringanan', 'Keringanan per Siswa']
 
 export default function KeringananList() {
-  const { isManager, isBendahara, hasFullAccess, employee, loading } = useAuth()
+  const { isManager, isBendahara, hasFullAccess, employee, loading, can, permsReady } = useAuth()
   const [tab, setTab] = useState('Kebijakan Keringanan')
   if (loading) return <FullPageSpinner />
-  if (!(isManager || hasFullAccess || isBendahara)) {
+  // Akses ditentukan MATRIKS (modul 'keringanan'); fallback flag bila belum siap.
+  const bolehLihat = permsReady ? can('keringanan', 'lihat') : (isManager || hasFullAccess || isBendahara)
+  const bolehKelola = permsReady ? can('keringanan', 'ubah') : isManager
+  if (!bolehLihat) {
     return <EmptyState icon={ShieldAlert} title="Akses terbatas" description="Peran Anda tidak memiliki izin melihat keringanan biaya siswa." />
   }
   return (
@@ -28,7 +31,7 @@ export default function KeringananList() {
           </button>
         ))}
       </div>
-      {tab === 'Kebijakan Keringanan' ? <KebijakanTab canManage={isManager} /> : <SiswaTab canManage={isManager} employeeId={employee?.id} />}
+      {tab === 'Kebijakan Keringanan' ? <KebijakanTab canManage={bolehKelola} /> : <SiswaTab canManage={bolehKelola} employeeId={employee?.id} />}
     </div>
   )
 }

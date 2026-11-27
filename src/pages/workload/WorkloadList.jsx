@@ -9,9 +9,10 @@ import { hitungBebanKerja, DEFAULT_BEBAN_KERJA_SETTINGS, STATUS_BADGE_COLOR_BEBA
 const jam = (n) => `${Number(n || 0).toFixed(1)} jam`
 
 export default function WorkloadList() {
-  const { isManager, employee, loading: authLoading } = useAuth()
+  const { isManager, employee, loading: authLoading, can, permsReady } = useAuth()
   const [sp] = useSearchParams()
-  const asManager = isManager && sp.get('me') !== '1'
+  // Akses kelola ditentukan MATRIKS (can('beban_kerja','lihat')); fallback isManager.
+  const asManager = (permsReady ? can('beban_kerja', 'lihat') : isManager) && sp.get('me') !== '1'
   if (authLoading) return <FullPageSpinner />
   return (
     <div>

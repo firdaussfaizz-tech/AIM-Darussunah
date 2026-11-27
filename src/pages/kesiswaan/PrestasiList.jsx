@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Plus, Pencil, Trash2, Printer, Award, Search } from 'lucide-react'
+import { Plus, Pencil, Trash2, Printer, Award, Search, ShieldAlert } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { PageHeader, SectionCard, Card, Button, Badge, Table, Tr, Td, Select, FullPageSpinner, EmptyState, StatCard } from '../../components/ui'
@@ -9,7 +9,12 @@ import { KATEGORI_OPTIONS, KATEGORI_LABEL, TINGKAT_OPTIONS, TINGKAT_LABEL, TINGK
 import PrestasiFormModal from './PrestasiFormModal'
 
 export default function PrestasiList() {
-  const { isManager, employee } = useAuth()
+  const { isManager, employee, can, permsReady } = useAuth()
+  // Akses ditentukan MATRIKS (modul 'prestasi'); fallback isManager bila belum siap.
+  const bolehLihat = permsReady ? can('prestasi', 'lihat') : isManager
+  const bolehTambah = permsReady ? can('prestasi', 'tambah') : isManager
+  const bolehUbah = permsReady ? can('prestasi', 'ubah') : isManager
+  const bolehHapus = permsReady ? can('prestasi', 'hapus') : isManager
   const [rows, setRows] = useState([])
   const [schools, setSchools] = useState([])
   const [taList, setTaList] = useState([])
@@ -62,10 +67,14 @@ export default function PrestasiList() {
     load()
   }
 
+  if (permsReady && !bolehLihat) {
+    return <EmptyState icon={ShieldAlert} title="Akses terbatas" description="Peran Anda tidak memiliki izin melihat Prestasi Siswa." />
+  }
+
   return (
     <div>
       <PageHeader title="Prestasi Siswa" description="Catat & pantau prestasi seluruh siswa. Poin otomatis dari tingkat & capaian; ikut rekap analitik/KPI lembaga."
-        actions={isManager && <Button onClick={() => setEditing('new')}><Plus className="h-4 w-4" /> Tambah Prestasi</Button>} />
+        actions={bolehTambah && <Button onClick={() => setEditing('new')}><Plus className="h-4 w-4" /> Tambah Prestasi</Button>} />
 
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Jumlah Prestasi" value={filtered.length} accent="navy" />
@@ -117,8 +126,8 @@ export default function PrestasiList() {
                   <Td>
                     <div className="flex justify-end gap-1.5">
                       <button onClick={() => window.open(`/kesiswaan/prestasi/piagam/${r.id}`, '_blank')} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Piagam"><Printer className="h-4 w-4" /></button>
-                      {isManager && <button onClick={() => setEditing(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>}
-                      {isManager && <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>}
+                      {bolehUbah && <button onClick={() => setEditing(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]" aria-label="Ubah"><Pencil className="h-4 w-4" /></button>}
+                      {bolehHapus && <button onClick={() => handleDelete(r)} className="text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]" aria-label="Hapus"><Trash2 className="h-4 w-4" /></button>}
                     </div>
                   </Td>
                 </Tr>

@@ -56,12 +56,13 @@ async function syncPerformanceIndex({ employeeId, nilaiAkhir, periodeMulai, peri
 }
 
 export default function PerformanceList() {
-  const { isManager, hasFullAccess, employee, loading: authLoading } = useAuth()
+  const { isManager, hasFullAccess, employee, loading: authLoading, can, permsReady } = useAuth()
   const [sp] = useSearchParams()
   const personal = sp.get('me') === '1' // mode "diri sendiri" (Menu Pribadi)
-  // Di mode pribadi, manajer diperlakukan sebagai pegawai biasa: hanya melihat
-  // penilaian kinerjanya sendiri (tanpa UI manajemen/verifikasi).
-  const effIsManager = isManager && !personal
+  // Akses kelola kinerja ditentukan MATRIKS (can('kinerja','lihat')); fallback
+  // ke isManager hanya bila izin belum siap. Mode pribadi selalu sebagai pegawai.
+  const bolehKelolaKinerja = permsReady ? can('kinerja', 'lihat') : isManager
+  const effIsManager = bolehKelolaKinerja && !personal
   const effHasFullAccess = hasFullAccess && !personal
   const [tab, setTab] = useState(effIsManager ? 'Pengajuan' : 'Rekap & Histori')
   const [periods, setPeriods] = useState([])

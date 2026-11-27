@@ -283,7 +283,7 @@ function modulDefaultDiizinkan(tingkat, modul, aksi) {
   if (aksi === 'sahkan') return tingkat === 'yayasan_penuh' // pengesahan: hanya Yayasan penuh
   if (tingkat === 'yayasan_penuh') return true
   if (tingkat === 'manajer_unit') return !['penggajian', 'pengguna', 'log', 'notifikasi', 'struktur'].includes(modul)
-  if (tingkat === 'bendahara') return ['spp', 'keuangan', 'keu_dashboard', 'keu_rkas', 'keu_bukukas', 'keu_laporan'].includes(modul)
+  if (tingkat === 'bendahara') return ['spp', 'keringanan', 'keuangan', 'keu_dashboard', 'keu_rkas', 'keu_bukukas', 'keu_laporan'].includes(modul)
   return false // pegawai: tak ada izin kelola (akses pribadi lewat menu sendiri)
 }
 
