@@ -1456,6 +1456,10 @@ function DkaRekap({ tahun, onOpen }) {
 }
 
 function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
+  const { can, permsReady } = useAuth()
+  // Pengesahan DKA: Yayasan (default) ATAU peran dengan izin 'sahkan' pada
+  // modul Perencanaan Sarpras (matriks). Additif — tak mencabut hak Yayasan.
+  const canSahkan = hasFullAccess || (permsReady && can('srp_perencanaan', 'sahkan'))
   const [usulan, setUsulan] = useState(null)
   const [items, setItems] = useState([])
   const [pemel, setPemel] = useState([])
@@ -1499,8 +1503,8 @@ function DkaDetail({ schoolId, tahun, hasFullAccess, managesUnit }) {
   const status = usulan?.status
   const canEditItems = !!usulan && (hasFullAccess || (managesUnit && ['draft', 'dikembalikan'].includes(status)))
   const canSubmit = !!usulan && managesUnit && ['draft', 'dikembalikan'].includes(status)
-  const canDecide = !!usulan && hasFullAccess && status === 'diajukan'
-  const canCancelApproval = !!usulan && hasFullAccess && status === 'disahkan'
+  const canDecide = !!usulan && canSahkan && status === 'diajukan'
+  const canCancelApproval = !!usulan && canSahkan && status === 'disahkan'
   // Yayasan boleh memberi catatan revisi per item saat menelaah (diajukan)
   // atau setelah dikembalikan (notanya tetap bisa disunting).
   const canReview = !!usulan && hasFullAccess && ['diajukan', 'dikembalikan'].includes(status)
@@ -4644,6 +4648,8 @@ function PenghapusanTab({ hasFullAccess, mySchools }) {
 }
 
 function PenghapusanDetail({ penghapusanId, hasFullAccess, managesUnit, schoolId, onBack }) {
+  const { can, permsReady } = useAuth()
+  const canSahkan = hasFullAccess || (permsReady && can('srp_penghapusan', 'sahkan'))
   const [u, setU] = useState(null)
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -4666,7 +4672,7 @@ function PenghapusanDetail({ penghapusanId, hasFullAccess, managesUnit, schoolId
   const status = u.status
   const canEdit = hasFullAccess || (managesUnit && ['draft', 'dikembalikan'].includes(status))
   const canSubmit = managesUnit && ['draft', 'dikembalikan'].includes(status)
-  const canDecide = hasFullAccess && status === 'diajukan'
+  const canDecide = canSahkan && status === 'diajukan'
 
   const saveHeader = async (patch) => {
     setBusy(true); setError('')

@@ -143,7 +143,10 @@ function GateCard({ onGo }) {
 
 /* ---------------- Persiapan Inventarisasi (gerbang Pendataan) ---------------- */
 function InvPersiapan({ schoolId, persiapan, tim, pegawai, ruangan, klasifikasiCount, canManage, onChanged, onMulai }) {
-  const { isAdminYayasan } = useAuth()
+  const { isAdminYayasan, can, permsReady } = useAuth()
+  // Pengesahan Persiapan: Yayasan (default) ATAU izin 'sahkan' pada modul
+  // Inventarisasi (matriks). Ditegakkan juga di trigger DB (migrasi 0121).
+  const canSahkan = isAdminYayasan || (permsReady && can('srp_inventarisasi', 'sahkan'))
   const disahkan = !!persiapan?.tim_disahkan
   const [p, setP] = useState({})
   const [savingP, setSavingP] = useState(false)
@@ -290,9 +293,9 @@ function InvPersiapan({ schoolId, persiapan, tim, pegawai, ruangan, klasifikasiC
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-[13px] text-[var(--color-ink)]">{disahkan ? 'Persiapan telah disahkan — Pendataan terbuka.' : 'Minta Yayasan mengesahkan Persiapan untuk membuka Pendataan.'}</p>
           <div className="flex gap-2">
-            {!disahkan && isAdminYayasan && <Button onClick={sahkan} disabled={busy}><ShieldCheck className="h-4 w-4" /> Sahkan Persiapan (Yayasan)</Button>}
-            {!disahkan && !isAdminYayasan && <span className="self-center text-xs text-[var(--color-ink-soft)]">Pengesahan oleh Admin Yayasan.</span>}
-            {disahkan && isAdminYayasan && <Button variant="outline" onClick={batal} disabled={busy}>Batalkan Pengesahan</Button>}
+            {!disahkan && canSahkan && <Button onClick={sahkan} disabled={busy}><ShieldCheck className="h-4 w-4" /> Sahkan Persiapan</Button>}
+            {!disahkan && !canSahkan && <span className="self-center text-xs text-[var(--color-ink-soft)]">Pengesahan oleh Yayasan atau peran berizin.</span>}
+            {disahkan && canSahkan && <Button variant="outline" onClick={batal} disabled={busy}>Batalkan Pengesahan</Button>}
             {disahkan && <Button onClick={onMulai}>Mulai Pendataan →</Button>}
           </div>
         </div>
@@ -471,7 +474,8 @@ function InvPendataan({ aset, ruangan, klasifikasi, schools, schoolId, canManage
 
 /* ---------------- Identifikasi & Verifikasi (berinstrumen, 2 tingkat) ---------------- */
 function InvIdentifikasi({ aset, instrumen, canManage, onChanged }) {
-  const { isAdminYayasan } = useAuth()
+  const { isAdminYayasan, can, permsReady } = useAuth()
+  const canSahkan = isAdminYayasan || (permsReady && can('srp_inventarisasi', 'sahkan'))
   const [filter, setFilter] = useState('aktif')
   const [modal, setModal] = useState(null) // { aset, mode: 'isi'|'reviu' }
   const rows = useMemo(() => {
@@ -517,8 +521,8 @@ function InvIdentifikasi({ aset, instrumen, canManage, onChanged }) {
                       {a.verif_jawaban && <button onClick={() => setModal({ aset: a, mode: 'reviu' })} className="text-xs text-[var(--color-ink-soft)] hover:text-[var(--color-navy)]">Lihat</button>}
                       {canManage && (st === 'belum' || st === 'ditolak') && <button onClick={() => setModal({ aset: a, mode: 'isi' })} className="rounded-md bg-[var(--color-navy)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90">Isi Instrumen & Ajukan</button>}
                       {canManage && st === 'diajukan' && <button onClick={() => ubahStatus(a, 'diverifikasi')} className="rounded-md bg-[var(--color-navy)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90">Verifikasi (Sekolah)</button>}
-                      {isAdminYayasan && st === 'diverifikasi' && <><button onClick={() => ubahStatus(a, 'disahkan')} className="rounded-md bg-[var(--color-success,#17814c)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90">Sahkan</button><button onClick={() => { const c = prompt('Alasan penolakan (opsional):') || null; ubahStatus(a, 'ditolak', { verif_catatan: c }) }} className="rounded-md border border-[var(--color-danger)] px-2 py-1 text-[11px] font-medium text-[var(--color-danger)]">Tolak</button></>}
-                      {isAdminYayasan && st === 'disahkan' && <button onClick={() => ubahStatus(a, 'belum')} className="text-xs text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]">Batalkan</button>}
+                      {canSahkan && st === 'diverifikasi' && <><button onClick={() => ubahStatus(a, 'disahkan')} className="rounded-md bg-[var(--color-success,#17814c)] px-2 py-1 text-[11px] font-medium text-white hover:opacity-90">Sahkan</button><button onClick={() => { const c = prompt('Alasan penolakan (opsional):') || null; ubahStatus(a, 'ditolak', { verif_catatan: c }) }} className="rounded-md border border-[var(--color-danger)] px-2 py-1 text-[11px] font-medium text-[var(--color-danger)]">Tolak</button></>}
+                      {canSahkan && st === 'disahkan' && <button onClick={() => ubahStatus(a, 'belum')} className="text-xs text-[var(--color-ink-soft)] hover:text-[var(--color-danger)]">Batalkan</button>}
                     </div>
                   </Td>
                 </Tr>
@@ -534,7 +538,8 @@ function InvIdentifikasi({ aset, instrumen, canManage, onChanged }) {
 
 /* ---------------- Scan Aset (QR/Barcode: kamera + scanner fisik) ---------------- */
 function InvScan({ aset, instrumen, canManage, onChanged }) {
-  const { isAdminYayasan } = useAuth()
+  const { isAdminYayasan, can, permsReady } = useAuth()
+  const canSahkan = isAdminYayasan || (permsReady && can('srp_inventarisasi', 'sahkan'))
   const [code, setCode] = useState('')
   const [found, setFound] = useState(null) // asset row | 'notfound' | null
   const [modal, setModal] = useState(null)
@@ -625,7 +630,7 @@ function InvScan({ aset, instrumen, canManage, onChanged }) {
               {a.verif_jawaban && <Button size="sm" variant="ghost" onClick={() => setModal({ aset: a, mode: 'reviu' })}>Lihat Instrumen</Button>}
               {canManage && (st === 'belum' || st === 'ditolak') && <Button size="sm" onClick={() => setModal({ aset: a, mode: 'isi' })}>Isi Instrumen & Ajukan</Button>}
               {canManage && st === 'diajukan' && <Button size="sm" onClick={() => ubahStatus(a, 'diverifikasi')}>Verifikasi (Sekolah)</Button>}
-              {isAdminYayasan && st === 'diverifikasi' && <><Button size="sm" onClick={() => ubahStatus(a, 'disahkan')}>Sahkan</Button><Button size="sm" variant="outline" onClick={() => { const c = prompt('Alasan penolakan (opsional):') || null; ubahStatus(a, 'ditolak', { verif_catatan: c }) }}>Tolak</Button></>}
+              {canSahkan && st === 'diverifikasi' && <><Button size="sm" onClick={() => ubahStatus(a, 'disahkan')}>Sahkan</Button><Button size="sm" variant="outline" onClick={() => { const c = prompt('Alasan penolakan (opsional):') || null; ubahStatus(a, 'ditolak', { verif_catatan: c }) }}>Tolak</Button></>}
               {st === 'disahkan' && <span className="self-center text-xs text-[var(--color-ink-soft)]">Aset sudah disahkan Yayasan.</span>}
             </div>
           </div>
